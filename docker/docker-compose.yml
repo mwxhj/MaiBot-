@@ -100,8 +100,8 @@ services:
       - "${NAPCAT_WEBUI_PORT:-6099}:6099"
     volumes:
       - napcat_data:/app/data
-      - ./app/.config/QQ:/app/qq
-      - ./app/napcat/config:/app/napcat/config
+      - /app/qq:/app/.config/QQ
+      - /app/napcat/config:/app/napcat/config
     networks:
       - maibot-network
 
