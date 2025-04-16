@@ -1,0 +1,59 @@
+{
+    "server": {
+        "host": "127.0.0.1",
+        "port": 8080,
+        "access_token": "",
+        "http_timeout": 30,
+        "websocket_timeout": 60
+    },
+    "logging": {
+        "level": "INFO",
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        "file": "logs/linjing.log",
+        "max_size": 10485760,
+        "backup_count": 5
+    },
+    "llm": {
+        "provider": "openai",
+        "default_model": "deepseek-v3-0324",
+        "default_temperature": 0.7,
+        "default_max_tokens": 2000,
+        "rate_limit": 60,
+        "rate_window": 60,
+        "openai": {
+            "api_key": "sk-gtMNlqQojpoW81rduE7AVbYTar4Vthq9ONu4SJd5lG5G08HE",
+            "base_url": "https://duck2api.com/v1",
+            "organization": "",
+            "proxy": "",
+            "embedding_model": "text-embedding-ada-002"
+        },
+        "azure": {
+            "api_key": "",
+            "api_version": "2023-05-15",
+            "endpoint": "",
+            "embedding_deployment": "",
+            "model_map": {
+                "gpt-3.5-turbo": "gpt-35-turbo",
+                "gpt-4": "gpt-4"
+            }
+        },
+        "custom": {
+            "adapter_module": ""
+        }
+    },
+    "memory": {
+        "db_uri": "mongodb://localhost:27017/",
+        "db_name": "linjing",
+        "vector_dimensions": 1536,
+        "max_context_length": 20
+    },
+    "emotion": {
+        "base_decay_rate": 0.1,
+        "update_interval": 3600,
+        "default_mood": "neutral"
+    },
+    "plugins": {
+        "enabled": ["weather", "calculator"],
+        "plugin_dir": "plugins/builtin"
+    }
+} 
