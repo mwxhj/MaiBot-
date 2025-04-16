@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 @dataclass
 class WebSocketConfig:
     """WebSocket服务器配置"""
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.1"
     port: int = 8080
     endpoint: str = "/ws"
     access_token: Optional[str] = None
@@ -21,7 +21,7 @@ class WebSocketConfig:
 @dataclass
 class HTTPConfig:
     """HTTP服务器配置"""
-    host: str = "127.0.0.1"
+    host: str = "0.0.0.1"
     port: int = 8081
     endpoint: str = "/api"
     access_token: Optional[str] = None
@@ -34,7 +34,7 @@ class HTTPConfig:
 class NapcatConfig:
     """napcat特定配置"""
     enabled: bool = True
-    api_base: str = "http://127.0.0.1:3000"  # napcat API基础URL
+    api_base: str = "http://127.0.0.1:3100"  # napcat API基础URL
     auth_token: Optional[str] = None
     device_id: Optional[str] = None
     protocol_version: str = "11"  # napcat支持的协议版本
