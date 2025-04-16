@@ -96,9 +96,12 @@ services:
       - "3001:3001"                          # 额外端口
       - "${NAPCAT_WEBUI_PORT:-6099}:6099"   # WebUI配置端口
     environment:
-      - VNC_PASSWD=${VNC_PASSWD:-vncpasswd}  # VNC密码，建议在.env中设置安全密码
+      - VNC_PASSWD=${VNC_PASSWD:-vncpasswd}
+      - DISPLAY=:1
+      - NVIDIA_VISIBLE_DEVICES=all
     volumes:
-      - napcat_data:/root                    # 数据持久化
+      - napcat_data:/root
+      - /tmp/.X11-unix:/tmp/.X11-unix
     networks:
       - maibot-network
 
