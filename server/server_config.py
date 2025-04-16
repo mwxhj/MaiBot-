@@ -8,9 +8,9 @@ from dataclasses import dataclass, field
 @dataclass
 class WebSocketConfig:
     """WebSocket服务器配置"""
-    host: str = "0.0.0.1"
+    host: str = "0.0.0.0"
     port: int = 8080
-    endpoint: str = "/ws"
+    endpoint: str = "/onebot/v11/ws"
     access_token: Optional[str] = None
     heartbeat_interval: int = 30  # 心跳间隔（秒）
     enable_tls: bool = False
@@ -21,7 +21,7 @@ class WebSocketConfig:
 @dataclass
 class HTTPConfig:
     """HTTP服务器配置"""
-    host: str = "0.0.0.1"
+    host: str = "0.0.0.0"
     port: int = 8081
     endpoint: str = "/api"
     access_token: Optional[str] = None
