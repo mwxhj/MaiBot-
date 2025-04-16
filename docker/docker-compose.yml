@@ -49,7 +49,7 @@ services:
     depends_on:
       - mongodb
       - redis
-      - napcatf  # 修改为依赖napcatf
+      - napcat
     ports:
       - "${MAIBOT_HTTP_PORT:-8081}:${MAIBOT_HTTP_PORT:-8081}"
       - "${MAIBOT_WS_PORT:-8080}:${MAIBOT_WS_PORT:-8080}"
@@ -63,8 +63,8 @@ services:
       HTTP_PORT: ${MAIBOT_HTTP_PORT:-8081}
       WS_PORT: ${MAIBOT_WS_PORT:-8080}
       
-      # NapCat配置 - 修改为连接napcatf
-      NAPCAT_API_BASE: ${NAPCAT_API_BASE:-http://napcatf:3000}
+      # NapCat配置
+      NAPCAT_API_BASE: ${NAPCAT_API_BASE:-http://napcat:3000}
       NAPCAT_AUTH_TOKEN: ${NAPCAT_AUTH_TOKEN:-your_secure_token}
       
       # OneBot配置
@@ -84,31 +84,29 @@ services:
     networks:
       - maibot-network
       
-  # 使用NapCat Framework Docker替代原napcat
-  napcatf:
-    image: mlikiowa/napcat-framework-docker:latest
-    container_name: napcatf
+  # NapCat服务 - 使用mlikiowa/napcat-docker镜像
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    container_name: napcat
     restart: always
-    ports:
-      - "${NAPCAT_VNC_PORT:-5900}:5900"     # VNC端口
-      - "${NAPCAT_NOVNC_PORT:-6081}:6081"   # NoVNC网页端口
-      - "${NAPCAT_PORT:-3000}:3000"         # NapCat API端口
-      - "3001:3001"                          # 额外端口
-      - "${NAPCAT_WEBUI_PORT:-6099}:6099"   # WebUI配置端口
     environment:
-      - VNC_PASSWD=${VNC_PASSWD:-vncpasswd}
-      - DISPLAY=:1
-      - NVIDIA_VISIBLE_DEVICES=all
+      - NAPCAT_UID=${NAPCAT_UID:-1000}
+      - NAPCAT_GID=${NAPCAT_GID:-1000}
+      - NAPCAT_AUTH_TOKEN=${NAPCAT_AUTH_TOKEN:-your_secure_token}
+      - ONEBOT_ACCESS_TOKEN=${ONEBOT_ACCESS_TOKEN:-your_secure_token}
+    ports:
+      - "${NAPCAT_PORT:-3000}:3000"
+      - "3001:3001"
+      - "${NAPCAT_WEBUI_PORT:-6099}:6099"
     volumes:
-      - napcat_data:/root
-      - /tmp/.X11-unix:/tmp/.X11-unix
+      - napcat_data:/app/data
     networks:
       - maibot-network
 
 volumes:
   mongodb_data:
   redis_data:
-  napcat_data:    # 新增napcat数据卷
+  napcat_data:
 
 networks:
   maibot-network:
