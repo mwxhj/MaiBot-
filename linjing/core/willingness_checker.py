@@ -109,8 +109,8 @@ class WillingnessChecker:
         self.logger.info("初始化回应意愿检查器...")
         
         # 导入配置
-        from ..config import get_config
-        self.config = await get_config()
+        from ..config import async_get_config
+        self.config = await async_get_config()
         
         if not self.config:
             raise MessageProcessError("无法获取配置信息")
@@ -209,7 +209,16 @@ class WillingnessChecker:
             self.logger.debug(f"消息内容类型为 {content_type}，意愿调整为 {willingness_score}")
         
         # 根据关键词检查
-        keyword_bonus = await self._check_keywords(message_content)
+        # 将MessageContent对象转换为字符串
+        content_text = ""
+        if hasattr(message_content, 'raw_content') and message_content.raw_content:
+            content_text = message_content.raw_content
+        elif hasattr(message_content, 'get_plain_text'):
+            content_text = message_content.get_plain_text()
+        else:
+            content_text = str(message_content)
+            
+        keyword_bonus = await self._check_keywords(content_text)
         willingness_score += keyword_bonus
         
         # 根据情绪状态调整意愿

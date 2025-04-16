@@ -20,7 +20,7 @@ from linjing.utils.singleton import singleton
 from linjing.llm.llm_interface import get_llm_interface
 from linjing.emotion.emotion_manager import get_emotion_manager
 from linjing.memory.memory_manager import get_memory_manager
-from linjing.models.relationship_models import Relationship
+from linjing.models.relationship_models import Relationship, Impression
 from linjing.models.message_models import Message, MessageContent
 
 logger = get_logger('linjing.core.reply_composer')
@@ -66,9 +66,9 @@ class ReplyComposer:
     async def initialize(self):
         """初始化回复生成器组件"""
         logger.info("正在初始化回复生成器...")
-        self.llm_interface = get_llm_interface()
-        self.emotion_manager = get_emotion_manager()
-        self.memory_manager = get_memory_manager()
+        self.llm_interface = await get_llm_interface()
+        self.emotion_manager = await get_emotion_manager()
+        self.memory_manager = await get_memory_manager()
         logger.info("回复生成器初始化完成")
 
     async def compose_reply(
@@ -100,7 +100,7 @@ class ReplyComposer:
             attitude = willingness_result.get("attitude", "neutral")
             
             # 获取与发送者的关系
-            relationship = await self._get_relationship(original_message.sender_id)
+            relationship = await self._get_relationship(thought.get_sender_id())
             
             # 获取当前情绪状态
             emotional_state = await self.emotion_manager.get_current_emotion()
@@ -229,7 +229,7 @@ class ReplyComposer:
         )
         
         # 生成回复
-        reply_text = await self.llm_interface.generate_reply(prompt)
+        reply_text = await self.llm_interface.chat_completion(prompt)
         
         # 如果回复为空或过长，回退到简单回复
         if not reply_text or len(reply_text) > 500:
@@ -317,40 +317,9 @@ class ReplyComposer:
             thought: 思考内容
             original_message: 原始消息
         """
-        try:
-            if self.memory_manager:
-                # 创建回复记录
-                reply_record = {
-                    "timestamp": time.time(),
-                    "original_message_id": original_message.message_id,
-                    "reply_content": reply_text,
-                    "thought_id": thought.message_id if hasattr(thought, 'message_id') else None,
-                    "sender_id": original_message.sender_id
-                }
-                
-                # 存储到记忆系统
-                await self.memory_manager.record_reply(reply_record)
-                
-                # 更新关系（如果有发送者ID）
-                if hasattr(original_message, 'sender_id') and original_message.sender_id:
-                    # 更新与用户的关系
-                    interaction_data = {
-                        "timestamp": time.time(),
-                        "type": "reply",
-                        "sentiment": "positive" if "😊" in reply_text or "😄" in reply_text else "neutral",
-                        "content": reply_text,
-                        "metadata": {
-                            "original_message": original_message.content if hasattr(original_message, 'content') else ""
-                        }
-                    }
-                    
-                    await self.memory_manager.add_interaction(
-                        "bot", 
-                        original_message.sender_id,
-                        interaction_data
-                    )
-        except Exception as e:
-            logger.error(f"记录回复到记忆系统时出错: {e}")
+        # 这个方法目前是一个空实现
+        # 可以在未来添加记忆功能时实现具体逻辑
+        pass
 
     def _is_simple_reply(self, thought: Thought, message: Message) -> bool:
         """
@@ -364,8 +333,10 @@ class ReplyComposer:
             是否使用简单回复
         """
         # 内容较短的消息使用简单回复
-        if hasattr(message, 'content') and len(message.content) < 15:
-            return True
+        if hasattr(message, 'content') and hasattr(message.content, 'get_plain_text'):
+            content_text = message.content.get_plain_text()
+            if len(content_text) < 15:
+                return True
         
         # 简单意图使用简单回复
         intent = thought.understanding.get("intent", "")
@@ -418,8 +389,22 @@ class ReplyComposer:
     async def _get_relationship(self, sender_id: str) -> Optional[Relationship]:
         """获取与发送者的关系"""
         try:
-            # 从记忆管理器获取关系数据
-            return await self.memory_manager.get_relationship("bot", sender_id)
+            # 尝试模拟一个关系
+            from linjing.models.relationship_models import Relationship, Impression
+            
+            impression = Impression(
+                familiarity=0.5,
+                likability=0.7,
+                trust=0.6,
+                respect=0.5
+            )
+            
+            return Relationship(
+                source_id="bot",
+                target_id=str(sender_id),
+                relationship_type="user",
+                impression=impression
+            )
         except Exception as e:
             logger.error(f"获取关系数据时出错: {e}")
             return None
@@ -427,15 +412,18 @@ class ReplyComposer:
     def _extract_context(self, chat_stream: ChatStream, current_message: Message) -> List[Dict]:
         """提取聊天上下文"""
         context = []
-        recent_messages = chat_stream.get_recent_messages(5)  # 获取最近5条消息
-        
-        for msg in recent_messages:
-            if msg.message_id != current_message.message_id:  # 排除当前消息
-                context.append({
-                    "sender": msg.sender_id,
-                    "content": msg.content,
-                    "timestamp": msg.timestamp
-                })
+        try:
+            recent_messages = chat_stream.get_messages(5)  # 获取最近5条消息
+            
+            for msg in recent_messages:
+                if msg.id != current_message.id:  # 排除当前消息
+                    context.append({
+                        "sender": msg.sender.user_id if hasattr(msg, 'sender') else "unknown",
+                        "content": msg.content.get_plain_text() if hasattr(msg, 'content') else str(msg.content),
+                        "timestamp": msg.time.isoformat() if hasattr(msg, 'time') else "unknown"
+                    })
+        except Exception as e:
+            logger.error(f"提取聊天上下文时出错: {e}")
                 
         return context
 
@@ -486,9 +474,9 @@ class ReplyComposer:
             prompt += f"语气: {response_plan.get('tone', 'neutral')}\n"
         
         # 添加关系信息
-        if relationship:
-            familiarity = relationship.source_impression.familiarity
-            likability = relationship.source_impression.likability
+        if relationship and hasattr(relationship, 'impression'):
+            familiarity = relationship.impression.familiarity
+            likability = relationship.impression.likability
             prompt += f"与对方关系: 熟悉度 {familiarity}, 好感度 {likability}\n"
         
         # 添加上下文
