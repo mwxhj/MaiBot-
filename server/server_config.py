@@ -34,7 +34,7 @@ class HTTPConfig:
 class NapcatConfig:
     """napcat特定配置"""
     enabled: bool = True
-    api_base: str = "http://napcat:3100"  # napcat API基础URL
+    api_base: str = "http://napcat:3000"  # napcat API基础URL
     auth_token: Optional[str] = None
     device_id: Optional[str] = None
     protocol_version: str = "11"  # napcat支持的协议版本
