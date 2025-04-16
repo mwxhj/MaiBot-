@@ -49,6 +49,7 @@ services:
     depends_on:
       - mongodb
       - redis
+      - napcatf  # 修改为依赖napcatf
     ports:
       - "${MAIBOT_HTTP_PORT:-8081}:${MAIBOT_HTTP_PORT:-8081}"
       - "${MAIBOT_WS_PORT:-8080}:${MAIBOT_WS_PORT:-8080}"
@@ -62,11 +63,11 @@ services:
       HTTP_PORT: ${MAIBOT_HTTP_PORT:-8081}
       WS_PORT: ${MAIBOT_WS_PORT:-8080}
       
-      # NapCat配置
-      NAPCAT_API_BASE: ${NAPCAT_API_BASE:-http://napcat:3000}
+      # NapCat配置 - 修改为连接napcatf
+      NAPCAT_API_BASE: ${NAPCAT_API_BASE:-http://napcatf:3000}
       NAPCAT_AUTH_TOKEN: ${NAPCAT_AUTH_TOKEN:-your_secure_token}
       
-      # 关键新增：OneBot访问令牌配置
+      # OneBot配置
       ONEBOT_ACCESS_TOKEN: ${ONEBOT_ACCESS_TOKEN:-your_secure_token}
       
       # LLM配置
@@ -83,30 +84,28 @@ services:
     networks:
       - maibot-network
       
-  # NapCat服务
-  napcat:
-    image: napcat/napcat:latest
-    container_name: napcat-app
+  # 使用NapCat Framework Docker替代原napcat
+  napcatf:
+    image: mlikiowa/napcat-framework-docker:latest
+    container_name: napcatf
     restart: always
-    depends_on:
-      - maibot
     ports:
-      - "${NAPCAT_PORT:-3000}:3000"
+      - "${NAPCAT_VNC_PORT:-5900}:5900"     # VNC端口
+      - "${NAPCAT_NOVNC_PORT:-6081}:6081"   # NoVNC网页端口
+      - "${NAPCAT_PORT:-3000}:3000"         # NapCat API端口
+      - "3001:3001"                          # 额外端口
+      - "${NAPCAT_WEBUI_PORT:-6099}:6099"   # WebUI配置端口
     environment:
-      NAPCAT_CONFIG: ${NAPCAT_CONFIG:-/data/config.yml}
-      # WebSocket连接配置
-      NAPCAT_CONNECTION_URL: ws://maibot:${MAIBOT_WS_PORT:-8080}/onebot/v11/ws
-      NAPCAT_CONNECTION_TOKEN: ${ONEBOT_ACCESS_TOKEN:-your_secure_token}
+      - VNC_PASSWD=${VNC_PASSWD:-vncpasswd}  # VNC密码，建议在.env中设置安全密码
     volumes:
-      - ./napcat/config.yml:/data/config.yml
-      - napcat_data:/data
+      - napcat_data:/root                    # 数据持久化
     networks:
       - maibot-network
 
 volumes:
   mongodb_data:
   redis_data:
-  napcat_data:
+  napcat_data:    # 新增napcat数据卷
 
 networks:
   maibot-network:
