@@ -50,8 +50,8 @@ services:
       - mongodb
       - redis
     ports:
-      - "${MAIBOT_HTTP_PORT:-8081}:8081"
-      - "${MAIBOT_WS_PORT:-8080}:8080"
+      - "${MAIBOT_HTTP_PORT:-8081}:${MAIBOT_HTTP_PORT:-8081}"
+      - "${MAIBOT_WS_PORT:-8080}:${MAIBOT_WS_PORT:-8080}"
     environment:
       # 数据库配置
       MONGODB_URI: mongodb://${MONGO_USER:-maibot}:${MONGO_PASSWORD:-maibotsecret}@mongodb:27017/
@@ -59,12 +59,15 @@ services:
       
       # 服务器配置
       SERVER_HOST: 0.0.0.0
-      HTTP_PORT: 8081
-      WS_PORT: 8080
+      HTTP_PORT: ${MAIBOT_HTTP_PORT:-8081}
+      WS_PORT: ${MAIBOT_WS_PORT:-8080}
       
-      # napcat配置
+      # NapCat配置
       NAPCAT_API_BASE: ${NAPCAT_API_BASE:-http://napcat:3000}
-      NAPCAT_AUTH_TOKEN: ${NAPCAT_AUTH_TOKEN:-}
+      NAPCAT_AUTH_TOKEN: ${NAPCAT_AUTH_TOKEN:-your_secure_token}
+      
+      # 关键新增：OneBot访问令牌配置
+      ONEBOT_ACCESS_TOKEN: ${ONEBOT_ACCESS_TOKEN:-your_secure_token}
       
       # LLM配置
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -80,18 +83,22 @@ services:
     networks:
       - maibot-network
       
-  # napcat服务
+  # NapCat服务
   napcat:
-    image: napcat/napcat:latest  # 假设napcat有官方Docker镜像
-    container_name: napcat
+    image: napcat/napcat:latest
+    container_name: napcat-app
     restart: always
+    depends_on:
+      - maibot
     ports:
       - "${NAPCAT_PORT:-3000}:3000"
     environment:
-      # 这里添加napcat所需的环境变量
-      # 具体值需要参考napcat文档
       NAPCAT_CONFIG: ${NAPCAT_CONFIG:-/data/config.yml}
+      # WebSocket连接配置
+      NAPCAT_CONNECTION_URL: ws://maibot:${MAIBOT_WS_PORT:-8080}/onebot/v11/ws
+      NAPCAT_CONNECTION_TOKEN: ${ONEBOT_ACCESS_TOKEN:-your_secure_token}
     volumes:
+      - ./napcat/config.yml:/data/config.yml
       - napcat_data:/data
     networks:
       - maibot-network
