@@ -1,0 +1,28 @@
+# 核心依赖
+aiohttp>=3.8.4
+pydantic>=2.0.0
+loguru>=0.7.0
+python-dotenv>=1.0.0
+
+# 数据库依赖
+SQLAlchemy>=2.0.0
+alembic>=1.10.0
+aiosqlite>=0.19.0
+
+# 向量数据库
+faiss-cpu>=1.7.4
+
+# LLM API
+openai>=1.0.0
+httpx>=0.24.0
+
+# 工具依赖
+tiktoken>=0.4.0  # OpenAI token计数器
+numpy>=1.24.0
+pillow>=9.4.0  # 图像处理
+python-dateutil>=2.8.2
+
+# 测试依赖
+pytest>=7.3.1
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0 
