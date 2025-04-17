@@ -18,7 +18,7 @@ services:
     volumes:
       - ./config/napcat:/app/config
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/status"]
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/status"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -39,6 +39,8 @@ services:
     environment:
       - ONEBOT_HOST=napcat
       - ONEBOT_PORT=6099
+      - ONEBOT_PROTOCOL=v11
+      - ONEBOT_ACCESS_TOKEN=${ONEBOT_ACCESS_TOKEN}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs

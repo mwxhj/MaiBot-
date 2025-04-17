@@ -8,6 +8,7 @@
 
 import time
 import copy
+from collections import defaultdict, deque
 from typing import Any, Dict, List, Optional, Union, Set
 
 from linjing.adapters import Message
@@ -49,6 +50,10 @@ class MessageContext:
         
         # 历史消息记录
         self.history: List[Message] = []
+        # 群组历史记录 {group_id: deque}
+        self.group_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=30))
+        # 用户群组历史记录 {(group_id, user_id): deque}
+        self.group_user_history: Dict[tuple, deque] = defaultdict(lambda: deque(maxlen=10))
         
         # 关联的记忆
         self.memories: List[Any] = []
@@ -292,4 +297,43 @@ class MessageContext:
     
     def __str__(self) -> str:
         """字符串表示"""
-        return f"MessageContext(user={self.user_id}, session={self.session_id}, platform={self.platform})" 
+        return f"MessageContext(user={self.user_id}, session={self.session_id}, platform={self.platform})"
+
+    def add_message(self, message: Message, group_id: Optional[str] = None) -> 'MessageContext':
+        """
+        添加消息到历史记录
+        
+        Args:
+            message: 要添加的消息
+            group_id: 群组ID(可选)
+            
+        Returns:
+            当前上下文对象
+        """
+        self.history.append(message)
+        
+        if group_id:
+            self.group_history[group_id].append(message)
+            self.group_user_history[(group_id, self.user_id)].append(message)
+            
+        return self
+
+    def build_context(self, max_history: int = 5, group_id: Optional[str] = None) -> List[Message]:
+        """
+        构建上下文消息列表
+        
+        Args:
+            max_history: 最大历史消息数
+            group_id: 群组ID(可选)
+            
+        Returns:
+            上下文消息列表
+        """
+        if group_id:
+            # 获取群组上下文(最近的群组消息+用户在该群组的消息)
+            group_msgs = list(self.group_history.get(group_id, deque()))[-max_history//2:]
+            user_msgs = list(self.group_user_history.get((group_id, self.user_id), deque()))[-max_history//2:]
+            return group_msgs + user_msgs
+        else:
+            # 获取个人上下文
+            return self.history[-max_history:]

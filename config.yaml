@@ -33,6 +33,9 @@ bot:
       include_personality: true  # 是否在消息上下文中包含人格信息
       include_history: true      # 是否在消息上下文中包含历史对话
       include_emotion: true      # 是否在消息上下文中包含情绪信息
+      depth: 20                  # 对话上下文深度（轮次）
+      auto_association: true     # 启用自动记忆关联
+      max_cache_items: 1000      # 向量缓存最大条目
     
     default_system_prompt: "你是林静AI助手，一个友好、聪明且乐于助人的人工智能助手。你现在在QQ群聊中，请尽可能简洁地回答问题，避免过长回复。"
     max_response_length: 500  # 回复最大长度，避免在群里发送过长消息
@@ -256,6 +259,9 @@ emotion:
 
 # 处理器配置
 processors:
+  read_air:
+    group_max_history: 30  # 群组整体历史
+    group_user_max_history: 10 # 群组内用户独立历史
   # 处理器配置
   read_air:
     enabled: true
@@ -338,26 +344,3 @@ plugins:
   enabled: false
   auto_load: false
   plugins_dir: "plugins"
-  
-  # 插件特定配置 - 如果未来实现，可以取消注释
-  # configs:
-  #   # 网络搜索插件
-  #   web_search:
-  #     enabled: true
-  #     search_engine: "duckduckgo"  # google, bing, duckduckgo
-  #     results_count: 3
-  #     
-  #   # 图像生成插件
-  #   image_generation:
-  #     enabled: true
-  #     provider: "dalle"  # dalle, stable_diffusion
-  #     max_images_per_request: 4
-  #     default_size: "1024x1024"
-  #     
-  #   # 文档处理插件
-  #   document_processor:
-  #     enabled: true
-  #     supported_formats: ["pdf", "docx", "txt", "md"]
-  #     max_file_size_mb: 10
-  #     chunk_size: 1000
-  #     chunk_overlap: 200 
