@@ -36,7 +36,8 @@ RUN pip install --no-cache-dir \
     pydantic \
     aiohttp \
     fastapi \
-    uvicorn
+    uvicorn \
+    websockets
 
 # 复制应用代码
 COPY . /app/
