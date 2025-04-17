@@ -8,12 +8,12 @@
 from linjing.memory.memory_manager import MemoryManager, Memory
 from linjing.memory.vector_store import VectorStore
 from linjing.memory.memory_retriever import MemoryRetriever
-from linjing.memory.knowledge_graph import KnowledgeGraph
+from linjing.constants import MemoryType
 
 __all__ = [
     'MemoryManager',
     'Memory',
     'VectorStore',
     'MemoryRetriever',
-    'KnowledgeGraph',
+    'MemoryType',
 ] 

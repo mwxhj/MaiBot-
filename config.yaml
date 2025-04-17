@@ -1,0 +1,363 @@
+# MaiBot 配置文件
+# 所有敏感信息（如API密钥）应在生产环境中使用环境变量或安全存储
+
+# 系统基本设置
+system:
+  name: "林静"
+  version: "0.1.0"
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  timezone: "Asia/Shanghai"
+  language: "zh-CN"
+  data_dir: "data"
+  plugins_dir: "plugins"
+  templates_dir: "templates"
+  assets_dir: "assets"
+
+# 机器人核心设置
+bot:
+  # 基本配置
+  name: "林静"
+  version: "0.1.0"
+  description: "基于多LLM的智能对话机器人"
+  log_level: "INFO"
+  
+  # 事件总线配置
+  event_bus:
+    max_concurrent_events: 10  # 最大并发事件数
+    error_handling: "log_and_continue"  # log_and_continue, strict
+  
+  # 会话设置
+  session:
+    timeout: 1800  # 会话超时时间（秒），默认30分钟
+    message_context:
+      include_personality: true  # 是否在消息上下文中包含人格信息
+      include_history: true      # 是否在消息上下文中包含历史对话
+      include_emotion: true      # 是否在消息上下文中包含情绪信息
+    
+    default_system_prompt: "你是林静AI助手，一个友好、聪明且乐于助人的人工智能助手。你现在在QQ群聊中，请尽可能简洁地回答问题，避免过长回复。"
+    max_response_length: 500  # 回复最大长度，避免在群里发送过长消息
+  
+  # 处理器执行顺序设置 - 确保与ProcessorName中定义的处理器匹配
+  processor_pipeline: [
+    "read_air",
+    "thought_generator",
+    "response_composer"
+  ]
+
+# LLM模型配置
+llm:
+  # 默认使用的提供商ID
+  default_provider: "openai"
+  
+  # 令牌计数器设置
+  token_counter:
+    default_model: "gpt-3.5-turbo"
+  
+  # 提供商配置列表 - 每个提供商必须有id和type字段
+  providers:
+    # OpenAI提供商
+    - id: "openai"
+      type: "openai"
+      name: "OpenAI官方API"
+      enabled: true
+      api_key: ""  # 留空，从环境变量获取
+      api_base: "https://api.openai.com/v1"
+      organization: ""  # 可选，组织ID
+      model: "gpt-3.5-turbo"  # 改为model而非chat_model
+      embedding_model: "text-embedding-3-small"
+      max_tokens: 1000
+      temperature: 0.7
+      timeout: 30
+      max_retries: 3
+      retry_delay: 1
+      
+    # Azure OpenAI提供商
+    - id: "azure"
+      type: "azure"
+      name: "Azure OpenAI"
+      enabled: true
+      api_key: ""  # 留空，从环境变量获取
+      resource_name: "test-resource"  # 测试用资源名
+      # 以下两种方式二选一：
+      # 1. 使用 resource_name 自动构建 API 基础 URL（推荐）
+      # 2. 直接提供完整的 API 基础 URL
+      # api_base: "https://your-resource-name.openai.azure.com/openai/deployments"
+      api_version: "2023-05-15"
+      deployment_name: "test-deployment"  # 测试用部署名
+      embedding_deployment: "test-embedding"  # 测试用嵌入模型部署名
+      timeout: 60
+      max_retries: 3
+      retry_delay: 1
+    
+    # 模型路由提供商示例 - 管理同一个OpenAI API密钥下的不同模型
+    - id: "openai_models"
+      type: "model_router"
+      name: "OpenAI多模型路由器"
+      enabled: true
+      provider_type: "openai"  # 使用openai提供商类型
+      default_model_id: "gpt35"  # 默认使用的模型ID
+      
+      # 共享配置（应用于所有模型）
+      shared_config:
+        api_key: ""  # 留空，从环境变量获取
+        api_base: "https://api.openai.com/v1"
+        organization: ""  # 可选，组织ID
+        timeout: 30
+        max_retries: 3
+        retry_delay: 1
+      
+      # 任务路由配置
+      task_routing:
+        chat: "gpt35"  # 默认聊天使用gpt-3.5
+        read_air: "gpt4"  # 读空气任务使用GPT-4
+        creative: "gpt4"  # 创意任务使用GPT-4
+        embeddings: "text_embedding"  # 嵌入任务使用专门的嵌入模型
+      
+      # 模型路由规则
+      model_rules:
+        - condition:
+            min_tokens: 2000  # 当请求的tokens大于2000时
+          model_id: "gpt4"    # 使用GPT-4
+        - condition:
+            priority: "quality"  # 当优先级是质量时
+          model_id: "gpt4"       # 使用GPT-4
+        - condition:
+            task: "summarization"  # 总结任务
+            min_tokens: 1000       # 且长度大于1000
+          model_id: "gpt4"         # 使用GPT-4
+      
+      # 模型实例配置列表
+      models:
+        # GPT-3.5 Turbo模型
+        - id: "gpt35"
+          model: "gpt-3.5-turbo"
+          temperature: 0.7
+          max_tokens: 4000
+        
+        # GPT-4 Turbo模型
+        - id: "gpt4"
+          model: "gpt-4-turbo"
+          temperature: 0.7
+          max_tokens: 8000
+        
+        # 文本嵌入模型
+        - id: "text_embedding"
+          model: "text-embedding-3-small"
+      
+    # 集群提供商示例 - 管理多个OpenAI实例
+    - id: "openai_cluster"
+      type: "cluster"
+      name: "OpenAI集群"
+      enabled: false  # 默认禁用，需要时启用
+      member_type: "openai"  # 成员提供商类型
+      strategy: "round_robin"  # 负载均衡策略: round_robin, random, least_used
+      failover: true  # 是否启用故障转移
+      retry_interval: 300  # 失败提供商重试间隔（秒）
+      # 成员提供商配置列表
+      members:
+        # 成员1 - 东亚区域
+        - name: "OpenAI-东亚"
+          api_key: ""  # 留空，从环境变量获取
+          api_base: "https://api.openai.com/v1"  # 可以使用不同区域的端点
+          model: "gpt-3.5-turbo"
+          embedding_model: "text-embedding-3-small"
+          timeout: 30
+        # 成员2 - 西欧区域
+        - name: "OpenAI-西欧"
+          api_key: ""  # 留空，从环境变量获取
+          api_base: "https://api.openai.com/v1"
+          model: "gpt-3.5-turbo" 
+          embedding_model: "text-embedding-3-small"
+          timeout: 30
+        # 成员3 - 北美区域
+        - name: "OpenAI-北美"
+          api_key: ""  # 留空，从环境变量获取
+          api_base: "https://api.openai.com/v1"
+          model: "gpt-3.5-turbo"
+          embedding_model: "text-embedding-3-small"
+          timeout: 30
+
+  # 错误处理和使用策略
+  usage_strategy:
+    # 当一个提供商达到错误阈值或超时时，自动切换到下一个可用提供商
+    auto_fallback: true
+    # 错误计数器阈值，超过此值后暂时禁用提供商
+    error_threshold: 5
+    # 错误恢复策略（多少秒后尝试重新启用）
+    recovery_time: 300  # 5分钟
+    # 根据不同任务使用不同提供商
+    task_routing:
+      chat: "openai"
+      embeddings: "openai_models"  # 使用模型路由提供商处理复杂总结任务
+      summarization: "openai_models"  # 使用模型路由提供商处理复杂总结任务
+      creative: "openai_models"       # 使用模型路由提供商处理创意内容
+      read_air: "openai_models"       # 读空气任务使用模型路由提供商
+
+# 存储设置
+storage:
+  # 数据库设置
+  database:
+    type: "sqlite"
+    path: "data/linjing.db"
+    # 连接配置
+    connection:
+      timeout: 30
+      isolation_level: null  # 自动提交
+      pragma:
+        foreign_keys: "ON"  # 启用外键约束
+    # 初始化设置
+    create_tables_on_connect: true
+    migrations_dir: "linjing/storage/migrations"
+    
+  # 向量数据库设置
+  vector_db:
+    type: "qdrant"  # 修正为实际使用的数据库类型
+    path: "data/vector_store"
+    collection_name: "memories"
+    dimension: 1536  # OpenAI嵌入向量维度
+    similarity: "Cosine"  # 首字母大写，符合Qdrant API要求
+
+# 记忆系统设置
+memory:
+  # 记忆重要性设置
+  max_conversation_history: 50
+  memory_decay_rate: 0.95
+  importance_threshold: 0.5
+  max_memories_per_retrieval: 5
+  
+  # 记忆检索设置
+  retrieval:
+    max_results: 5       # 默认最大检索结果数
+    similarity_threshold: 0.75  # 相似度阈值，低于此值的结果将被过滤
+    
+  # 嵌入管理器设置
+  embedding:
+    batch_size: 10  # 批处理大小
+    max_retries: 3  # 嵌入生成最大重试次数
+
+# 情感系统设置
+emotion:
+  # 情绪系统是否启用
+  enabled: true
+  
+  # 默认情绪维度及其初始值
+  dimensions:
+    happiness: 0.5      # 快乐-悲伤
+    excitement: 0.3     # 兴奋-平静
+    confidence: 0.6     # 自信-怯懦
+    friendliness: 0.7   # 友好-疏远
+    curiosity: 0.8      # 好奇-冷漠
+    patience: 0.6       # 耐心-急躁
+    trust: 0.5          # 信任-怀疑
+  
+  # 情绪衰减设置
+  emotion_decay_rate: 0.05   # 情绪衰减率
+  emotion_decay_interval: 3600  # 情绪衰减间隔(秒)
+
+# 处理器配置
+processors:
+  # 处理器配置
+  read_air:
+    enabled: true
+    description: "理解用户输入和环境信息的处理器"
+    confidence_threshold: 0.6
+    max_history: 10
+    analyze_intent: true
+    extract_entities: true
+  
+  thought_generator:
+    enabled: true
+    description: "生成内部思考过程的处理器"
+    max_tokens: 1000
+    temperature: 0.7
+    top_p: 0.9
+    show_reasoning: true
+  
+  response_composer:
+    enabled: true
+    description: "生成最终回复的处理器"
+    max_tokens: 1000
+    temperature: 0.7
+    max_length: 500
+    format_response: true
+    filter_sensitive: true
+
+# 适配器设置
+adapters:
+  # OneBot适配器设置 (用于QQ机器人)
+  onebot:
+    enabled: true
+    host: "127.0.0.1"
+    port: 8080
+    access_token: ""  # OneBot访问令牌
+    heartbeat_interval: 5000  # 心跳间隔，单位毫秒
+    rate_limit: 5.0   # 每秒API请求限制
+    burst_limit: 10    # 突发请求限制
+    
+    # QQ机器人功能设置 (这些设置可能需要在具体实现中添加)
+    qq:
+      admin_qq: [123456, 789012]  # 管理员QQ号列表
+      always_respond_at: true     # 是否总是响应@
+      respond_to_prefix: true     # 是否响应前缀命令
+      command_prefix: "/"         # 命令前缀
+      keyword_trigger: true       # 是否启用关键词触发
+      trigger_keywords: ["林静", "机器人"]  # 触发关键词
+
+# 人格系统
+personality:
+  # 人格特质 (Big Five)
+  traits:
+    openness: 0.7          # 开放性
+    conscientiousness: 0.6 # 尽责性
+    extraversion: 0.5      # 外向性
+    agreeableness: 0.8     # 宜人性
+    neuroticism: 0.3       # 神经质
+  
+  # 兴趣领域
+  interests: ["阅读", "音乐", "科技", "星空", "绘画"]
+  
+  # 价值观
+  values:
+    harmony: 0.8     # 和谐
+    knowledge: 0.9   # 知识
+    creativity: 0.7  # 创造力
+    helpfulness: 0.9 # 助人为乐
+    honesty: 0.8     # 诚实
+    curiosity: 0.9   # 好奇心
+  
+  # 偏好设置
+  preferences:
+    response_style: "friendly"  # 回复风格: friendly, formal, casual, humorous
+    verbosity: 0.6              # 回复详细程度 (0-1)
+    emoji_usage: 0.5            # emoji使用频率 (0-1)
+    politeness: 0.7             # 礼貌程度 (0-1)
+    humor_style: "gentle"       # 幽默风格: gentle, sarcastic, dry, silly
+
+# 插件系统 - 目前代码中未实现，将此部分设为禁用状态
+plugins:
+  enabled: false
+  auto_load: false
+  plugins_dir: "plugins"
+  
+  # 插件特定配置 - 如果未来实现，可以取消注释
+  # configs:
+  #   # 网络搜索插件
+  #   web_search:
+  #     enabled: true
+  #     search_engine: "duckduckgo"  # google, bing, duckduckgo
+  #     results_count: 3
+  #     
+  #   # 图像生成插件
+  #   image_generation:
+  #     enabled: true
+  #     provider: "dalle"  # dalle, stable_diffusion
+  #     max_images_per_request: 4
+  #     default_size: "1024x1024"
+  #     
+  #   # 文档处理插件
+  #   document_processor:
+  #     enabled: true
+  #     supported_formats: ["pdf", "docx", "txt", "md"]
+  #     max_file_size_mb: 10
+  #     chunk_size: 1000
+  #     chunk_overlap: 200 

@@ -164,11 +164,18 @@ class ReadAirProcessor(BaseProcessor):
         prompt = self._build_analysis_prompt(message, history)
         
         try:
-            # 调用LLM进行分析
-            response = await self.llm_manager.generate_text(
+            # 调用LLM进行分析，指定任务类型为read_air以使用合适的模型
+            response, metadata = await self.llm_manager.generate_text(
                 prompt, 
-                max_tokens=800
+                max_tokens=800,
+                task="read_air"  # 使用任务路由机制选择合适的模型
             )
+            
+            # 记录使用的模型信息
+            router_info = metadata.get("router_info", {})
+            if router_info:
+                model_id = router_info.get("model_id")
+                logger.debug(f"读空气分析使用模型: {model_id}")
             
             # 解析JSON响应
             return self._parse_analysis_response(response)

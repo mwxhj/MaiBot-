@@ -1,0 +1,64 @@
+# 环境变量和密钥
+.env
+*.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 数据和日志文件
+data/
+logs/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# 向量存储
+data/vector_store/
+
+# IDE和编辑器
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv/
+
+# 测试输出
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# 其他
+.history/
+tmp/
+.tmp/
+temp/
+.temp/ 

@@ -14,7 +14,11 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from linjing.storage.database import DatabaseManager
-from linjing.storage.vector_db import VectorDBManager
+from linjing.storage.vector_db_manager_factory import VectorDBManagerFactory
+from linjing.storage.storage_models import MemoryModel
+
+# 导入MemoryModel并重命名为Memory
+Memory = MemoryModel
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +50,9 @@ class MemoryManager:
         # 确保数据目录存在
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         
-        # 初始化数据库管理器
-        self.db = DatabaseManager(self.db_path)
-        self.vector_db = VectorDBManager(self.vector_db_config)
+        # 初始化数据库管理器 - 将db_path包装为字典
+        self.db = DatabaseManager({"db_path": self.db_path})
+        self.vector_db = VectorDBManagerFactory.create(self.vector_db_config)
         
         self._initialized = False
         logger.info("记忆管理器初始化完成")
@@ -146,7 +150,7 @@ class MemoryManager:
         关闭记忆管理器，断开数据库连接
         """
         if self._initialized:
-            await self.db.close()
+            await self.db.disconnect()
             await self.vector_db.disconnect()
             self._initialized = False
             logger.info("记忆管理器已关闭")
@@ -195,8 +199,9 @@ class MemoryManager:
         # 如果提供了嵌入向量，则存入向量数据库
         if embedding:
             vector_id = await self.vector_db.add_vector(
+                vector_id=memory_id,
                 vector=embedding,
-                payload={
+                metadata={
                     "memory_id": memory_id,
                     "user_id": user_id,
                     "session_id": session_id,
@@ -273,8 +278,9 @@ class MemoryManager:
         # 如果提供了嵌入向量，则存入向量数据库
         if embedding:
             vector_id = await self.vector_db.add_vector(
+                vector_id=memory_id,
                 vector=embedding,
-                payload={
+                metadata={
                     "memory_id": memory_id,
                     "content": content,
                     "category": category,
@@ -584,10 +590,10 @@ class MemoryManager:
             
             # 执行向量搜索
             search_results = await self.vector_db.search_similar(
-                vector=query_embedding,
+                query_vector=query_embedding,
                 limit=limit,
                 score_threshold=score_threshold,
-                filter_conditions=filter_conditions
+                filter_condition=filter_conditions
             )
             
             # 从关系数据库获取完整记录

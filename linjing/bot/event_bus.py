@@ -7,7 +7,7 @@
 
 import asyncio
 import inspect
-from typing import Any, Callable, Dict, List, Set, Union, Optional
+from typing import Any, Callable, Dict, List, Set, Union, Optional, Awaitable
 import logging
 
 from linjing.utils.logger import get_logger
@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 
 # 事件处理器类型定义
 EventHandler = Callable[..., Any]
-AsyncEventHandler = Callable[..., asyncio.coroutine]
+AsyncEventHandler = Callable[..., Awaitable[Any]]
 
 class EventBus:
     """事件总线，用于在组件间传递事件"""
@@ -95,7 +95,7 @@ class EventBus:
         for handler in handlers:
             try:
                 # 区分同步和异步处理器
-                if asyncio.iscoroutinefunction(handler):
+                if inspect.iscoroutinefunction(handler):
                     # 异步处理器直接调用
                     task = asyncio.create_task(handler(event_type, data))
                 else:
@@ -130,7 +130,7 @@ class EventBus:
         for handler in handlers:
             try:
                 # 只执行同步处理器
-                if not asyncio.iscoroutinefunction(handler):
+                if not inspect.iscoroutinefunction(handler):
                     handler(event_type, data)
             except Exception as e:
                 logger.error(f"同步事件处理器执行错误 {handler.__name__}: {str(e)}")

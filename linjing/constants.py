@@ -68,9 +68,8 @@ class PersonalityTrait:
 class ProcessorName:
     """处理器名称常量"""
     READ_AIR = "read_air"
-    MEMORY_RETRIEVAL = "memory_retrieval"
-    THOUGHT_GENERATION = "thought_generation"
-    RESPONSE_COMPOSITION = "response_composition"
+    THOUGHT_GENERATOR = "thought_generator"
+    RESPONSE_COMPOSER = "response_composer"
 
 # 错误代码
 class ErrorCode:

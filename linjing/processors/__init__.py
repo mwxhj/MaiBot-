@@ -6,8 +6,10 @@
 """
 
 from linjing.processors.message_context import MessageContext
-from linjing.processors.processor_registry import Processor, ProcessorRegistry
+from linjing.processors.processor_registry import ProcessorRegistry
 from linjing.processors.base_processor import BaseProcessor
+# 使用别名解决Processor导入问题
+from linjing.processors.base_processor import BaseProcessor as Processor
 from linjing.processors.processor_pipeline import ProcessorPipeline
 from linjing.processors.read_air import ReadAirProcessor
 from linjing.processors.thought_generator import ThoughtGenerator

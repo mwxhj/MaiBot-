@@ -16,7 +16,11 @@ from linjing.utils.logger import get_logger
 from linjing.constants import EventType, ProcessorName
 from linjing.bot.event_bus import EventBus
 from linjing.bot.personality import Personality
-from linjing.bot.message_pipeline import MessagePipeline, Processor, MessageContext
+from linjing.bot.message_pipeline import MessagePipeline
+from linjing.processors.message_context import MessageContext
+from linjing.processors.base_processor import BaseProcessor as Processor
+from linjing.storage.database import DatabaseManager
+from linjing.storage.vector_db_manager_factory import VectorDBManagerFactory
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -263,7 +267,6 @@ class LinjingBot:
         # 导入存储管理器
         try:
             from linjing.storage.database import DatabaseManager
-            from linjing.storage.vector_db import VectorDBManager
             
             # 数据库管理器
             self.storage_manager = DatabaseManager(
@@ -272,7 +275,7 @@ class LinjingBot:
             await self.storage_manager.connect()
             
             # 向量数据库管理器
-            self.vector_db_manager = VectorDBManager(
+            self.vector_db_manager = VectorDBManagerFactory.create(
                 self.config.get("storage", {}).get("vector_db", {})
             )
             await self.vector_db_manager.connect()
@@ -288,17 +291,22 @@ class LinjingBot:
         # 导入记忆管理器
         try:
             from linjing.memory.memory_manager import MemoryManager
-            from linjing.memory.vector_store import VectorStore
-            
-            # 创建向量存储
-            vector_store = VectorStore(self.vector_db_manager)
             
             # 创建记忆管理器
-            self.memory_manager = MemoryManager(
-                vector_store=vector_store,
-                db_manager=self.storage_manager,
-                config=self.config.get("memory", {})
-            )
+            memory_config = self.config.get("memory", {})
+            
+            # 确保vector_db配置是字典而不是字符串
+            vector_db_config = self.config.get("storage", {}).get("vector_db", {})
+            if not isinstance(vector_db_config, dict):
+                vector_db_config = {}
+                
+            # 在配置中添加向量数据库配置
+            memory_config["vector_db"] = vector_db_config
+            
+            # 在配置中添加数据库路径
+            memory_config["db_path"] = self.config.get("storage", {}).get("db_path", "data/database.db")
+            
+            self.memory_manager = MemoryManager(config=memory_config)
             
             # 初始化记忆管理器
             await self.memory_manager.initialize()
@@ -322,7 +330,7 @@ class LinjingBot:
             )
             
             # 初始化情绪管理器
-            await self.emotion_manager.initialize()
+            await self.emotion_manager.initialize_tables()
             
         except ImportError as e:
             logger.error(f"情绪系统导入失败: {str(e)}")
@@ -336,9 +344,8 @@ class LinjingBot:
         processor_configs = self.config.get("processors", {})
         pipeline_order = processor_configs.get("pipeline", [
             ProcessorName.READ_AIR,
-            ProcessorName.MEMORY_RETRIEVAL,
-            ProcessorName.THOUGHT_GENERATION,
-            ProcessorName.RESPONSE_COMPOSITION
+            ProcessorName.THOUGHT_GENERATOR,
+            ProcessorName.RESPONSE_COMPOSER
         ])
         
         # 导入并初始化处理器
@@ -349,33 +356,20 @@ class LinjingBot:
                 # 根据处理器名称导入相应模块
                 if name == ProcessorName.READ_AIR:
                     from linjing.processors.read_air import ReadAirProcessor
-                    processor = ReadAirProcessor(
-                        llm_manager=self.llm_manager,
-                        config=processor_config
-                    )
+                    processor = ReadAirProcessor(config=processor_config)
+                    processor.set_llm_manager(self.llm_manager)
                 
-                elif name == ProcessorName.MEMORY_RETRIEVAL:
-                    from linjing.processors.memory_retrieval import MemoryRetrievalProcessor
-                    processor = MemoryRetrievalProcessor(
-                        memory_manager=self.memory_manager,
-                        config=processor_config
-                    )
-                
-                elif name == ProcessorName.THOUGHT_GENERATION:
+                elif name == ProcessorName.THOUGHT_GENERATOR:
                     from linjing.processors.thought_generator import ThoughtGenerator
-                    processor = ThoughtGenerator(
-                        llm_manager=self.llm_manager,
-                        personality=self.personality,
-                        config=processor_config
-                    )
+                    processor = ThoughtGenerator(config=processor_config)
+                    processor.set_llm_manager(self.llm_manager)
+                    processor.set_personality(self.personality)
                 
-                elif name == ProcessorName.RESPONSE_COMPOSITION:
+                elif name == ProcessorName.RESPONSE_COMPOSER:
                     from linjing.processors.response_composer import ResponseComposer
-                    processor = ResponseComposer(
-                        llm_manager=self.llm_manager,
-                        personality=self.personality,
-                        config=processor_config
-                    )
+                    processor = ResponseComposer(config=processor_config)
+                    processor.set_llm_manager(self.llm_manager)
+                    processor.set_personality(self.personality)
                 
                 else:
                     # 尝试动态导入

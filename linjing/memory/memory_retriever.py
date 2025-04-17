@@ -9,7 +9,8 @@ import logging
 from typing import Any, Dict, List, Optional, Union
 import time
 
-from linjing.memory.memory_manager import Memory, MemoryType
+from linjing.memory.memory_manager import Memory
+from linjing.constants import MemoryType
 
 logger = logging.getLogger(__name__)
 

@@ -129,11 +129,18 @@ class ThoughtGenerator(BaseProcessor):
         prompt = self._build_thinking_prompt(context)
         
         try:
-            # 调用LLM生成思考
-            thought = await self.llm_manager.generate_text(
+            # 调用LLM生成思考，使用任务路由选择合适的模型
+            thought, metadata = await self.llm_manager.generate_text(
                 prompt, 
-                max_tokens=1000
+                max_tokens=1000,
+                task="creative"  # 思考生成是创意任务，使用高质量模型
             )
+            
+            # 记录使用的模型信息
+            router_info = metadata.get("router_info", {})
+            if router_info:
+                model_id = router_info.get("model_id")
+                logger.debug(f"思考生成使用模型: {model_id}")
             
             return thought.strip()
         

@@ -95,18 +95,28 @@ class OneBotAdapter:
             
             # 这里使用重试机制，以处理初始连接失败的情况
             async def connect_ws():
-                return await websockets.connect(
-                    self.ws_url,
-                    extra_headers={
-                        "Authorization": f"Bearer {self.access_token}" if self.access_token else ""
-                    }
-                )
+                try:
+                    # 尝试使用没有headers的简单连接
+                    return await websockets.connect(self.ws_url)
+                except Exception as e:
+                    logger.warning(f"简单连接失败，尝试其他方式: {e}")
+                    # 可能是其他原因导致的错误，重新抛出
+                    raise
             
+            # 使用更通用的异常处理，适应不同版本的websockets库
+            # 新版websockets库已将异常移至顶层命名空间
             self.websocket = await retry_operation(
                 connect_ws,
                 max_retries=3,
                 retry_delay=1.0,
-                exceptions=(websockets.exceptions.WebSocketException,)
+                exceptions=(
+                    # 尝试兼容不同版本的websockets库
+                    Exception, 
+                    ConnectionError,
+                    # 如果存在以下异常类，也会被捕获
+                    getattr(websockets, 'ConnectionClosed', type('DummyException', (Exception,), {})),
+                    getattr(websockets, 'WebSocketException', type('DummyException', (Exception,), {}))
+                )
             )
             
             # 标记为已连接

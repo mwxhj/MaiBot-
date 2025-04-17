@@ -12,7 +12,8 @@ from typing import Any, Dict, List, Optional, Union
 from linjing.adapters.message_types import Message, MessageSegment
 from linjing.processors.base_processor import BaseProcessor
 from linjing.processors.message_context import MessageContext
-from linjing.processors.processor_registry import Processor, ProcessorRegistry
+from linjing.processors.processor_registry import ProcessorRegistry
+from linjing.processors.base_processor import BaseProcessor as Processor
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +127,18 @@ class ResponseComposer(BaseProcessor):
         # 如果有LLM管理器，使用LLM生成回复
         if self.llm_manager:
             try:
-                response = await self.llm_manager.generate_text(prompt)
+                response, metadata = await self.llm_manager.generate_text(
+                    prompt,
+                    task="chat",  # 回复生成是对话任务
+                    max_tokens=500
+                )
+                
+                # 记录使用的模型信息
+                router_info = metadata.get("router_info", {})
+                if router_info:
+                    model_id = router_info.get("model_id")
+                    logger.debug(f"回复生成使用模型: {model_id}")
+                
                 return self._format_response(response)
             except Exception as e:
                 logger.error(f"使用LLM生成回复失败: {e}", exc_info=True)
@@ -285,7 +297,18 @@ class ResponseComposer(BaseProcessor):
                     f"回复应当是自然、友好的中文，不超过50个字。"
                 )
                 
-                response = await self.llm_manager.generate_text(prompt)
+                response, metadata = await self.llm_manager.generate_text(
+                    prompt,
+                    task="chat",  # 备用回复也是对话任务
+                    max_tokens=100
+                )
+                
+                # 记录使用的模型信息
+                router_info = metadata.get("router_info", {})
+                if router_info:
+                    model_id = router_info.get("model_id")
+                    logger.debug(f"备用回复生成使用模型: {model_id}")
+                
                 return self._format_response(response)
             except Exception as e:
                 logger.error(f"使用LLM生成备用回复失败: {e}", exc_info=True)
