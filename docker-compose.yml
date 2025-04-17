@@ -20,7 +20,7 @@ services:
       - LINJING_DATA_DIR=/app/data
       - PYTHONUNBUFFERED=1
     depends_on:
-      - qdrant                             # 移除健康检查依赖
+      - qdrant                             # 依赖向量数据库服务
     networks:
       - linjing_network
     logging:
@@ -55,4 +55,4 @@ volumes:
   linjing_logs:
     name: linjing_logs
   qdrant_data:
-    name: linjing_qdrant_data
+    name: linjing_qdrant_data 

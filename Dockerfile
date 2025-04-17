@@ -43,5 +43,5 @@ RUN pip install --no-cache-dir \
     typing-extensions \
     pillow
 
-# 设置启动命令
-CMD ["python", "main.py"]
+# 设置启动命令 - 使用正确的入口点
+CMD ["python", "linjing/main.py"] 
