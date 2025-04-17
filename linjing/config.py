@@ -18,6 +18,12 @@ dotenv.load_dotenv()
 class ConfigManager:
     """配置管理器，用于加载和访问配置项"""
     
+    # 容器化路径配置
+    DATA_PATH = os.getenv('DATA_PATH', os.path.join(os.path.dirname(__file__), '..', 'storage'))
+    SQLITE_PATH = os.path.join(DATA_PATH, 'database.db')
+    VECTOR_DB_PATH = os.path.join(DATA_PATH, 'vector_store')
+    LOG_PATH = os.path.join(DATA_PATH, 'logs')
+    
     def __init__(self, config_dir: str = "config"):
         """
         初始化配置管理器
@@ -63,6 +69,15 @@ class ConfigManager:
         
         # 从环境变量覆盖一些敏感配置
         self._override_from_env()
+        
+        # 设置容器化路径
+        self._set_container_paths()
+    
+    def _set_container_paths(self) -> None:
+        """设置容器化路径配置"""
+        self.set("storage.database_path", self.SQLITE_PATH)
+        self.set("storage.vector_db_path", self.VECTOR_DB_PATH)
+        self.set("logging.log_path", self.LOG_PATH)
     
     def _merge_config(self, base: Dict[str, Any], override: Dict[str, Any]) -> None:
         """
@@ -156,4 +171,4 @@ class ConfigManager:
 
 
 # 全局配置实例
-config_manager = ConfigManager() 
+config_manager = ConfigManager()
