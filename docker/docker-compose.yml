@@ -1,0 +1,73 @@
+# docker-compose.yml - 灵境机器人部署配置
+version: '3.8'
+
+services:
+  # 主应用服务 - 灵境机器人
+  linjing-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: linjing-bot:latest
+    container_name: linjing-bot
+    restart: unless-stopped
+    volumes:
+      - ./MaiBot-/config.yaml:/app/config.yaml:ro  # 使用MaiBot-目录中的配置文件
+      - linjing_data:/app/data                     # 数据持久化
+      - linjing_logs:/app/logs                     # 日志持久化
+    env_file:
+      - ./MaiBot-/.env                             # 使用MaiBot-目录中的环境变量文件
+    environment:
+      - LINJING_ENV=production
+      - LINJING_DATA_DIR=/app/data
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    networks:
+      - linjing_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.access('/app/data', os.W_OK) or exit(1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # 向量数据库 - Qdrant
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: linjing-qdrant
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - linjing_network
+    # 仅用于开发环境，生产环境建议删除此部分
+    # ports:
+    #   - "6333:6333"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    environment:
+      - QDRANT_ALLOW_RECOVERY_MODE=true
+
+# 自定义网络
+networks:
+  linjing_network:
+    driver: bridge
+
+# 数据卷定义
+volumes:
+  linjing_data:
+    name: linjing_data
+  linjing_logs:
+    name: linjing_logs
+  qdrant_data:
+    name: linjing_qdrant_data
