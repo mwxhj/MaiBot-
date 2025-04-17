@@ -18,8 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# 创建用于存储数据和日志的目录
-RUN mkdir -p /app/data /app/logs
+# 创建专用用户和目录
+RUN groupadd -r linjing && useradd -r -g linjing linjing && \
+    mkdir -p /app/data /app/logs && \
+    chown linjing:linjing /app/data /app/logs
 
 # 安装基本必要依赖
 RUN pip install --no-cache-dir \
@@ -41,7 +43,7 @@ RUN pip install --no-cache-dir \
     aiosqlite
 
 # 复制应用代码
-COPY . /app/
+COPY --chown=linjing:linjing . /app/
 
 # 自动生成Linux环境适用的requirements.txt
 RUN cd /app && \
@@ -49,5 +51,8 @@ RUN cd /app && \
     pip install --no-cache-dir -r /app/linjing/requirements.txt || echo "使用已安装的基础包" && \
     python -c "import pkg_resources; print('\n'.join(['%s==%s' % (i.key, i.version) for i in pkg_resources.working_set]))" > requirements_linux.txt
 
+# 切换到非root用户
+USER linjing
+
 # 设置启动命令
-CMD ["python", "linjing/main.py"] 
+CMD ["python", "linjing/main.py"]
