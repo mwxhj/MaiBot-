@@ -24,12 +24,7 @@ RUN mkdir -p /app/data /app/logs
 # 复制应用代码
 COPY . /app/
 
-# 安装linjing目录中的requirements.txt依赖
-RUN if [ -f /app/linjing/requirements.txt ]; then \
-    pip install --no-cache-dir -r /app/linjing/requirements.txt; \
-fi
-
-# 安装额外依赖 - 确保包含项目中的所有依赖
+# 直接安装所有必要的依赖包
 RUN pip install --no-cache-dir \
     qdrant-client==1.13.3 \
     openai \
@@ -48,8 +43,15 @@ RUN pip install --no-cache-dir \
     typing-extensions \
     pillow \
     loguru \
-    faiss-cpu \
-    aiosqlite
+    aiosqlite \
+    regex \
+    tqdm \
+    colorama \
+    tiktoken \
+    python-dateutil
+
+# 尝试安装其他可选依赖，忽略错误
+RUN pip install --no-cache-dir faiss-cpu || echo "无法安装faiss-cpu，跳过"
 
 # 设置启动命令 - 使用正确的入口点
 CMD ["python", "linjing/main.py"] 
