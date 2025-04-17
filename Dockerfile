@@ -21,16 +21,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 创建用于存储数据和日志的目录
 RUN mkdir -p /app/data /app/logs
 
+# 安装基本必要依赖
+RUN pip install --no-cache-dir \
+    qdrant-client==1.13.3 \
+    openai \
+    numpy \
+    loguru \
+    sqlalchemy \
+    requests \
+    python-dotenv \
+    PyYAML
+
 # 复制应用代码
 COPY . /app/
 
-# 复制并过滤requirements.txt，移除可能有问题的包
-COPY linjing/requirements.txt /app/
-RUN cat /app/requirements.txt | grep -v "pywin32\|win32" > /app/filtered_requirements.txt && \
-    pip install --no-cache-dir -r /app/filtered_requirements.txt
+# 自动生成Linux环境适用的requirements.txt
+RUN cd /app && \
+    python -c "import pkg_resources; print('\n'.join(['%s==%s' % (i.key, i.version) for i in pkg_resources.working_set]))" > requirements_base.txt && \
+    pip install --no-cache-dir -r /app/linjing/requirements.txt || echo "使用已安装的基础包" && \
+    python -c "import pkg_resources; print('\n'.join(['%s==%s' % (i.key, i.version) for i in pkg_resources.working_set]))" > requirements_linux.txt
 
-# 尝试安装其他可选依赖，忽略错误
-RUN pip install --no-cache-dir faiss-cpu || echo "无法安装faiss-cpu，跳过"
-
-# 设置启动命令 - 使用正确的入口点
+# 设置启动命令
 CMD ["python", "linjing/main.py"] 
