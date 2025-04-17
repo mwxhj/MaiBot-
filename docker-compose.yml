@@ -1,58 +1,58 @@
-# docker-compose.yml - 灵境机器人部署配置
+version: '3.8'
 
 services:
-  # 主应用服务 - 灵境机器人
-  linjing-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: linjing-bot:latest
-    container_name: linjing-bot
+  linjing:
+    image: python:3.10-slim
     restart: unless-stopped
+    working_dir: /linjing
     volumes:
-      - ./config.yaml:/app/config.yaml:ro  # 使用当前目录的配置文件
-      - linjing_data:/app/data             # 数据持久化
-      - linjing_logs:/app/logs             # 日志持久化
-    env_file:
-      - ./.env                             # 使用当前目录的环境变量文件
+      - ./linjing:/linjing
+      - linjing_data:/linjing/storage
+      - linjing_logs:/linjing/logs
     environment:
-      - LINJING_ENV=production
-      - LINJING_DATA_DIR=/app/data
+      - TZ=Asia/Shanghai
       - PYTHONUNBUFFERED=1
-    depends_on:
-      - qdrant                             # 依赖向量数据库服务
+      - DATA_PATH=/linjing/storage
+      - LOG_PATH=/linjing/logs
+    ports:
+      - "8000:8000"
     networks:
-      - linjing_network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
+      - linjing-net
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # 向量数据库 - Qdrant
   qdrant:
     image: qdrant/qdrant:latest
-    container_name: linjing-qdrant
     restart: unless-stopped
     volumes:
       - qdrant_data:/qdrant/storage
     networks:
-      - linjing_network
+      - linjing-net
     ports:
-      - "6333:6333"                        # 暴露端口便于调试
+      - "6333:6333"
     environment:
       - QDRANT_ALLOW_RECOVERY_MODE=true
 
-# 自定义网络
-networks:
-  linjing_network:
-    driver: bridge
-
-# 数据卷定义
 volumes:
   linjing_data:
-    name: linjing_data
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./storage
   linjing_logs:
-    name: linjing_logs
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./logs
   qdrant_data:
-    name: linjing_qdrant_data 
+    name: linjing_qdrant_data
+
+networks:
+  linjing-net:
+    driver: bridge
