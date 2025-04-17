@@ -28,26 +28,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 安装Qdrant客户端，确保使用兼容版本
 RUN pip install --no-cache-dir qdrant-client==1.13.3
 
-# 复制应用代码 - 从MaiBot-目录复制到容器的/app目录
-COPY MaiBot-/ /app/
-
-# 配置文件会通过volume挂载，这里只提供默认配置作为后备
-# 只有在挂载的配置不存在时才会使用此默认配置
-RUN if [ ! -f /app/config.yaml ]; then \
-    echo '# 默认配置文件 - 将被挂载的外部配置覆盖\n\
-bot:\n\
-  name: "灵境"\n\
-  version: "1.0.0"\n\
-vector_db:\n\
-  type: "qdrant"\n\
-  local: true\n\
-  local_path: "/app/data/qdrant_db"\n\
-  collection_name: "linjing_vectors"\n\
-  vector_size: 1536\n\
-database:\n\
-  type: "sqlite"\n\
-  path: "/app/data/linjing.db"' > /app/config.yaml; \
-    fi
+# 复制应用代码 - 从当前目录复制到容器的/app目录
+COPY . /app/
 
 # 设置启动命令
 CMD ["python", "main.py"]
