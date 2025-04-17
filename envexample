@@ -2,29 +2,26 @@
 # 注意: 此文件包含敏感信息，不要提交到版本控制系统
 
 # OpenAI API配置
-OPENAI_API_KEY=  # 替换为你的OpenAI API密钥
-OPENAI_API_BASE=  # OpenAI API基础URL，可以是官方API或代理
-OPENAI_ORG_ID=  # 组织ID（可选）
+OPENAI_API_KEY=
+OPENAI_API_BASE=
+OPENAI_ORG_ID=
 
 # Azure OpenAI API配置
-AZURE_OPENAI_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxx  # 替换为你的Azure OpenAI API密钥
-AZURE_RESOURCE_NAME=your-resource-name  # 替换为你的Azure资源名称
-AZURE_API_BASE=https://{resource_name}.openai.azure.com/openai/deployments  # Azure API基础URL格式
-AZURE_DEPLOYMENT_NAME=your-deployment  # 替换为你的Azure模型部署名称
-AZURE_EMBEDDING_DEPLOYMENT=your-embedding-deployment  # 替换为你的Azure嵌入模型部署名称
-AZURE_API_VERSION=2023-05-15  # API版本
+AZURE_OPENAI_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxx
+AZURE_RESOURCE_NAME=your-resource-name
+AZURE_API_BASE=https://{resource_name}.openai.azure.com/openai/deployments
+AZURE_DEPLOYMENT_NAME=your-deployment
+AZURE_EMBEDDING_DEPLOYMENT=your-embedding-deployment
+AZURE_API_VERSION=2023-05-15
 
-# 国内镜像/代理配置（如需使用）
-# 如果使用镜像服务，请取消注释下面的配置
-# OPENAI_API_BASE=https://your-proxy-url/v1  # 替换为你的代理URL
-# OPENAI_API_TYPE=openai  # API类型: openai 或 azure
+# napcat配置
+NAPCAT_UID=1000
+NAPCAT_GID=1000
 
-# 使用说明:
-# 1. 从OpenAI获取API密钥 (https://platform.openai.com/account/api-keys)
-# 2. 从Azure Portal获取Azure API密钥和资源名称
-# 3. 将此文件重命名为.env并放在项目根目录
-# 4. 不要将此文件提交到Git等版本控制系统
+# OneBot连接配置
+ONEBOT_HOST=napcat
+ONEBOT_PORT=6099
 
 # 其他配置选项（根据需要添加）
-# WEATHER_API_KEY=  # 天气插件API密钥
-# DATABASE_URL=  # 数据库连接URL 
+# WEATHER_API_KEY=
+# DATABASE_URL=
