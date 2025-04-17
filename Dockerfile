@@ -30,7 +30,13 @@ RUN pip install --no-cache-dir \
     sqlalchemy \
     requests \
     python-dotenv \
-    PyYAML
+    PyYAML \
+    cryptography \
+    tiktoken \
+    pydantic \
+    aiohttp \
+    fastapi \
+    uvicorn
 
 # 复制应用代码
 COPY . /app/
