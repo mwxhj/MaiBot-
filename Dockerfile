@@ -24,31 +24,10 @@ RUN mkdir -p /app/data /app/logs
 # 复制应用代码
 COPY . /app/
 
-# 直接安装所有必要的依赖包
-RUN pip install --no-cache-dir \
-    qdrant-client==1.13.3 \
-    openai \
-    numpy \
-    pandas \
-    pydantic \
-    sqlalchemy \
-    requests \
-    python-dotenv \
-    PyYAML \
-    fastapi \
-    uvicorn \
-    websockets \
-    aiohttp \
-    asyncio \
-    typing-extensions \
-    pillow \
-    loguru \
-    aiosqlite \
-    regex \
-    tqdm \
-    colorama \
-    tiktoken \
-    python-dateutil
+# 复制并过滤requirements.txt，移除可能有问题的包
+COPY linjing/requirements.txt /app/
+RUN cat /app/requirements.txt | grep -v "pywin32\|win32" > /app/filtered_requirements.txt && \
+    pip install --no-cache-dir -r /app/filtered_requirements.txt
 
 # 尝试安装其他可选依赖，忽略错误
 RUN pip install --no-cache-dir faiss-cpu || echo "无法安装faiss-cpu，跳过"
