@@ -34,7 +34,9 @@ class OneBotAdapter(Bot):
         # WebSocket连接配置
         self.ws_url = config.get("ws_url", "")  # 正向WS地址
         self.reverse_ws_host = config.get("reverse_ws_host", "0.0.0.0")
-        self.reverse_ws_port = config.get("reverse_ws_port", 6700)
+        # 优先使用环境变量中的端口配置
+        import os
+        self.reverse_ws_port = int(os.getenv("ONEBOT_PORT", config.get("reverse_ws_port", 6700)))
         self.is_reverse = config.get("is_reverse", False)
         
         # 连接状态
