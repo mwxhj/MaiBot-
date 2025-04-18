@@ -84,7 +84,7 @@ class ResponseComposer(BaseProcessor):
         
         try:
             # 获取思考结果和相关上下文
-            thought = context.get("thought", "")
+            thought = context.get_state("thought", "")
             
             if not thought:
                 logger.warning("未找到思考结果，将生成备用回复")
@@ -377,4 +377,4 @@ class ResponseComposer(BaseProcessor):
             elif content_type == "location":
                 message.append(MessageSegment.location(content_data))
             elif content_type == "at":
-                message.append(MessageSegment.at(content_data)) 
+                message.append(MessageSegment.at(content_data))

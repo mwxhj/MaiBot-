@@ -114,8 +114,9 @@ class ReadAirProcessor(BaseProcessor):
                 context.log_processor(self.name, "无法分析消息")
         
         except Exception as e:
-            logger.error(f"读空气处理失败: {str(e)}", exc_info=True)
-            context.log_processor(self.name, f"处理失败: {str(e)}")
+            # 将异常对象和字符串分开记录，避免格式化问题
+            logger.error("读空气处理失败:", exc_info=e) 
+            context.log_processor(self.name, f"处理失败: {type(e).__name__} - {e}")
         
         return context
     
@@ -268,4 +269,4 @@ class ReadAirProcessor(BaseProcessor):
         
         except (json.JSONDecodeError, IndexError) as e:
             logger.error(f"解析分析响应失败: {str(e)}\nResponse: {response}")
-            return None 
+            return None
