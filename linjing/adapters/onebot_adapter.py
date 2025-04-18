@@ -2,624 +2,292 @@
 # -*- coding: utf-8 -*-
 
 """
-OneBot适配器模块，实现与OneBot协议的通信。
+OneBot v11 协议适配器
+支持正向WebSocket和反向WebSocket两种连接方式
 """
 
-import json
-import time
 import asyncio
+import json
 import logging
-import os
-import websockets
-from typing import Dict, List, Any, Optional, Callable, Set, Union
+from typing import Dict, Any, Optional, Union
 
 import aiohttp
+import websockets
+from websockets.exceptions import ConnectionClosed
 
-from linjing.utils.logger import get_logger
-from linjing.utils.async_tools import AsyncRetry
-from linjing.constants import EventType
-from linjing.bot.event_bus import EventBus
+from linjing.adapters.adapter_utils import Bot, MessageConverter, retry_operation
 from linjing.adapters.message_types import Message, MessageSegment
-from linjing.adapters.adapter_utils import (
-    ApiRateLimiter, AdapterRegistry, MessageConverter, retry_operation
-)
+from linjing.utils.logger import get_logger
 
-# 获取日志记录器
 logger = get_logger(__name__)
 
-@AdapterRegistry.register("onebot")
-class OneBotAdapter:
-    """OneBot适配器，用于与OneBot协议通信"""
+class OneBotAdapter(Bot):
+    """OneBot v11 协议适配器"""
     
-    def __init__(self, config: Dict[str, Any], event_bus: EventBus):
-        """
-        初始化OneBot适配器
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__(config)
+        self.platform = "onebot"
         
-        Args:
-            config: 适配器配置
-            event_bus: 事件总线
-        """
-        self.config = config
-        self.event_bus = event_bus
-        self.connected = False
+        # WebSocket连接配置
+        self.ws_url = config.get("ws_url", "")  # 正向WS地址
+        self.reverse_ws_host = config.get("reverse_ws_host", "0.0.0.0")
+        self.reverse_ws_port = config.get("reverse_ws_port", 6700)
+        self.is_reverse = config.get("is_reverse", False)
+        
+        # 连接状态
         self.websocket = None
         self.session = None
-        self.api_url = None
-        self.ws_url = None
-        self.message_handler = None
-        self.heartbeat_task = None
+        self.server_task = None
         self.message_listener_task = None
+        self.heartbeat_task = None
         
-        # API限流器
-        self.rate_limiter = ApiRateLimiter(
-            rate_limit=config.get("rate_limit", 5.0),
-            burst_limit=config.get("burst_limit", 10)
-        )
+        # API限速器
+        from linjing.adapters.adapter_utils import ApiRateLimiter
+        self.rate_limiter = ApiRateLimiter(rate_limit=5.0, burst_limit=10)
         
-        # 连接配置 - 优先从环境变量读取
-        self.host = os.getenv("ONEBOT_HOST", config.get("host", "0.0.0.0"))
-        self.port = int(os.getenv("ONEBOT_PORT", config.get("port", "8080")))
-        self.access_token = os.getenv("ONEBOT_ACCESS_TOKEN", config.get("access_token", ""))
-        self.heartbeat_interval = int(os.getenv("ONEBOT_HEARTBEAT_INTERVAL", 
-            config.get("heartbeat_interval", "5000"))) / 1000  # 转换为秒
-        
-        # 反向连接模式
-        self.is_reverse = os.getenv("ONEBOT_REVERSE", "false").lower() == "true"
-        
-        # HTTP接口URL
-        self.api_url = f"http://{self.host}:{self.port}"
-        
-        # WebSocket接口URL
-        ws_query = f"?access_token={self.access_token}" if self.access_token else ""
-        self.ws_url = f"ws://{self.host}:{self.port}{ws_query}"
-        
-        # 已注册的事件处理器
-        self.event_handlers: Dict[str, List[Callable]] = {}
-    
-    async def _handle_reverse_connection(self, websocket, path):
-        """处理反向WebSocket连接"""
-        try:
-            self.websocket = websocket
-            self.connected = True
-            logger.info(f"NapCat已连接到OneBot适配器: {websocket.remote_address}")
-            
-            # 启动消息监听任务
-            self.message_listener_task = asyncio.create_task(self._message_listener())
-            
-            # 保持连接活跃
-            while self.connected:
-                await asyncio.sleep(1)
-                
-        except Exception as e:
-            logger.error(f"OneBot反向连接处理异常: {str(e)}")
-            await self._cleanup()
-            raise
+        # 注册适配器
+        from linjing.adapters.adapter_utils import AdapterRegistry
+        AdapterRegistry.register("onebot")(self.__class__)
 
     async def connect(self) -> bool:
-        """
-        连接到OneBot服务端
-        
-        Returns:
-            是否连接成功
-        """
-        if self.connected:
-            logger.warning("OneBot适配器已经连接")
-            return True
-        
+        """连接到OneBot实现"""
         try:
-            # 创建HTTP会话
-            self.session = aiohttp.ClientSession(
-                headers={
-                    "Authorization": f"Bearer {self.access_token}" if self.access_token else ""
-                }
-            )
+            # 创建aiohttp会话
+            self.session = aiohttp.ClientSession()
             
             if self.is_reverse:
-                # 反向连接模式 - 启动WebSocket服务器等待NapCat连接
-                logger.info(f"OneBot适配器正在启动WebSocket服务器监听 {self.host}:{self.port}")
+                return await self._start_reverse_server()
+            else:
+                return await self._start_forward_connection()
                 
-                # 启动WebSocket服务器
-                self.server = await websockets.serve(
-                    self._handle_reverse_connection,
-                    host=self.host,
-                    port=self.port,
-                    reuse_port=True
-                )
-                
-                logger.info(f"OneBot适配器已成功启动，正在监听 {self.host}:{self.port} 等待NapCat连接")
-                return True
-                
-            # 正向连接模式 - 主动连接WebSocket
-            logger.info(f"正在连接到OneBot WebSocket: {self.ws_url}")
-            
-            # 这里使用重试机制，以处理初始连接失败的情况
-            async def connect_ws():
+        except Exception as e:
+            logger.error(f"连接失败: {e}", exc_info=True)
+            await self._cleanup()
+            return False
+
+    async def _start_reverse_server(self) -> bool:
+        """启动反向WebSocket服务器"""
+        try:
+            # 定义连接处理器（使用嵌套函数确保正确绑定self）
+            async def handle_connection(websocket, path):
+                """处理反向WebSocket连接"""
                 try:
-                    # 尝试使用没有headers的简单连接
-                    return await websockets.connect(self.ws_url)
+                    logger.info(f"接受来自 {websocket.remote_address} 的反向WebSocket连接")
+                    
+                    # 更新连接状态
+                    self.websocket = websocket
+                    self.connected = True
+                    
+                    # 启动消息监听任务
+                    self.message_listener_task = self.run_task(self._message_listener)
+                    
+                    # 保持连接直到监听任务完成
+                    try:
+                        await self.message_listener_task
+                    except Exception as e:
+                        logger.error(f"消息监听异常: {e}", exc_info=True)
+                    finally:
+                        self.connected = False
+                        self.websocket = None
+                        
                 except Exception as e:
-                    logger.warning(f"简单连接失败，尝试其他方式: {e}")
-                    # 可能是其他原因导致的错误，重新抛出
+                    logger.error(f"连接处理异常: {e}", exc_info=True)
                     raise
-            
-            # 使用更通用的异常处理，适应不同版本的websockets库
-            # 新版websockets库已将异常移至顶层命名空间
-            self.websocket = await retry_operation(
-                connect_ws,
-                max_retries=3,
-                retry_delay=1.0,
-                exceptions=(
-                    # 尝试兼容不同版本的websockets库
-                    Exception, 
-                    ConnectionError,
-                    # 如果存在以下异常类，也会被捕获
-                    getattr(websockets, 'ConnectionClosed', type('DummyException', (Exception,), {})),
-                    getattr(websockets, 'WebSocketException', type('DummyException', (Exception,), {}))
-                )
+
+            # 启动WebSocket服务器
+            self.server_task = await websockets.serve(
+                handle_connection,
+                self.reverse_ws_host,
+                self.reverse_ws_port
             )
             
-            # 标记为已连接
+            logger.info(f"反向WebSocket服务器已启动，监听 {self.reverse_ws_host}:{self.reverse_ws_port}")
+            return True
+            
+        except OSError as e:
+            logger.error(f"无法启动反向WebSocket服务器: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"反向服务器启动异常: {e}", exc_info=True)
+            return False
+
+    async def _start_forward_connection(self) -> bool:
+        """建立正向WebSocket连接"""
+        try:
+            # 使用重试机制连接
+            self.websocket = await retry_operation(
+                lambda: websockets.connect(self.ws_url),
+                max_retries=3,
+                retry_delay=1.0,
+                backoff_factor=2.0,
+                exceptions=(ConnectionError,)
+            )
+            
             self.connected = True
+            logger.info(f"已连接到正向WebSocket: {self.ws_url}")
             
-            # 启动心跳任务
-            self.heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+            # 启动心跳和消息监听
+            self.heartbeat_task = self.run_task(self._heartbeat_loop)
+            self.message_listener_task = self.run_task(self._message_listener)
             
-            # 启动消息监听任务
-            self.message_listener_task = asyncio.create_task(self._message_listener())
-            
-            logger.info("OneBot适配器连接成功")
             return True
             
         except Exception as e:
-            logger.error(f"OneBot适配器连接失败: {str(e)}")
-            # 清理资源
-            await self._cleanup()
+            logger.error(f"正向连接失败: {e}", exc_info=True)
             return False
-    
+
     async def disconnect(self) -> None:
-        """断开与OneBot服务端的连接"""
-        if not self.connected:
-            return
-        
-        logger.info("正在断开OneBot适配器连接")
+        """断开连接"""
         await self._cleanup()
-        logger.info("OneBot适配器已断开连接")
-    
-    async def _cleanup(self) -> None:
+
+    async def _cleanup(self):
         """清理资源"""
-        self.connected = False
-        
-        # 取消心跳任务
-        if self.heartbeat_task and not self.heartbeat_task.done():
-            self.heartbeat_task.cancel()
-            try:
-                await self.heartbeat_task
-            except asyncio.CancelledError:
-                pass
-        
-        # 取消消息监听任务
-        if self.message_listener_task and not self.message_listener_task.done():
-            self.message_listener_task.cancel()
-            try:
-                await self.message_listener_task
-            except asyncio.CancelledError:
-                pass
-        
+        # 取消所有任务
+        for task in [self.server_task, self.message_listener_task, self.heartbeat_task]:
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
+
         # 关闭WebSocket连接
         if self.websocket:
-            await self.websocket.close()
+            try:
+                await self.websocket.close()
+            except Exception:
+                pass
             self.websocket = None
-            
-        # 关闭WebSocket服务器
-        if hasattr(self, 'server') and self.server:
-            self.server.close()
-            await self.server.wait_closed()
-            del self.server
-        
-        # 关闭HTTP会话
+
+        # 关闭aiohttp会话
         if self.session:
             await self.session.close()
             self.session = None
-    
-    async def _heartbeat_loop(self) -> None:
-        """心跳循环，定期发送心跳包"""
-        try:
-            while self.connected:
-                try:
-                    # 发送心跳包
-                    await self.websocket.send(json.dumps({
-                        "op": 2,
-                        "d": {
-                            "heartbeat_interval": self.heartbeat_interval * 1000
-                        }
-                    }))
-                    logger.debug(f"OneBot心跳包已发送")
-                except Exception as e:
-                    logger.error(f"OneBot心跳发送失败: {str(e)}")
-                    # 如果发送失败，可能是连接已断开
-                    if not self.connected:
-                        break
-                
-                # 等待下一次心跳
-                await asyncio.sleep(self.heartbeat_interval)
-        except asyncio.CancelledError:
-            logger.debug("OneBot心跳任务已取消")
-            raise
-        except Exception as e:
-            logger.error(f"OneBot心跳循环异常: {str(e)}")
-            # 尝试重新连接
-            if self.connected:
-                self.connected = False
-                asyncio.create_task(self._reconnect())
-    
-    async def _message_listener(self) -> None:
-        """消息监听循环，接收并处理WebSocket消息"""
-        try:
-            while self.connected:
-                try:
-                    # 接收消息
-                    raw_message = await self.websocket.recv()
-                    await self._handle_ws_message(raw_message)
-                except websockets.exceptions.ConnectionClosed as e:
-                    logger.error(f"OneBot WebSocket连接已关闭: {str(e)}")
-                    break
-                except Exception as e:
-                    logger.error(f"OneBot消息处理异常: {str(e)}")
-        except asyncio.CancelledError:
-            logger.debug("OneBot消息监听任务已取消")
-            raise
-        except Exception as e:
-            logger.error(f"OneBot消息监听循环异常: {str(e)}")
-        finally:
-            # 如果不是主动断开，尝试重新连接
-            if self.connected:
-                self.connected = False
-                asyncio.create_task(self._reconnect())
-    
-    async def _reconnect(self) -> None:
-        """重新连接到OneBot服务端"""
-        logger.info("正在尝试重新连接OneBot服务端")
-        
-        # 先等待一段时间，避免立即重连
-        await asyncio.sleep(3)
-        
-        # 确保资源已清理
-        await self._cleanup()
-        
-        # 尝试连接
-        if not await self.connect():
-            # 连接失败，等待更长时间后再次尝试
-            logger.warning("OneBot重新连接失败，10秒后重试")
-            await asyncio.sleep(10)
-            asyncio.create_task(self._reconnect())
-    
-    async def _handle_ws_message(self, raw_message: str) -> None:
-        """
-        处理WebSocket消息
-        
-        Args:
-            raw_message: 原始消息字符串
-        """
-        try:
-            # 解析消息
-            data = json.loads(raw_message)
+
+        self.connected = False
+        logger.info("连接已关闭，资源已清理")
+
+    async def _heartbeat_loop(self):
+        """心跳循环（仅正向连接需要）"""
+        if self.is_reverse:
+            return
             
-            # 判断消息类型
-            if "post_type" in data:
-                # OneBot v11 事件
-                await self._handle_onebot_event(data)
-            elif "op" in data:
-                # 协议消息
-                op = data.get("op")
-                
-                if op == 2:  # PING
-                    # 回复PONG
-                    await self.websocket.send(json.dumps({
-                        "op": 3,
-                        "d": data.get("d", {})
-                    }))
-                elif op == 0:  # DISPATCH
-                    # 事件分发
-                    event_data = data.get("d", {})
-                    if "post_type" in event_data:
-                        await self._handle_onebot_event(event_data)
-            else:
-                logger.warning(f"未知的OneBot消息格式: {raw_message}")
-        except json.JSONDecodeError:
-            logger.error(f"OneBot消息解析失败: {raw_message}")
-        except Exception as e:
-            logger.error(f"OneBot消息处理失败: {str(e)}", exc_info=True)
-    
-    async def _handle_onebot_event(self, event: Dict[str, Any]) -> None:
-        """
-        处理OneBot事件
-        
-        Args:
-            event: OneBot事件数据
-        """
-        try:
-            post_type = event.get("post_type")
-            
-            # 消息事件
-            if post_type == "message":
-                await self._handle_message_event(event)
-            
-            # 通知事件
-            elif post_type == "notice":
-                await self._handle_notice_event(event)
-            
-            # 请求事件
-            elif post_type == "request":
-                await self._handle_request_event(event)
-            
-            # 元事件
-            elif post_type == "meta_event":
-                await self._handle_meta_event(event)
-            
-            # 其他事件
-            else:
-                logger.debug(f"OneBot未处理的事件类型: {post_type}")
-                
-            # 发布到事件总线
-            await self.event_bus.publish(
-                f"onebot.{post_type}",
-                {
-                    "platform": "onebot",
-                    "raw_event": event
-                }
-            )
-            
-        except Exception as e:
-            logger.error(f"OneBot事件处理失败: {str(e)}", exc_info=True)
-    
-    async def _handle_message_event(self, event: Dict[str, Any]) -> None:
-        """
-        处理消息事件
-        
-        Args:
-            event: OneBot消息事件数据
-        """
-        message_type = event.get("message_type", "")
-        logger.debug(f"OneBot消息事件: {message_type}")
-        
-        # 转换为内部消息格式
-        message = MessageConverter.to_internal_message("onebot", event)
-        
-        # 调用消息处理器
-        if self.message_handler:
+        while self.connected:
             try:
-                response = await self.message_handler(message)
-                
-                # 如果有响应，自动回复
-                if response:
-                    target_info = {
-                        "message_type": message_type
-                    }
-                    
-                    # 添加目标信息
-                    if message_type == "private":
-                        target_info["user_id"] = event.get("user_id")
-                    elif message_type == "group":
-                        target_info["group_id"] = event.get("group_id")
-                    
-                    # 发送响应
-                    await self.send_message(response, target_info)
+                await asyncio.sleep(30)
+                if self.connected and self.websocket:
+                    await self.websocket.send(json.dumps({
+                        "post_type": "meta_event",
+                        "meta_event_type": "heartbeat",
+                        "time": int(time.time())
+                    }))
+            except ConnectionClosed:
+                logger.warning("心跳检测到连接已关闭")
+                self.connected = False
+                break
             except Exception as e:
-                logger.error(f"OneBot消息处理器异常: {str(e)}", exc_info=True)
-        
-        # 发布到事件总线
-        await self.event_bus.publish(
-            EventType.MESSAGE_RECEIVED,
-            {
-                "platform": "onebot",
-                "message": message,
-                "raw_event": event
-            }
-        )
-    
-    async def _handle_notice_event(self, event: Dict[str, Any]) -> None:
-        """
-        处理通知事件
-        
-        Args:
-            event: OneBot通知事件数据
-        """
-        notice_type = event.get("notice_type", "")
-        logger.debug(f"OneBot通知事件: {notice_type}")
-    
-    async def _handle_request_event(self, event: Dict[str, Any]) -> None:
-        """
-        处理请求事件
-        
-        Args:
-            event: OneBot请求事件数据
-        """
-        request_type = event.get("request_type", "")
-        logger.debug(f"OneBot请求事件: {request_type}")
-    
-    async def _handle_meta_event(self, event: Dict[str, Any]) -> None:
-        """
-        处理元事件
-        
-        Args:
-            event: OneBot元事件数据
-        """
-        meta_event_type = event.get("meta_event_type", "")
-        logger.debug(f"OneBot元事件: {meta_event_type}")
-        
-        # 心跳事件
-        if meta_event_type == "heartbeat":
-            # 这里可以更新状态或计算延迟等
-            pass
-        
-        # 生命周期事件
-        elif meta_event_type == "lifecycle":
-            sub_type = event.get("sub_type", "")
-            if sub_type == "connect":
-                logger.info("OneBot服务端已连接")
-            elif sub_type == "enable":
-                logger.info("OneBot服务端已启用")
-            elif sub_type == "disable":
-                logger.info("OneBot服务端已禁用")
-    
-    async def send_message(
-        self, message: Union[Message, str], target_info: Dict[str, Any]
-    ) -> str:
-        """
-        发送消息
-        
-        Args:
-            message: 消息对象或文本
-            target_info: 目标信息，如message_type、user_id、group_id等
+                logger.error(f"心跳异常: {e}", exc_info=True)
+                self.connected = False
+                break
+
+    async def _message_listener(self):
+        """消息监听循环"""
+        while self.connected and self.websocket:
+            try:
+                message = await self.websocket.recv()
+                if not message:
+                    continue
+                    
+                try:
+                    event = json.loads(message)
+                    await self._handle_event(event)
+                except json.JSONDecodeError:
+                    logger.error(f"无效的JSON消息: {message}")
+                except Exception as e:
+                    logger.error(f"处理消息异常: {e}", exc_info=True)
+                    
+            except ConnectionClosed:
+                logger.warning("WebSocket连接已关闭")
+                self.connected = False
+                break
+            except Exception as e:
+                logger.error(f"消息监听异常: {e}", exc_info=True)
+                self.connected = False
+                break
+
+    async def _handle_event(self, event: Dict[str, Any]):
+        """处理OneBot事件"""
+        event_type = event.get("post_type")
+        if not event_type:
+            return
             
-        Returns:
-            消息ID
-        """
+        # 转换消息格式
+        if "message" in event:
+            try:
+                event["message"] = Message.from_onebot_event(event)
+            except Exception as e:
+                logger.error(f"消息转换失败: {e}", exc_info=True)
+                return
+                
+        # 调用事件处理器
+        await self.handle_event(event_type, event)
+
+    async def send(self, target: str, message: Union[str, Message, MessageSegment]) -> str:
+        """发送消息"""
         if not self.connected:
-            logger.error("OneBot适配器未连接，无法发送消息")
-            raise ConnectionError("OneBot适配器未连接")
-        
-        # 等待速率限制
+            raise ConnectionError("未连接到OneBot实现")
+            
+        # 等待API限速器
         await self.rate_limiter.wait_for_token()
         
         # 转换消息格式
-        if isinstance(message, str):
-            message = Message.from_text(message)
+        if isinstance(message, (str, MessageSegment)):
+            message = Message(message)
+            
+        onebot_message = MessageConverter.to_platform_message("onebot", message)
         
-        # 获取消息类型
-        message_type = target_info.get("message_type", "private")
-        
-        # 构造API调用参数
-        params = {
-            "message": MessageConverter.to_platform_message("onebot", message)
+        # 构造API请求
+        api_request = {
+            "action": "send_msg",
+            "params": {
+                "message_type": "private" if target.isdigit() else "group",
+                target.isdigit() and "user_id" or "group_id": target,
+                "message": onebot_message
+            }
         }
         
-        # 添加目标信息
-        if message_type == "private":
-            api_name = "send_private_msg"
-            params["user_id"] = target_info.get("user_id")
-        elif message_type == "group":
-            api_name = "send_group_msg"
-            params["group_id"] = target_info.get("group_id")
-        else:
-            raise ValueError(f"不支持的消息类型: {message_type}")
-        
-        # 调用API
         try:
-            response = await self._call_api(api_name, params)
-            message_id = response.get("data", {}).get("message_id", "")
+            # 发送请求
+            await self.websocket.send(json.dumps(api_request))
             
-            # 发布消息发送事件
-            await self.event_bus.publish(
-                EventType.MESSAGE_SENT,
-                {
-                    "platform": "onebot",
-                    "message": message,
-                    "message_id": message_id,
-                    "target_info": target_info
-                }
-            )
+            # 简单实现：返回当前时间戳作为消息ID
+            return str(int(time.time()))
             
-            return message_id
         except Exception as e:
-            logger.error(f"OneBot发送消息失败: {str(e)}")
+            logger.error(f"发送消息失败: {e}", exc_info=True)
             raise
-    
-    async def _call_api(self, api_name: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        调用OneBot API
-        
-        Args:
-            api_name: API名称
-            params: API参数
+
+    async def call_api(self, api: str, **params) -> Any:
+        """调用OneBot API"""
+        if not self.connected:
+            raise ConnectionError("未连接到OneBot实现")
             
-        Returns:
-            API响应
-        """
-        if not self.connected or not self.session:
-            logger.error("OneBot适配器未连接，无法调用API")
-            raise ConnectionError("OneBot适配器未连接")
-        
-        # 等待速率限制
+        # 等待API限速器
         await self.rate_limiter.wait_for_token()
         
-        # 构造请求数据
-        data = {
-            "action": api_name,
-            "params": params or {}
+        # 构造API请求
+        api_request = {
+            "action": api,
+            "params": params
         }
         
-        # 通过HTTP API调用
         try:
-            async with self.session.post(
-                f"{self.api_url}/api/{api_name}",
-                json=params,
-                headers={
-                    "Content-Type": "application/json"
-                },
-                timeout=30
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(f"API调用失败，状态码: {response.status}, 响应: {error_text}")
-                
-                result = await response.json()
-                
-                if result.get("status") != "ok" and result.get("retcode") != 0:
-                    raise Exception(f"API调用失败: {result.get('msg') or result.get('message')}")
-                
-                return result
-        except aiohttp.ClientError as e:
-            logger.error(f"OneBot API调用网络错误: {str(e)}")
-            raise
-        except Exception as e:
-            logger.error(f"OneBot API调用失败: {str(e)}")
-            raise
-    
-    def register_message_handler(self, handler: Callable) -> None:
-        """
-        注册消息处理函数
-        
-        Args:
-            handler: 消息处理函数，接收Message对象，返回可选的响应Message
-        """
-        self.message_handler = handler
-        logger.debug("OneBot消息处理器已注册")
-    
-    def register_event_handler(self, event_type: str, handler: Callable) -> None:
-        """
-        注册事件处理函数
-        
-        Args:
-            event_type: 事件类型，如message.private, notice.group_increase等
-            handler: 事件处理函数，接收事件数据字典
-        """
-        if event_type not in self.event_handlers:
-            self.event_handlers[event_type] = []
-        
-        self.event_handlers[event_type].append(handler)
-        logger.debug(f"OneBot事件处理器已注册: {event_type}")
-    
-    def unregister_event_handler(self, event_type: str, handler: Callable) -> bool:
-        """
-        取消注册事件处理函数
-        
-        Args:
-            event_type: 事件类型
-            handler: 事件处理函数
+            # 发送请求
+            await self.websocket.send(json.dumps(api_request))
             
-        Returns:
-            是否成功取消注册
-        """
-        if event_type in self.event_handlers:
-            if handler in self.event_handlers[event_type]:
-                self.event_handlers[event_type].remove(handler)
-                logger.debug(f"OneBot事件处理器已取消注册: {event_type}")
-                
-                # 如果没有处理器了，清除该事件类型
-                if not self.event_handlers[event_type]:
-                    del self.event_handlers[event_type]
-                
-                return True
-        
-        return False
+            # 简单实现：不等待响应
+            return {"status": "async", "retcode": 0}
+            
+        except Exception as e:
+            logger.error(f"调用API失败: {e}", exc_info=True)
+            raise
