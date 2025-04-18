@@ -77,6 +77,12 @@ class OneBotAdapter(Bot):
             async def handle_connection(websocket, path):
                 """处理反向WebSocket连接"""
                 try:
+                    # 验证WebSocket路径是否符合OneBot协议
+                    if path != "/onebot/v11/ws":
+                        logger.warning(f"拒绝无效路径的连接: {path}")
+                        await websocket.close(code=1003, reason="Invalid path")
+                        return
+                    
                     logger.info(f"接受来自 {websocket.remote_address} 的反向WebSocket连接")
                     
                     # 更新连接状态
@@ -113,8 +119,7 @@ class OneBotAdapter(Bot):
             # 使用预配置的socket创建WebSocket服务器
             self.server_task = await websockets.serve(
                 handle_connection,
-                sock=sock,
-                uri="/onebot/v11/ws"
+                sock=sock
             )
             
             logger.info(f"反向WebSocket服务器已启动，监听 {self.reverse_ws_host}:{self.reverse_ws_port}")
