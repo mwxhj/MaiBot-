@@ -114,7 +114,7 @@ class OneBotAdapter(Bot):
             self.server_task = await websockets.serve(
                 handle_connection,
                 sock=sock,
-                path="/onebot/v11/ws"
+                uri="/onebot/v11/ws"
             )
             
             logger.info(f"反向WebSocket服务器已启动，监听 {self.reverse_ws_host}:{self.reverse_ws_port}")
