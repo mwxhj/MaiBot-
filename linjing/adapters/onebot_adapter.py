@@ -99,9 +99,13 @@ class OneBotAdapter(Bot):
 
             # 启动WebSocket服务器
             # 创建底层socket并配置
+            # 确保端口是整数
+            port = int(self.reverse_ws_port)
+            
+            # 创建并配置socket
             sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind(("0.0.0.0", self.reverse_ws_port))
+            sock.bind(("0.0.0.0", port))
             sock.listen()
             
             # 使用预配置的socket创建WebSocket服务器
