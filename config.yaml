@@ -5,7 +5,7 @@
 system:
   name: "林静"
   version: "0.1.0"
-  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_level: "DEBUG"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
   timezone: "Asia/Shanghai"
   language: "zh-CN"
   data_dir: "data"
@@ -19,7 +19,7 @@ bot:
   name: "林静"
   version: "0.1.0"
   description: "基于多LLM的智能对话机器人"
-  log_level: "INFO"
+  log_level: "DEBUG"
   
   # 事件总线配置
   event_bus:
