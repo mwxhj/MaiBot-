@@ -24,9 +24,10 @@ logger = get_logger(__name__)
 class OneBotAdapter(Bot):
     """OneBot v11 协议适配器"""
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], event_bus: Any): # Added event_bus parameter
         super().__init__(config)
         self.platform = "onebot"
+        self.event_bus = event_bus # Store event_bus
         
         # WebSocket连接配置
         self.ws_url = config.get("ws_url", "")  # 正向WS地址
