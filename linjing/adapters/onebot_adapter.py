@@ -229,9 +229,10 @@ class OneBotAdapter(Bot):
         while self.connected and self.websocket:
             try:
                 message = await self.websocket.recv()
+                logger.debug(f"收到原始消息: {message}") # 添加原始消息日志
                 if not message:
                     continue
-                    
+
                 try:
                     event = json.loads(message)
                     await self._handle_event(event)
@@ -239,7 +240,7 @@ class OneBotAdapter(Bot):
                     logger.error(f"无效的JSON消息: {message}")
                 except Exception as e:
                     logger.error(f"处理消息异常: {e}", exc_info=True)
-                    
+
             except ConnectionClosed:
                 logger.warning("WebSocket连接已关闭")
                 self.connected = False
@@ -251,19 +252,24 @@ class OneBotAdapter(Bot):
 
     async def _handle_event(self, event: Dict[str, Any]):
         """处理OneBot事件"""
+        logger.debug(f"处理事件: {event}") # 添加解析后事件日志
         event_type = event.get("post_type")
         if not event_type:
+            logger.warning(f"收到缺少 'post_type' 的事件: {event}")
             return
-            
+
         # 转换消息格式
-        if "message" in event:
+        if "message" in event and isinstance(event["message"], list): # 确保 message 是列表才转换
             try:
+                # 注意：这里修改了原始 event 字典
                 event["message"] = Message.from_onebot_event(event)
+                logger.debug(f"消息转换后的事件: {event}")
             except Exception as e:
                 logger.error(f"消息转换失败: {e}", exc_info=True)
-                return
-                
-        # 调用事件处理器
+                # 即使转换失败，也可能需要处理事件本身（例如通知事件）
+                # return # 决定是否在转换失败时中止
+
+        # 调用事件处理器 (位于 adapter_utils.py 的 Bot 基类中)
         await self.handle_event(event_type, event)
 
     async def send(self, target: str, message: Union[str, Message, MessageSegment]) -> str:
