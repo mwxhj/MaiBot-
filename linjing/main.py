@@ -53,28 +53,39 @@ async def main_async() -> None:
     异步主函数
     """
     logger.info(f"林静聊天机器人 v{VERSION} 正在启动...")
-    
-    # 创建机器人实例
-    bot = LinjingBot(config_manager.config)
-    
-    # 初始化
-    if not await bot.initialize():
-        logger.error("机器人初始化失败")
-        return
-    
-    # 启动机器人
-    await bot.start()
-    
+
     try:
+        # 创建机器人实例
+        bot = LinjingBot(config_manager.config)
+
+        # 初始化
+        logger.info("正在初始化机器人...")
+        if not await bot.initialize():
+            logger.error("机器人初始化失败，退出。")
+            return
+        logger.info("机器人初始化完成。")
+
+        # 启动机器人
+        logger.info("正在启动机器人...")
+        await bot.start()
+        logger.info("机器人启动完成，进入主循环。")
+
         # 保持运行直到收到停止信号
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(3600) # 降低CPU占用
+
+    except Exception as e:
+        logger.exception(f"在机器人初始化或启动过程中发生致命错误: {e}")
     except asyncio.CancelledError:
-        logger.info("任务被取消")
+        logger.info("主任务被取消")
     finally:
-        # 关闭机器人
-        await bot.stop()
-        logger.info("机器人已关闭")
+        # 确保即使启动失败也尝试关闭
+        if 'bot' in locals() and hasattr(bot, 'is_running') and bot.is_running():
+             logger.info("正在停止机器人...")
+             await bot.stop()
+             logger.info("机器人已停止。")
+        else:
+             logger.info("机器人未运行或未完全初始化，无需停止。")
 
 def main() -> None:
     """
@@ -125,4 +136,4 @@ def main() -> None:
         logger.info("事件循环已关闭")
 
 if __name__ == "__main__":
-    main() 
+    main()
