@@ -98,11 +98,14 @@ class OneBotAdapter(Bot):
                     raise
 
             # 启动WebSocket服务器
+            # 明确指定socket类型和协议
             self.server_task = await websockets.serve(
                 handle_connection,
                 host="0.0.0.0",  # 强制使用IPv4
                 port=self.reverse_ws_port,
-                family=socket.AF_INET
+                family=socket.AF_INET,
+                socktype=socket.SOCK_STREAM,
+                proto=socket.IPPROTO_TCP
             )
             
             logger.info(f"反向WebSocket服务器已启动，监听 {self.reverse_ws_host}:{self.reverse_ws_port}")
