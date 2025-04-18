@@ -9,6 +9,8 @@ OneBot v11 协议适配器
 import asyncio
 import json
 import logging
+import socket
+import time
 from typing import Dict, Any, Optional, Union
 
 import aiohttp
@@ -98,8 +100,9 @@ class OneBotAdapter(Bot):
             # 启动WebSocket服务器
             self.server_task = await websockets.serve(
                 handle_connection,
-                self.reverse_ws_host,
-                self.reverse_ws_port
+                host="0.0.0.0",  # 强制使用IPv4
+                port=self.reverse_ws_port,
+                family=socket.AF_INET
             )
             
             logger.info(f"反向WebSocket服务器已启动，监听 {self.reverse_ws_host}:{self.reverse_ws_port}")

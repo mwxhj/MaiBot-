@@ -294,8 +294,9 @@ adapters:
   onebot:
     enabled: true
     is_reverse: true  # 使用反向WebSocket模式
-    reverse_ws_host: "${ONEBOT_HOST:-0.0.0.0}"  # 监听所有接口
-    reverse_ws_port: ${ONEBOT_PORT:-6199}  # NapCat标准端口
+    reverse_ws_host: "${ONEBOT_HOST:-0.0.0.0}"  # 强制使用IPv4
+    reverse_ws_port: ${ONEBOT_PORT:-6700}  # OneBot标准端口
+    family: AF_INET  # 指定IPv4协议
     access_token: "${ONEBOT_ACCESS_TOKEN}"  # OneBot访问令牌
     heartbeat_interval: 5000  # 心跳间隔，单位毫秒
     rate_limit: 5.0   # 每秒API请求限制
