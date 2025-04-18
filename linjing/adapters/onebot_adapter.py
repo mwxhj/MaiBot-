@@ -98,14 +98,16 @@ class OneBotAdapter(Bot):
                     raise
 
             # 启动WebSocket服务器
-            # 明确指定socket类型和协议
+            # 创建底层socket并配置
+            sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("0.0.0.0", self.reverse_ws_port))
+            sock.listen()
+            
+            # 使用预配置的socket创建WebSocket服务器
             self.server_task = await websockets.serve(
                 handle_connection,
-                host="0.0.0.0",  # 强制使用IPv4
-                port=self.reverse_ws_port,
-                family=socket.AF_INET,
-                socktype=socket.SOCK_STREAM,
-                proto=socket.IPPROTO_TCP
+                sock=sock
             )
             
             logger.info(f"反向WebSocket服务器已启动，监听 {self.reverse_ws_host}:{self.reverse_ws_port}")
