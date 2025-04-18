@@ -77,12 +77,12 @@ class OneBotAdapter(Bot):
             async def handle_connection(websocket):
                 """处理反向WebSocket连接"""
                 try:
-                    # 获取请求路径（兼容性写法）
-                    path = str(websocket.request_uri)
+                    # 获取请求路径（兼容性写法，优先尝试 request_uri，失败则用 path）
+                    path = getattr(websocket, 'request_uri', None) or str(websocket.path)
                     # 标准化路径处理
                     path = path.split('?')[0]  # 去除查询参数
                     path = path.rstrip('/')    # 统一去除尾部斜杠
-                    
+
                     # 验证WebSocket路径是否符合OneBot协议
                     if path != "/onebot/v11/ws":
                         logger.warning(f"拒绝无效路径: {path}")

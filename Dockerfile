@@ -39,7 +39,7 @@ RUN pip install --no-cache-dir \
     aiohttp \
     fastapi \
     uvicorn \
-    websockets \
+    websockets>=11.0.3 \
     aiosqlite
 
 # 复制应用代码
