@@ -9,6 +9,7 @@ import json
 import time
 import asyncio
 import logging
+import os
 import websockets
 from typing import Dict, List, Any, Optional, Callable, Set, Union
 
@@ -55,11 +56,15 @@ class OneBotAdapter:
             burst_limit=config.get("burst_limit", 10)
         )
         
-        # 连接配置
-        self.host = config.get("host", "127.0.0.1")
-        self.port = config.get("port", 8080)
-        self.access_token = config.get("access_token", "")
-        self.heartbeat_interval = config.get("heartbeat_interval", 5000) / 1000  # 转换为秒
+        # 连接配置 - 优先从环境变量读取
+        self.host = os.getenv("ONEBOT_HOST", config.get("host", "0.0.0.0"))
+        self.port = int(os.getenv("ONEBOT_PORT", config.get("port", "8080")))
+        self.access_token = os.getenv("ONEBOT_ACCESS_TOKEN", config.get("access_token", ""))
+        self.heartbeat_interval = int(os.getenv("ONEBOT_HEARTBEAT_INTERVAL", 
+            config.get("heartbeat_interval", "5000"))) / 1000  # 转换为秒
+        
+        # 反向连接模式
+        self.is_reverse = os.getenv("ONEBOT_REVERSE", "false").lower() == "true"
         
         # HTTP接口URL
         self.api_url = f"http://{self.host}:{self.port}"
@@ -90,7 +95,12 @@ class OneBotAdapter:
                 }
             )
             
-            # 连接WebSocket
+            if self.is_reverse:
+                # 反向连接模式 - 等待NapCat连接
+                logger.info(f"OneBot适配器正在监听 {self.host}:{self.port} 等待NapCat连接")
+                return True
+                
+            # 正向连接模式 - 主动连接WebSocket
             logger.info(f"正在连接到OneBot WebSocket: {self.ws_url}")
             
             # 这里使用重试机制，以处理初始连接失败的情况
@@ -577,4 +587,4 @@ class OneBotAdapter:
                 
                 return True
         
-        return False 
+        return False

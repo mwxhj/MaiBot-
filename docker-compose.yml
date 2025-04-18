@@ -36,12 +36,13 @@ services:
     networks:
       - linjing-net
     env_file:
-      - ./envexample
+      - ./.env
     environment:
       - ONEBOT_HOST=napcat
       - ONEBOT_PORT=6099
       - ONEBOT_PROTOCOL=v11
       - ONEBOT_ACCESS_TOKEN=linjing-napcat-token-123456
+      - ONEBOT_REVERSE=true
     volumes:
       - /app/linjing/MaiBot-:/app:rw
       - linjing-data:/app/data:rw
