@@ -272,7 +272,53 @@ class OneBotAdapter(Bot):
 
     async def _handle_event(self, event: Dict[str, Any]):
         """处理OneBot事件"""
-        logger.debug(f"处理事件: {event}") # 添加解析后事件日志
+        # 提取发送者信息
+        user_id = event.get('user_id', '未知')
+        nickname = event.get('sender', {}).get('nickname', '未知')
+        
+        # 格式化消息内容以供日志记录
+        message_content_str = ""
+        if 'message' in event and isinstance(event['message'], list):
+            segments_str = []
+            for seg in event['message']:
+                seg_type = seg.get('type')
+                seg_data = seg.get('data', {})
+                if seg_type == 'text':
+                    segments_str.append(seg_data.get('text', ''))
+                elif seg_type == 'image':
+                    file = seg_data.get('file', '未知图片')
+                    url = seg_data.get('url', '') # 尝试获取 URL
+                    display_name = file if file != '未知图片' else url
+                    segments_str.append(f"[图片: {display_name}]")
+                elif seg_type == 'at':
+                    qq = seg_data.get('qq', '未知用户')
+                    segments_str.append(f"[@{qq}]")
+                elif seg_type == 'reply':
+                    msg_id = seg_data.get('id', '未知消息')
+                    segments_str.append(f"[回复: {msg_id}]")
+                elif seg_type == 'face':
+                    face_id = seg_data.get('id', '?')
+                    segments_str.append(f"[表情: {face_id}]")
+                elif seg_type == 'record':
+                     segments_str.append(f"[语音]") # 简单表示
+                elif seg_type == 'video':
+                     segments_str.append(f"[视频]") # 简单表示
+                # 可以根据需要添加更多类型的格式化
+                else:
+                    # 对于其他未显式处理的类型，打印类型和数据摘要
+                    data_summary = str(seg_data)[:30] + ('...' if len(str(seg_data)) > 30 else '')
+                    segments_str.append(f"[{seg_type}: {data_summary}]")
+            message_content_str = "".join(segments_str)
+        else:
+            # 如果没有 message 列表，回退到 raw_message
+            message_content_str = event.get('raw_message', '无消息内容')
+        
+        # 添加群号信息（如果存在）
+        group_id = event.get('group_id')
+        log_prefix = f"[群聊：{group_id}]" if group_id else ""
+
+        logger.info(f"{log_prefix}[QQ号：{user_id}][QQ名称：{nickname}]：发送了 {message_content_str}")
+
         event_type = event.get("post_type")
         if not event_type:
             logger.warning(f"收到缺少 'post_type' 的事件: {event}")
