@@ -8,8 +8,8 @@ services:
     networks:
       - linjing-net
     ports:
-      - "3000:3000"
-      - "3001:3001"
+      - "3100:3000"
+      - "3101:3001"
       - "6099:6099"
     environment:
       - NAPCAT_UID=${NAPCAT_UID:-1000}
