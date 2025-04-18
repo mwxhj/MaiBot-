@@ -293,6 +293,7 @@ adapters:
   # OneBot适配器设置 (用于QQ机器人)
   onebot:
     enabled: true
+    mode: "reverse"  # 明确指定使用反向WebSocket模式
     host: "${ONEBOT_HOST:-127.0.0.1}"
     port: ${ONEBOT_PORT:-8080}
     access_token: "${ONEBOT_ACCESS_TOKEN}"  # OneBot访问令牌
