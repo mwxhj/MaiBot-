@@ -43,7 +43,7 @@ services:
       - ONEBOT_PROTOCOL=v11
       - ONEBOT_ACCESS_TOKEN=linjing-napcat-token-123456
     volumes:
-      - ./data:/app/data:rw
+      - /app/data:/app/data:rw
       - /app/logs:/app/logs:rw
     ports:
       - "8000:8000"
