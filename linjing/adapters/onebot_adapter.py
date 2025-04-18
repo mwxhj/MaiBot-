@@ -11,7 +11,7 @@ import json
 import logging
 import socket
 import time
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, Callable, Awaitable # 导入 Callable 和 Awaitable
 
 import aiohttp
 import websockets
@@ -30,7 +30,10 @@ class OneBotAdapter(Bot):
         super().__init__(config)
         self.platform = "onebot"
         self.event_bus = event_bus # Store event_bus
-        
+
+        # 用于存储 LinjingBot 的 handle_message 方法
+        self._message_handler: Optional[Callable[[Message], Awaitable[Optional[Any]]]] = None # 重命名以示内部使用
+
         # WebSocket连接配置
         self.ws_url = config.get("ws_url", "")  # 正向WS地址
         self.reverse_ws_host = config.get("reverse_ws_host", "0.0.0.0")
@@ -54,12 +57,9 @@ class OneBotAdapter(Bot):
         from linjing.adapters.adapter_utils import AdapterRegistry
         AdapterRegistry.register("onebot")(self.__class__)
 
-        # 用于存储 LinjingBot 的 handle_message 方法
-        self.message_handler: Optional[Callable[[Any], Awaitable[Optional[Any]]]] = None
-
-    def register_message_handler(self, handler: Callable[[Any], Awaitable[Optional[Any]]]):
+    def register_message_handler(self, handler: Callable[[Message], Awaitable[Optional[Any]]]): # 参数类型改为 Message
         """注册用于处理接收到的消息的主处理函数"""
-        self.message_handler = handler
+        self._message_handler = handler # 使用内部变量名
         logger.info(f"已注册消息处理函数: {handler.__name__}")
 
     async def connect(self) -> bool:
@@ -294,14 +294,14 @@ class OneBotAdapter(Bot):
 
         # 如果是消息事件并且已注册主消息处理器，则调用它
         # 注意：我们传递转换后的 Message 对象给 LinjingBot.handle_message
-        if event_type == "message" and self.message_handler and isinstance(event.get("message"), Message):
+        if event_type == "message" and self._message_handler and isinstance(event.get("message"), Message): # 使用内部变量名
             try:
-                logger.debug(f"调用主消息处理函数: {self.message_handler.__name__}")
+                logger.debug(f"调用主消息处理函数: {self._message_handler.__name__}")
                 # LinjingBot.handle_message 期望接收转换后的 Message 对象
-                await self.message_handler(event["message"])
+                await self._message_handler(event["message"]) # 使用内部变量名
             except Exception as e:
                 logger.error(f"调用主消息处理函数时出错: {e}", exc_info=True)
-        elif event_type == "message" and not self.message_handler:
+        elif event_type == "message" and not self._message_handler: # 使用内部变量名
              logger.warning("收到消息事件，但没有注册主消息处理函数")
 
 
