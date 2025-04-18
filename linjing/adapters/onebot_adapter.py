@@ -77,19 +77,32 @@ class OneBotAdapter(Bot):
             async def handle_connection(websocket):
                 """处理反向WebSocket连接"""
                 try:
-                    # 获取请求路径（兼容性写法，优先尝试 request_uri，失败则用 path）
-                    path = getattr(websocket, 'request_uri', None) or str(websocket.path)
+                    # 尝试获取路径并添加详细错误日志
+                    try:
+                        path = websocket.path
+                        logger.debug(f"成功获取 websocket.path: {path}")
+                    except AttributeError as e:
+                        logger.error(f"无法获取 websocket.path: {e}. Websocket 对象类型: {type(websocket)}, 可用属性/方法: {dir(websocket)}", exc_info=True)
+                        # 尝试备用属性 request_uri
+                        try:
+                            path = websocket.request_uri
+                            logger.debug(f"成功获取 websocket.request_uri: {path}")
+                        except AttributeError as e_uri:
+                             logger.error(f"也无法获取 websocket.request_uri: {e_uri}. Websocket 对象类型: {type(websocket)}, 可用属性/方法: {dir(websocket)}", exc_info=True)
+                             await websocket.close(code=1011, reason="Internal server error accessing path attributes")
+                             return
+
                     # 标准化路径处理
-                    path = path.split('?')[0]  # 去除查询参数
+                    path = str(path).split('?')[0]  # 去除查询参数
                     path = path.rstrip('/')    # 统一去除尾部斜杠
 
                     # 验证WebSocket路径是否符合OneBot协议
                     if path != "/onebot/v11/ws":
-                        logger.warning(f"拒绝无效路径: {path}")
+                        logger.warning(f"拒绝无效路径: {path} (原始: {websocket.path if hasattr(websocket, 'path') else 'N/A'})")
                         await websocket.close(code=1003, reason="Invalid path")
                         return
-                    
-                    logger.info(f"接受来自 {websocket.remote_address} 的反向WebSocket连接")
+
+                    logger.info(f"接受来自 {websocket.remote_address} 的反向WebSocket连接 (路径: {path})")
                     
                     # 更新连接状态
                     self.websocket = websocket
