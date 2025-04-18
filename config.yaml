@@ -293,9 +293,9 @@ adapters:
   # OneBot适配器设置 (用于QQ机器人)
   onebot:
     enabled: true
-    host: "127.0.0.1"
-    port: 8080
-    access_token: ""  # OneBot访问令牌
+    host: "${ONEBOT_HOST:-127.0.0.1}"
+    port: ${ONEBOT_PORT:-8080}
+    access_token: "${ONEBOT_ACCESS_TOKEN}"  # OneBot访问令牌
     heartbeat_interval: 5000  # 心跳间隔，单位毫秒
     rate_limit: 5.0   # 每秒API请求限制
     burst_limit: 10    # 突发请求限制
