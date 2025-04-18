@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 
 class OneBotAdapter(Bot):
     """OneBot v11 协议适配器"""
-    
+
     def __init__(self, config: Dict[str, Any], event_bus: Any): # Added event_bus parameter
         super().__init__(config)
         self.platform = "onebot"
@@ -41,18 +41,18 @@ class OneBotAdapter(Bot):
         import os
         self.reverse_ws_port = int(os.getenv("ONEBOT_PORT", config.get("reverse_ws_port", 6700)))
         self.is_reverse = config.get("is_reverse", False)
-        
+
         # 连接状态
         self.websocket = None
         self.session = None
         self.server_task = None
         self.message_listener_task = None
         self.heartbeat_task = None
-        
+
         # API限速器
         from linjing.adapters.adapter_utils import ApiRateLimiter
         self.rate_limiter = ApiRateLimiter(rate_limit=5.0, burst_limit=10)
-        
+
         # 注册适配器
         from linjing.adapters.adapter_utils import AdapterRegistry
         AdapterRegistry.register("onebot")(self.__class__)
@@ -67,12 +67,12 @@ class OneBotAdapter(Bot):
         try:
             # 创建aiohttp会话
             self.session = aiohttp.ClientSession()
-            
+
             if self.is_reverse:
                 return await self._start_reverse_server()
             else:
                 return await self._start_forward_connection()
-                
+
         except Exception as e:
             logger.error(f"连接失败: {e}", exc_info=True)
             await self._cleanup()
@@ -105,14 +105,14 @@ class OneBotAdapter(Bot):
                         return
 
                     logger.info(f"接受来自 {websocket.remote_address} 的反向WebSocket连接 (路径: {path})")
-                    
+
                     # 更新连接状态
                     self.websocket = websocket
                     self.connected = True
-                    
+
                     # 启动消息监听任务
                     self.message_listener_task = self.run_task(self._message_listener)
-                    
+
                     # 保持连接直到监听任务完成
                     try:
                         await self.message_listener_task
@@ -121,7 +121,7 @@ class OneBotAdapter(Bot):
                     finally:
                         self.connected = False
                         self.websocket = None
-                        
+
                 except Exception as e:
                     logger.error(f"连接处理异常: {e}", exc_info=True)
                     raise
@@ -130,22 +130,22 @@ class OneBotAdapter(Bot):
             # 创建底层socket并配置
             # 确保端口是整数
             port = int(self.reverse_ws_port)
-            
+
             # 创建并配置socket
             sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("0.0.0.0", port))
             sock.listen()
-            
+
             # 使用预配置的socket创建WebSocket服务器
             self.server_task = await websockets.serve(
                 handle_connection,
                 sock=sock
             )
-            
+
             logger.info(f"反向WebSocket服务器已启动，监听 {self.reverse_ws_host}:{self.reverse_ws_port}")
             return True
-            
+
         except OSError as e:
             logger.error(f"无法启动反向WebSocket服务器: {e}")
             return False
@@ -164,16 +164,16 @@ class OneBotAdapter(Bot):
                 backoff_factor=2.0,
                 exceptions=(ConnectionError,)
             )
-            
+
             self.connected = True
             logger.info(f"已连接到正向WebSocket: {self.ws_url}")
-            
+
             # 启动心跳和消息监听
             self.heartbeat_task = self.run_task(self._heartbeat_loop)
             self.message_listener_task = self.run_task(self._message_listener)
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"正向连接失败: {e}", exc_info=True)
             return False
@@ -213,7 +213,7 @@ class OneBotAdapter(Bot):
         """心跳循环（仅正向连接需要）"""
         if self.is_reverse:
             return
-            
+
         while self.connected:
             try:
                 await asyncio.sleep(30)
@@ -272,70 +272,82 @@ class OneBotAdapter(Bot):
 
     async def _handle_event(self, event: Dict[str, Any]):
         """处理OneBot事件"""
-        # 提取发送者信息
-        user_id = event.get('user_id', '未知')
-        nickname = event.get('sender', {}).get('nickname', '未知')
-        
-        # 格式化消息内容以供日志记录
-        message_content_str = ""
-        if 'message' in event and isinstance(event['message'], list):
-            segments_str = []
-            for seg in event['message']:
-                seg_type = seg.get('type')
-                seg_data = seg.get('data', {})
-                if seg_type == 'text':
-                    segments_str.append(seg_data.get('text', ''))
-                elif seg_type == 'image':
-                    file = seg_data.get('file', '未知图片')
-                    url = seg_data.get('url', '') # 尝试获取 URL
-                    display_name = file if file != '未知图片' else url
-                    segments_str.append(f"[图片: {display_name}]")
-                elif seg_type == 'at':
-                    qq = seg_data.get('qq', '未知用户')
-                    segments_str.append(f"[@{qq}]")
-                elif seg_type == 'reply':
-                    msg_id = seg_data.get('id', '未知消息')
-                    segments_str.append(f"[回复: {msg_id}]")
-                elif seg_type == 'face':
-                    face_id = seg_data.get('id', '?')
-                    segments_str.append(f"[表情: {face_id}]")
-                elif seg_type == 'record':
-                     segments_str.append(f"[语音]") # 简单表示
-                elif seg_type == 'video':
-                     segments_str.append(f"[视频]") # 简单表示
-                # 可以根据需要添加更多类型的格式化
-                else:
-                    # 对于其他未显式处理的类型，打印类型和数据摘要
-                    data_summary = str(seg_data)[:30] + ('...' if len(str(seg_data)) > 30 else '')
-                    segments_str.append(f"[{seg_type}: {data_summary}]")
-            message_content_str = "".join(segments_str)
-        else:
-            # 如果没有 message 列表，回退到 raw_message
-            message_content_str = event.get('raw_message', '无消息内容')
-        
-        # 添加群号信息（如果存在）
-        group_id = event.get('group_id')
-        log_prefix = f"[群聊：{group_id}]" if group_id else ""
-
-        logger.info(f"{log_prefix}[QQ号：{user_id}][QQ名称：{nickname}]：发送了 {message_content_str}")
-
         event_type = event.get("post_type")
         if not event_type:
             logger.warning(f"收到缺少 'post_type' 的事件: {event}")
             return
 
+        # 只对消息事件打印详细的 INFO 日志
+        if event_type == "message":
+            # 提取发送者信息
+            user_id = event.get('user_id', '未知')
+            nickname = event.get('sender', {}).get('nickname', '未知')
+
+            # 格式化消息内容以供日志记录
+            message_content_str = ""
+            if 'message' in event and isinstance(event['message'], list):
+                segments_str = []
+                for seg in event['message']:
+                    seg_type = seg.get('type')
+                    seg_data = seg.get('data', {})
+                    if seg_type == 'text':
+                        segments_str.append(seg_data.get('text', ''))
+                    elif seg_type == 'image':
+                        file = seg_data.get('file', '未知图片')
+                        url = seg_data.get('url', '') # 尝试获取 URL
+                        display_name = file if file != '未知图片' else url
+                        segments_str.append(f"[图片: {display_name}]")
+                    elif seg_type == 'at':
+                        qq = seg_data.get('qq', '未知用户')
+                        segments_str.append(f"[@{qq}]")
+                    elif seg_type == 'reply':
+                        msg_id = seg_data.get('id', '未知消息')
+                        segments_str.append(f"[回复: {msg_id}]")
+                    elif seg_type == 'face':
+                        face_id = seg_data.get('id', '?')
+                        segments_str.append(f"[表情: {face_id}]")
+                    elif seg_type == 'record':
+                         segments_str.append(f"[语音]") # 简单表示
+                    elif seg_type == 'video':
+                         segments_str.append(f"[视频]") # 简单表示
+                    # 可以根据需要添加更多类型的格式化
+                    else:
+                        # 对于其他未显式处理的类型，打印类型和数据摘要
+                        data_summary = str(seg_data)[:30] + ('...' if len(str(seg_data)) > 30 else '')
+                        segments_str.append(f"[{seg_type}: {data_summary}]")
+                message_content_str = "".join(segments_str)
+            else:
+                # 如果没有 message 列表，回退到 raw_message
+                message_content_str = event.get('raw_message', '无消息内容')
+
+            # 添加群号信息（如果存在）
+            group_id = event.get('group_id')
+            log_prefix = f"[群聊：{group_id}]" if group_id else ""
+
+            # 使用 INFO 级别记录格式化后的消息日志
+            logger.info(f"{log_prefix}[QQ号：{user_id}][QQ名称：{nickname}]：发送了 {message_content_str}")
+        else:
+             # 对于非消息事件，可以记录一个简单的 DEBUG 日志（可选）
+             logger.debug(f"处理事件: {event_type} - {event.get('sub_type', '')}")
+
+
         # 转换消息格式
-        if "message" in event and isinstance(event["message"], list): # 确保 message 是列表才转换
+        # 注意：这里需要处理原始的 event['message']，而不是转换后的 Message 对象
+        original_message_list = event.get("message") # 先保存原始列表
+        if "message" in event and isinstance(original_message_list, list):
             try:
-                # 注意：这里修改了原始 event 字典
+                # 注意：这里修改了原始 event 字典中的 'message' 键
                 event["message"] = Message.from_onebot_event(event)
-                logger.debug(f"消息转换后的事件: {event}")
+                logger.debug(f"消息转换后的事件对象: {event['message']}") # 记录转换后的对象
             except Exception as e:
                 logger.error(f"消息转换失败: {e}", exc_info=True)
                 # 即使转换失败，也可能需要处理事件本身（例如通知事件）
+                # 如果转换失败，将 message 恢复为原始列表，以便后续处理（如果需要）
+                event["message"] = original_message_list
                 # return # 决定是否在转换失败时中止
 
         # 调用通过 bot.on() 注册的事件处理器 (位于 adapter_utils.py 的 Bot 基类中)
+        # 传递完整的 event 字典
         await self.handle_event(event_type, event)
 
         # 如果是消息事件并且已注册主消息处理器，则调用它
@@ -355,16 +367,16 @@ class OneBotAdapter(Bot):
         """发送消息"""
         if not self.connected:
             raise ConnectionError("未连接到OneBot实现")
-            
+
         # 等待API限速器
         await self.rate_limiter.wait_for_token()
-        
+
         # 转换消息格式
         if isinstance(message, (str, MessageSegment)):
             message = Message(message)
-            
+
         onebot_message = MessageConverter.to_platform_message("onebot", message)
-        
+
         # 构造API请求
         api_request = {
             "action": "send_msg",
@@ -374,14 +386,14 @@ class OneBotAdapter(Bot):
                 "message": onebot_message
             }
         }
-        
+
         try:
             # 发送请求
             await self.websocket.send(json.dumps(api_request))
-            
+
             # 简单实现：返回当前时间戳作为消息ID
             return str(int(time.time()))
-            
+
         except Exception as e:
             logger.error(f"发送消息失败: {e}", exc_info=True)
             raise
@@ -390,23 +402,23 @@ class OneBotAdapter(Bot):
         """调用OneBot API"""
         if not self.connected:
             raise ConnectionError("未连接到OneBot实现")
-            
+
         # 等待API限速器
         await self.rate_limiter.wait_for_token()
-        
+
         # 构造API请求
         api_request = {
             "action": api,
             "params": params
         }
-        
+
         try:
             # 发送请求
             await self.websocket.send(json.dumps(api_request))
-            
+
             # 简单实现：不等待响应
             return {"status": "async", "retcode": 0}
-            
+
         except Exception as e:
             logger.error(f"调用API失败: {e}", exc_info=True)
             raise
