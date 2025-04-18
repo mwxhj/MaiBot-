@@ -54,6 +54,14 @@ class OneBotAdapter(Bot):
         from linjing.adapters.adapter_utils import AdapterRegistry
         AdapterRegistry.register("onebot")(self.__class__)
 
+        # 用于存储 LinjingBot 的 handle_message 方法
+        self.message_handler: Optional[Callable[[Any], Awaitable[Optional[Any]]]] = None
+
+    def register_message_handler(self, handler: Callable[[Any], Awaitable[Optional[Any]]]):
+        """注册用于处理接收到的消息的主处理函数"""
+        self.message_handler = handler
+        logger.info(f"已注册消息处理函数: {handler.__name__}")
+
     async def connect(self) -> bool:
         """连接到OneBot实现"""
         try:
@@ -281,8 +289,21 @@ class OneBotAdapter(Bot):
                 # 即使转换失败，也可能需要处理事件本身（例如通知事件）
                 # return # 决定是否在转换失败时中止
 
-        # 调用事件处理器 (位于 adapter_utils.py 的 Bot 基类中)
+        # 调用通过 bot.on() 注册的事件处理器 (位于 adapter_utils.py 的 Bot 基类中)
         await self.handle_event(event_type, event)
+
+        # 如果是消息事件并且已注册主消息处理器，则调用它
+        # 注意：我们传递转换后的 Message 对象给 LinjingBot.handle_message
+        if event_type == "message" and self.message_handler and isinstance(event.get("message"), Message):
+            try:
+                logger.debug(f"调用主消息处理函数: {self.message_handler.__name__}")
+                # LinjingBot.handle_message 期望接收转换后的 Message 对象
+                await self.message_handler(event["message"])
+            except Exception as e:
+                logger.error(f"调用主消息处理函数时出错: {e}", exc_info=True)
+        elif event_type == "message" and not self.message_handler:
+             logger.warning("收到消息事件，但没有注册主消息处理函数")
+
 
     async def send(self, target: str, message: Union[str, Message, MessageSegment]) -> str:
         """发送消息"""
