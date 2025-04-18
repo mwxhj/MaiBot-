@@ -12,7 +12,7 @@ import sys
 import traceback
 from typing import Any, Callable, Dict, List, Optional, Set, TypeVar, Union
 
-from linjing.log import logger
+from linjing.utils.logger import logger
 
 T = TypeVar("T")
 
