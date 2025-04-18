@@ -76,6 +76,25 @@ class OneBotAdapter:
         # 已注册的事件处理器
         self.event_handlers: Dict[str, List[Callable]] = {}
     
+    async def _handle_reverse_connection(self, websocket, path):
+        """处理反向WebSocket连接"""
+        try:
+            self.websocket = websocket
+            self.connected = True
+            logger.info(f"NapCat已连接到OneBot适配器: {websocket.remote_address}")
+            
+            # 启动消息监听任务
+            self.message_listener_task = asyncio.create_task(self._message_listener())
+            
+            # 保持连接活跃
+            while self.connected:
+                await asyncio.sleep(1)
+                
+        except Exception as e:
+            logger.error(f"OneBot反向连接处理异常: {str(e)}")
+            await self._cleanup()
+            raise
+
     async def connect(self) -> bool:
         """
         连接到OneBot服务端
@@ -96,8 +115,18 @@ class OneBotAdapter:
             )
             
             if self.is_reverse:
-                # 反向连接模式 - 等待NapCat连接
-                logger.info(f"OneBot适配器正在监听 {self.host}:{self.port} 等待NapCat连接")
+                # 反向连接模式 - 启动WebSocket服务器等待NapCat连接
+                logger.info(f"OneBot适配器正在启动WebSocket服务器监听 {self.host}:{self.port}")
+                
+                # 启动WebSocket服务器
+                self.server = await websockets.serve(
+                    self._handle_reverse_connection,
+                    host=self.host,
+                    port=self.port,
+                    reuse_port=True
+                )
+                
+                logger.info(f"OneBot适配器已成功启动，正在监听 {self.host}:{self.port} 等待NapCat连接")
                 return True
                 
             # 正向连接模式 - 主动连接WebSocket
@@ -180,6 +209,12 @@ class OneBotAdapter:
         if self.websocket:
             await self.websocket.close()
             self.websocket = None
+            
+        # 关闭WebSocket服务器
+        if hasattr(self, 'server') and self.server:
+            self.server.close()
+            await self.server.wait_closed()
+            del self.server
         
         # 关闭HTTP会话
         if self.session:
