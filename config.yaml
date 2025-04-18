@@ -293,9 +293,9 @@ adapters:
   # OneBot适配器设置 (用于QQ机器人)
   onebot:
     enabled: true
-    mode: "reverse"  # 明确指定使用反向WebSocket模式
-    host: "${ONEBOT_HOST:-127.0.0.1}"
-    port: ${ONEBOT_PORT:-8080}
+    is_reverse: true  # 使用反向WebSocket模式
+    reverse_ws_host: "${ONEBOT_HOST:-0.0.0.0}"  # 监听所有接口
+    reverse_ws_port: ${ONEBOT_PORT:-6700}  # OneBot标准端口
     access_token: "${ONEBOT_ACCESS_TOKEN}"  # OneBot访问令牌
     heartbeat_interval: 5000  # 心跳间隔，单位毫秒
     rate_limit: 5.0   # 每秒API请求限制
