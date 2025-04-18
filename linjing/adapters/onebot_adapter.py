@@ -226,29 +226,41 @@ class OneBotAdapter(Bot):
 
     async def _message_listener(self):
         """消息监听循环"""
-        while self.connected and self.websocket:
-            try:
-                message = await self.websocket.recv()
-                logger.debug(f"收到原始消息: {message}") # 添加原始消息日志
-                if not message:
-                    continue
-
+        logger.info("消息监听循环已启动") # 添加启动日志
+        loop_count = 0
+        try: # 包裹整个循环
+            while self.connected and self.websocket:
+                loop_count += 1
+                logger.debug(f"消息监听循环迭代: {loop_count}")
                 try:
-                    event = json.loads(message)
-                    await self._handle_event(event)
-                except json.JSONDecodeError:
-                    logger.error(f"无效的JSON消息: {message}")
-                except Exception as e:
-                    logger.error(f"处理消息异常: {e}", exc_info=True)
+                    message = await self.websocket.recv()
+                    logger.debug(f"收到原始消息: {message}") # 添加原始消息日志
+                    if not message:
+                        logger.debug("收到空消息，继续监听")
+                        continue
 
-            except ConnectionClosed:
-                logger.warning("WebSocket连接已关闭")
-                self.connected = False
-                break
-            except Exception as e:
-                logger.error(f"消息监听异常: {e}", exc_info=True)
-                self.connected = False
-                break
+                    try:
+                        event = json.loads(message)
+                        await self._handle_event(event)
+                    except json.JSONDecodeError:
+                        logger.error(f"无效的JSON消息: {message}")
+                    except Exception as e_handle: # 捕获处理事件时的异常
+                        logger.error(f"处理事件时发生异常: {e_handle}", exc_info=True)
+
+                except ConnectionClosed as e_closed:
+                    logger.warning(f"WebSocket连接已关闭 (监听循环内，迭代 {loop_count}): {e_closed}")
+                    self.connected = False
+                    break # 明确退出循环
+                except Exception as e_recv: # 捕获接收消息时的其他异常
+                    logger.error(f"接收消息时发生异常 (迭代 {loop_count}): {e_recv}", exc_info=True)
+                    self.connected = False # 假设连接已断开
+                    break # 明确退出循环
+        except Exception as e_outer: # 捕获循环外的异常
+             logger.error(f"消息监听循环意外终止 (迭代 {loop_count}): {e_outer}", exc_info=True)
+        finally:
+             logger.info(f"消息监听循环已结束 (迭代 {loop_count})") # 添加结束日志
+             self.connected = False # 确保状态更新
+
 
     async def _handle_event(self, event: Dict[str, Any]):
         """处理OneBot事件"""
