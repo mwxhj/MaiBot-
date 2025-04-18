@@ -16,7 +16,8 @@ services:
       - NAPCAT_GID=${NAPCAT_GID:-1000}
       - TZ=${TZ:-Asia/Shanghai}
     volumes:
-      - ./config/napcat:/app/config
+      - /app/qq:/app/.config/QQ
+      - /app/napcat/config:/app/napcat/config 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/api/status"]
       interval: 30s
