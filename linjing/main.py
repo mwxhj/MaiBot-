@@ -11,15 +11,205 @@ import signal
 import asyncio
 import argparse
 import logging
-import importlib # 导入 importlib
-import inspect   # 导入 inspect
+import yaml     # 添加 yaml 导入
+import dotenv   # 添加 dotenv 导入
 from typing import Dict, Any, Optional
 
-# 设置模块导入路径
-sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
+# --- ConfigManager Class Definition Start ---
+# (代码从 linjing/config.py 移动到这里)
 
-# 导入必要的类和函数
-# from linjing.config import ConfigManager # 延迟导入
+# 加载环境变量 (移到类定义之前或之内，确保尽早加载)
+dotenv.load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env')) # 指定 .env 文件路径
+
+class ConfigManager:
+    """配置管理器，用于加载和访问配置项"""
+
+    # 容器化路径配置
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')) # 获取项目根目录 (linjing 的上两级)
+    DATA_PATH = os.getenv('DATA_PATH', os.path.join(PROJECT_ROOT, 'MaiBot-', 'data')) # 指向 MaiBot-/data
+    SQLITE_PATH = os.path.join(DATA_PATH, 'database.db')
+    VECTOR_DB_PATH = os.path.join(DATA_PATH, 'vector_store')
+    LOG_PATH = os.path.join(DATA_PATH, 'logs')
+
+    def __init__(self, config_path: Optional[str] = None): # 允许外部传入路径
+        """
+        初始化配置管理器
+
+        Args:
+            config_path: YAML 配置文件路径 (可选)
+        """
+        # 修正 PROJECT_ROOT 的计算，使其基于 main.py 的位置
+        self.PROJECT_ROOT = os.path.abspath(os.path.dirname(os.path.dirname(__file__))) # main.py 在 linjing/ 下，上一级是 MaiBot-
+        self.DATA_PATH = os.getenv('DATA_PATH', os.path.join(self.PROJECT_ROOT, 'data')) # 指向 MaiBot-/data
+        self.SQLITE_PATH = os.path.join(self.DATA_PATH, 'database.db')
+        self.VECTOR_DB_PATH = os.path.join(self.DATA_PATH, 'vector_store')
+        self.LOG_PATH = os.path.join(self.DATA_PATH, 'logs')
+
+        # 修正 config_path 的默认值计算
+        self.config_path = config_path or os.path.join(self.PROJECT_ROOT, "config.yaml") # 默认加载 MaiBot-/config.yaml
+        self.config: Dict[str, Any] = {}
+
+        # 加载配置
+        self._load_config()
+
+        # 日志级别设置移到 main 函数中，在 setup_logger 调用前
+
+    def _load_config(self) -> None:
+        """加载配置文件"""
+        try:
+            logging.info(f"尝试从以下路径加载配置: {self.config_path}")
+            # 确保使用绝对路径
+            abs_config_path = os.path.abspath(self.config_path)
+            if not os.path.exists(abs_config_path):
+                 logging.error(f"配置文件不存在: {abs_config_path}")
+                 self.config = {}
+                 return
+
+            with open(abs_config_path, "r", encoding="utf-8") as f:
+                loaded_config = yaml.safe_load(f)
+                if not isinstance(loaded_config, dict):
+                     logging.error(f"配置文件顶层必须是字典格式: {abs_config_path}")
+                     self.config = {}
+                else:
+                     self.config = loaded_config
+        except FileNotFoundError: # 理论上上面的 exists 检查后不应触发，但保留
+            logging.error(f"配置文件不存在: {abs_config_path}")
+            self.config = {}
+        except yaml.YAMLError as e:
+            logging.error(f"配置文件格式错误: {e}")
+            self.config = {}
+        except Exception as e: # 捕获其他潜在错误
+             logging.error(f"加载配置文件时发生未知错误: {e}", exc_info=True)
+             self.config = {}
+
+
+        # 从环境变量覆盖一些敏感配置
+        self._override_from_env()
+
+        # 设置容器化路径
+        self._set_container_paths()
+
+    def _set_container_paths(self) -> None:
+        """设置容器化路径配置"""
+        os.makedirs(self.DATA_PATH, exist_ok=True)
+        os.makedirs(self.LOG_PATH, exist_ok=True)
+        self.set("storage.database.path", self.SQLITE_PATH)
+        self.set("storage.vector_db.path", self.VECTOR_DB_PATH)
+
+    def _override_from_env(self) -> None:
+        """从环境变量覆盖配置项"""
+        providers = self.get("llm.providers", [])
+        if isinstance(providers, list):
+            for i, provider in enumerate(providers):
+                if isinstance(provider, dict):
+                    provider_id = provider.get("id")
+                    if provider_id == "openai_main" or provider.get("type") == "openai_compatible":
+                         env_key_name = f"PROVIDER_{i}_API_KEY"
+                         api_key = os.getenv(env_key_name) or os.getenv("OPENAI_API_KEY")
+                         if api_key:
+                              self.set(f"llm.providers.{i}.api_key", api_key)
+                    if provider_id == "mingwang_provider":
+                         mingwang_api_key = os.getenv("MINGWANG_API_KEY")
+                         if mingwang_api_key:
+                              self.set(f"llm.providers.{i}.api_key", mingwang_api_key)
+                         mingwang_base_url = os.getenv("MINGWANG_BASE_URL")
+                         if mingwang_base_url:
+                              self.set(f"llm.providers.{i}.api_base", mingwang_base_url)
+        onebot_token = os.getenv("ONEBOT_ACCESS_TOKEN")
+        if onebot_token:
+             self.set("adapters.onebot.access_token", onebot_token)
+        onebot_host = os.getenv("ONEBOT_HOST")
+        if onebot_host:
+             self.set("adapters.onebot.reverse_ws_host", onebot_host)
+        onebot_port = os.getenv("ONEBOT_PORT")
+        if onebot_port:
+             try:
+                  self.set("adapters.onebot.reverse_ws_port", int(onebot_port))
+             except ValueError:
+                  logging.warning(f"环境变量 ONEBOT_PORT ('{onebot_port}') 不是有效的端口号，将使用默认值。")
+
+    def get(self, key_path: str, default: Any = None) -> Any:
+        keys = key_path.split(".")
+        value = self.config
+        for key in keys:
+            if isinstance(value, dict):
+                value = value.get(key, default)
+                if value is default:
+                    return default
+            elif isinstance(value, list):
+                 try:
+                      idx = int(key)
+                      if 0 <= idx < len(value):
+                           value = value[idx]
+                      else:
+                           return default
+                 except (ValueError, IndexError):
+                      return default
+            else:
+                return default
+        return value
+
+    def set(self, key_path: str, value: Any) -> None:
+        keys = key_path.split(".")
+        obj = self.config
+        for i, key in enumerate(keys[:-1]):
+            if isinstance(obj, list):
+                 try:
+                      idx = int(key)
+                      if not (0 <= idx < len(obj)):
+                           logging.warning(f"设置配置时索引 '{idx}' 超出列表范围: {key_path}")
+                           return
+                      if i + 1 < len(keys):
+                           next_key = keys[i+1]
+                           if not isinstance(obj[idx], (dict, list)):
+                                try:
+                                     int(next_key)
+                                     obj[idx] = []
+                                except ValueError:
+                                     obj[idx] = {}
+                      obj = obj[idx]
+                 except (ValueError, IndexError):
+                      logging.error(f"设置配置时无效的列表索引 '{key}': {key_path}")
+                      return
+            elif isinstance(obj, dict):
+                 if key not in obj or not isinstance(obj[key], (dict, list)):
+                      if i + 1 < len(keys):
+                           next_key = keys[i+1]
+                           try:
+                                int(next_key)
+                                obj[key] = []
+                           except ValueError:
+                                obj[key] = {}
+                      else:
+                           obj[key] = {}
+                 obj = obj[key]
+            else:
+                 logging.error(f"设置配置时无法遍历非字典/列表对象: {key_path}")
+                 return
+        last_key = keys[-1]
+        if isinstance(obj, list):
+             try:
+                  idx = int(last_key)
+                  if 0 <= idx < len(obj):
+                       obj[idx] = value
+                  elif idx == len(obj):
+                       obj.append(value)
+                  else:
+                       logging.warning(f"设置配置时最终索引 '{idx}' 超出列表范围: {key_path}")
+             except ValueError:
+                  logging.error(f"设置配置时最终键 '{last_key}' 不是有效的列表索引: {key_path}")
+        elif isinstance(obj, dict):
+             obj[last_key] = value
+        else:
+             logging.error(f"设置配置时无法在非字典/列表对象上设置最终值: {key_path}")
+
+# --- ConfigManager Class Definition End ---
+
+
+# 设置模块导入路径 (可能不再需要，但保留以防万一)
+# sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
+
+# 导入其他必要的类和函数
 from linjing.constants import VERSION
 from linjing.bot.linjing_bot import LinjingBot
 from linjing.utils.logger import setup_logger
@@ -28,72 +218,44 @@ from linjing.utils.logger import setup_logger
 logger = logging.getLogger(__name__)
 
 def parse_args() -> argparse.Namespace:
-    """
-    解析命令行参数
-
-    Returns:
-        解析后的参数
-    """
     parser = argparse.ArgumentParser(description="林静聊天机器人")
-    parser.add_argument("-c", "--config", help="YAML 配置文件路径") # 更新帮助文本
+    parser.add_argument("-c", "--config", help="YAML 配置文件路径")
     parser.add_argument("-d", "--debug", action="store_true", help="启用调试模式 (覆盖配置文件中的日志级别)")
     parser.add_argument("-v", "--version", action="store_true", help="显示版本信息")
     return parser.parse_args()
 
 def handle_signals() -> None:
-    """设置信号处理函数"""
     def signal_handler(sig, frame):
         logger.info("收到退出信号，正在关闭...")
-        # 通知主循环退出
-        # 尝试获取正在运行的循环，如果失败则忽略
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():
                 loop.stop()
         except RuntimeError:
              logger.warning("无法获取正在运行的事件循环来停止。")
-
-    # 注册信号处理
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-async def main_async(config: Dict[str, Any]) -> None: # 接收配置字典
-    """
-    异步主函数
-    """
+async def main_async(config: Dict[str, Any]) -> None:
     logger.info(f"林静聊天机器人 v{VERSION} 正在启动...")
-
-    bot = None # 初始化 bot 变量
+    bot = None
     try:
-        # 创建机器人实例
-        bot = LinjingBot(config) # 使用传入的配置
-
-        # 初始化
+        bot = LinjingBot(config)
         logger.info("正在初始化机器人...")
         if not await bot.initialize():
             logger.error("机器人初始化失败，退出。")
             return
         logger.info("机器人初始化完成。")
-
-        # 启动机器人
         logger.info("正在启动机器人...")
         await bot.start()
         logger.info("机器人启动完成，进入主循环。")
-
-        # 保持运行直到收到停止信号
-        # 使用 asyncio.Future 来优雅地等待停止信号
         stop_event = asyncio.Future()
-        # 将 stop_event 传递给信号处理器或其他可以触发停止的地方
-        # 例如，可以在 signal_handler 中调用 stop_event.set_result(None)
-        # 这里简化处理，假设 loop.stop() 会中断下面的 await
         await stop_event
-
     except asyncio.CancelledError:
         logger.info("主任务被取消")
     except Exception as e:
         logger.exception(f"在机器人初始化或运行过程中发生致命错误: {e}")
     finally:
-        # 确保即使启动失败也尝试关闭
         if bot and hasattr(bot, 'is_running') and bot.is_running():
              logger.info("正在停止机器人...")
              await bot.stop()
@@ -102,79 +264,38 @@ async def main_async(config: Dict[str, Any]) -> None: # 接收配置字典
              logger.info("机器人未运行或未完全初始化，无需停止。")
 
 def main() -> None:
-    """
-    主函数
-    """
-    # 解析命令行参数
     args = parse_args()
-
-    # 显示版本信息
     if args.version:
         print(f"林静聊天机器人 v{VERSION}")
         sys.exit(0)
 
-    # === 修改配置加载和日志设置逻辑 ===
-    config_path = args.config if args.config else None # 获取命令行指定的路径，可能为 None
+    # 使用定义在本文件中的 ConfigManager
+    config_path = args.config if args.config else None
+    config_manager_instance = ConfigManager(config_path=config_path) # 直接使用本文件定义的类
 
-    # 强制重新加载 config 模块
-    try:
-        import linjing.config # 确保模块被导入
-        logger.debug(f"尝试重新加载模块: {linjing.config.__file__}") # 打印加载的文件路径
-        importlib.reload(linjing.config) # 强制重新加载
-        logger.debug("已强制重新加载 linjing.config 模块")
-        # 现在再从重新加载后的模块导入 ConfigManager
-        from linjing.config import ConfigManager
-    except ImportError as e:
-         logger.error(f"无法导入 linjing.config: {e}")
-         sys.exit(1)
-    except Exception as e:
-         logger.error(f"重新加载 linjing.config 时出错: {e}")
-         # 可以选择继续尝试，或者退出
-         from linjing.config import ConfigManager # 尝试正常导入
-
-    # === 在实例化之前检查 __init__ 签名 ===
-    try:
-        logger.debug(f"即将实例化 ConfigManager。检查其 __init__ 方法签名...")
-        init_source = inspect.getsource(ConfigManager.__init__)
-        logger.debug(f"ConfigManager.__init__ 源码:\n{init_source}")
-    except Exception as e:
-        logger.error(f"无法使用 inspect 获取 ConfigManager.__init__ 源码: {e}")
-    # =====================================
-
-    config_manager_instance = ConfigManager(config_path=config_path) # 实例化 ConfigManager
-
-    # 在加载配置后设置日志级别
-    # 如果命令行指定了 -d (debug)，则强制使用 DEBUG 级别
+    # 设置日志级别
     log_level_from_config = config_manager_instance.get("system.log_level", "INFO")
     log_level = "DEBUG" if args.debug else log_level_from_config
     setup_logger(log_level)
-    logger.info(f"日志级别设置为: {log_level}") # 确认日志级别
+    logger.info(f"日志级别设置为: {log_level}")
 
-    # 设置信号处理
     handle_signals()
-
-    # 创建事件循环
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     try:
-        # 运行主函数
-        loop.run_until_complete(main_async(config_manager_instance.config)) # 传递加载的配置
+        loop.run_until_complete(main_async(config_manager_instance.config))
     except KeyboardInterrupt:
         logger.info("接收到键盘中断")
     finally:
         logger.info("开始关闭事件循环...")
-        # 关闭所有剩余任务
         tasks = asyncio.all_tasks(loop)
         if tasks:
              logger.info(f"取消 {len(tasks)} 个剩余任务...")
              for task in tasks:
                   task.cancel()
-             # 等待任务完成取消
              loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
              logger.info("剩余任务已处理。")
-
-        # 关闭事件循环
         loop.close()
         logger.info("事件循环已关闭。")
 
