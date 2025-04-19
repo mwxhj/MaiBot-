@@ -98,7 +98,7 @@ class ResponseComposer(BaseProcessor):
             reply_message.append(MessageSegment.text(reply))
             
             # 如果需要添加多模态内容
-            if self.use_multimodal and "multimodal_content" in context:
+            if self.use_multimodal and hasattr(context, "multimodal_content"):
                 await self._add_multimodal_content(reply_message, context)
             
             context["reply"] = reply_message
@@ -289,7 +289,7 @@ class ResponseComposer(BaseProcessor):
         # 如果有LLM管理器，尝试使用它生成备用回复
         if self.llm_manager:
             try:
-                user_message = context.get("message", "")
+                user_message = context.message.extract_plain_text() if hasattr(context, "message") else ""
                 prompt = (
                     f"用户发送了以下消息，但我无法完全理解其意图:\n"
                     f"\"{user_message}\"\n\n"
