@@ -81,7 +81,10 @@ class DatabaseManager:
                 if self.pool is None:
                     if not self.db_password:
                          logger.warning(f"数据库密码环境变量 {self.config.get('password', 'DB_PASSWORD').strip('${}')} 未设置!")
-                         
+
+                    # --- DEBUG LOGGING START ---
+                    logger.debug(f"DatabaseManager.connect attempting to create pool with host: {self.db_host}")
+                    # --- DEBUG LOGGING END ---
                     self.pool = await asyncpg.create_pool(
                         user=self.db_user,
                         password=self.db_password,
