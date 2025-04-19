@@ -84,17 +84,17 @@ class DatabaseManager:
 
                     # --- DEBUG LOGGING START ---
                     # 打印将要传递给 create_pool 的 host 和 port 值
-                    host_to_use = self.db_host
+                    host_to_use = self.db_host # 恢复使用 self.db_host
                     port_to_use = self.db_port
-                    logger.debug(f"DatabaseManager.connect attempting to create pool with host: {self.db_host}") # 恢复打印 self.db_host
+                    logger.debug(f"DatabaseManager.connect attempting to create pool with host: {host_to_use}, port: {port_to_use}") # 打印将要使用的值
                     # --- DEBUG LOGGING END ---
                     self.pool = await asyncpg.create_pool(
                         user=self.db_user,
                         password=self.db_password,
                         database=self.db_name,
                         # 恢复使用 host 和 port 参数
-                        host=self.db_host,
-                        port=self.db_port,
+                        host=host_to_use, # 使用变量确保一致性
+                        port=port_to_use, # 使用变量确保一致性
                         timeout=self.connection_config.get("timeout", 30),
                         # 可以添加 min_size, max_size 等连接池参数
                     )
