@@ -288,27 +288,6 @@ class EmotionManager:
     
     async def initialize_tables(self) -> None:
         """初始化数据库表"""
-        try:
-            query = """
-            CREATE TABLE IF NOT EXISTS user_moods ( -- 修正表名
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                mood_data TEXT NOT NULL, -- 存储 MoodState 的 JSON
-                timestamp REAL NOT NULL -- 存储 MoodState 的时间戳
-                -- 移除 UNIQUE 约束，允许同一用户有多个时间戳记录
-            )
-            """
-            await self.db_manager.execute_query(query)
-            
-            # 创建索引
-            index_query = """
-            CREATE INDEX IF NOT EXISTS idx_user_moods_user_id_timestamp -- 修正索引名和表名
-            ON user_moods(user_id, timestamp DESC) -- 按时间降序索引
-            """
-            await self.db_manager.execute_query(index_query)
-            
-            logger.info("情绪数据库表初始化完成")
-            
-        except Exception as e:
-            logger.error(f"初始化情绪数据库表失败: {e}")
-            raise 
+        # 移除此处的表创建逻辑，统一由 DatabaseManager 在 connect 时处理
+        # 只保留一个 pass 语句确保方法有效，因为实际操作已移走
+        pass # 方法体为空，因为表创建已移至 DatabaseManager
