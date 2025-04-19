@@ -88,7 +88,8 @@ class ProcessorRegistry:
             return None
         
         try:
-            processor = processor_class(config)
+            # 传递 name 和 config 给构造函数
+            processor = processor_class(name=name, config=config)
             return processor
         except Exception as e:
             logger.error(f"创建处理器 {name} 失败: {str(e)}", exc_info=True)

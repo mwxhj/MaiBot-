@@ -28,14 +28,16 @@ class ThoughtGenerator(BaseProcessor):
     description = "思考生成器，生成机器人的内部思考过程"
     version = "1.0.0"
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, name: str, config: Optional[Dict[str, Any]] = None): # 添加 name 参数
         """
         初始化思考生成器
         
         Args:
+            name: 处理器名称
             config: 处理器配置
         """
-        super().__init__(config)
+        # 调用父类 __init__ 时传递 name 和 config
+        super().__init__(name=name, config=config)
         
         # 思考深度，影响思考的详细程度
         self.thinking_depth = self.config.get("thinking_depth", 3)

@@ -436,12 +436,12 @@ class LinjingBot:
                 # 根据处理器名称导入相应模块
                 if name == ProcessorName.READ_AIR:
                     from linjing.processors.read_air import ReadAirProcessor
-                    processor = ReadAirProcessor(config=processor_config)
+                    processor = ReadAirProcessor(name=name, config=processor_config) # 传递 name 参数
                     processor.set_llm_manager(self.llm_manager)
                 
                 elif name == ProcessorName.THOUGHT_GENERATOR:
                     from linjing.processors.thought_generator import ThoughtGenerator
-                    processor = ThoughtGenerator(config=processor_config)
+                    processor = ThoughtGenerator(name=name, config=processor_config) # 传递 name 参数
                     processor.set_llm_manager(self.llm_manager)
                     processor.set_personality(self.personality)
                 

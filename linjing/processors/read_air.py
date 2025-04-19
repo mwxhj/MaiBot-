@@ -30,14 +30,16 @@ class ReadAirProcessor(BaseProcessor):
     description = "读空气处理器，理解对话语境和隐含意图"
     version = "1.0.0"
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, name: str, config: Optional[Dict[str, Any]] = None): # 添加 name 参数
         """
         初始化读空气处理器
         
         Args:
+            name: 处理器名称
             config: 处理器配置
         """
-        super().__init__(config)
+        # 调用父类 __init__ 时传递 name 和 config
+        super().__init__(name=name, config=config)
         
         # 置信度阈值，低于此值的分析结果将被忽略
         self.confidence_threshold = self.config.get("confidence_threshold", 0.6)

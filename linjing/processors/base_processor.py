@@ -32,14 +32,16 @@ class BaseProcessor(ABC):
     # 处理器版本，子类应覆盖
     version: ClassVar[str] = "1.0.0"
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None, priority: Optional[int] = None):
+    def __init__(self, name: str, config: Optional[Dict[str, Any]] = None, priority: Optional[int] = None): # 添加 name 参数
         """
         初始化处理器
         
         Args:
+            name: 处理器名称 (从子类传递)
             config: 处理器配置
             priority: 处理器优先级，数值越小优先级越高
         """
+        self.name = name # 设置实例 name, 覆盖类变量
         self.config = config or {}
         self.enabled = self.config.get("enabled", True)
         self.priority = priority
