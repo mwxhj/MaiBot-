@@ -468,19 +468,25 @@ class MemoryManager:
             
             conversations = []
             for row in results:
+                # 假设 row 是一个字典，使用列名访问
                 conv = {
-                    "id": row[0],
-                    "session_id": row[1],
-                    "timestamp": row[2],
-                    "content": row[3],
-                    "role": row[4],
+                    "id": row.get("id"), # 使用 .get() 避免潜在的 KeyError
+                    "session_id": row.get("session_id"),
+                    "timestamp": row.get("timestamp"),
+                    "content": row.get("content"),
+                    "role": row.get("role"),
                 }
                 
-                if include_metadata and len(row) > 5 and row[5]:
-                    try:
-                        conv["metadata"] = json.loads(row[5])
-                    except:
-                        conv["metadata"] = {}
+                if include_metadata:
+                    metadata_json = row.get("metadata")
+                    if metadata_json:
+                        try:
+                            conv["metadata"] = json.loads(metadata_json)
+                        except json.JSONDecodeError:
+                            logger.warning(f"无法解析对话 {row.get('id')} 的元数据: {metadata_json}")
+                            conv["metadata"] = {}
+                    else:
+                         conv["metadata"] = {}
                 
                 conversations.append(conv)
             

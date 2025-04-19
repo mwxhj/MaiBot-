@@ -222,8 +222,8 @@ class LinjingBot:
 
         # --- Return the reply first ---
         if final_reply:
-             # Schedule memory saving as a background task
-             asyncio.create_task(self._save_conversation_async(context.user_id, context.session_id, message, final_reply))
+             # Schedule memory saving and emotion update as a background task
+             asyncio.create_task(self._save_conversation_async(context, result_context, message, final_reply))
              return final_reply
         else:
              # If no reply, still try to save user message? Or just return None.
@@ -232,50 +232,47 @@ class LinjingBot:
              return None
 
 
-    async def _save_conversation_async(self, user_id, session_id, user_message, bot_reply):
-        """Helper coroutine to save conversation asynchronously."""
-        if not self.memory_manager:
-            return
-
+    async def _save_conversation_async(self, context: MessageContext, result_context: MessageContext, user_message: Any, bot_reply: Any):
+        """Helper coroutine to save conversation and update emotion asynchronously."""
         # Save user message
-        try:
-            user_content = user_message.extract_plain_text() if hasattr(user_message, 'extract_plain_text') else str(user_message)
-            await self.memory_manager.add_conversation_memory(
-                user_id=user_id,
-                session_id=session_id,
-                content=user_content,
-                role="user"
-            )
-        except Exception as e:
-            logger.error(f"后台存储用户消息失败: {e}", exc_info=True)
+        if self.memory_manager:
+            try:
+                user_content = user_message.extract_plain_text() if hasattr(user_message, 'extract_plain_text') else str(user_message)
+                await self.memory_manager.add_conversation_memory(
+                    user_id=context.user_id,
+                    session_id=context.session_id,
+                    content=user_content,
+                    role="user"
+                )
+            except Exception as e:
+                logger.error(f"后台存储用户消息失败 (UserID: {context.user_id}): {e}", exc_info=True)
 
         # Save bot reply
-        if bot_reply and hasattr(bot_reply, 'extract_plain_text'):
+        if bot_reply and self.memory_manager and hasattr(bot_reply, 'extract_plain_text'):
             try:
                 bot_content = bot_reply.extract_plain_text()
                 await self.memory_manager.add_conversation_memory(
-                    user_id=user_id,
-                    session_id=session_id,
+                    user_id=context.user_id,
+                    session_id=context.session_id,
                     content=bot_content,
                     role="assistant"
                 )
             except Exception as e:
-                logger.error(f"后台存储机器人回复失败: {e}", exc_info=True)
+                logger.error(f"后台存储机器人回复失败 (UserID: {context.user_id}): {e}", exc_info=True)
 
         # Update emotion state (Also deferred)
         if bot_reply and self.emotion_manager:
-            # 假设从上下文中提取情绪因素
-            emotion_factors = result_context.get_state("emotion_factors", {})
-            await self.emotion_manager.update_emotion(context.user_id, emotion_factors)
+            try:
+                # 从处理后的上下文中提取情绪因素
+                emotion_factors = result_context.get_state("emotion_factors", {})
+                if emotion_factors: # Only update if factors are present
+                     await self.emotion_manager.update_emotion(context.user_id, emotion_factors)
+            except Exception as e:
+                 logger.error(f"后台更新情绪状态失败 (UserID: {context.user_id}): {e}", exc_info=True)
 
-        # 发布消息发送事件
-        if final_reply:
-            await self.event_bus.publish(
-                EventType.MESSAGE_SENT,
-                {"message": final_reply, "context": result_context}
-            )
-
-        return final_reply
+        # Note: MESSAGE_SENT event is already published in handle_message before this task runs.
+        # No need to publish it again here.
+        # Also, no need to return anything from this background task.
     
     def get_adapter(self, name: str) -> Optional[Any]:
         """
