@@ -40,7 +40,9 @@ RUN pip install --no-cache-dir \
     fastapi \
     uvicorn \
     websockets>=11.0.3 \
-    aiosqlite
+    aiosqlite \
+    asyncpg \
+    psycopg2-binary
 
 # 复制应用代码
 COPY --chown=linjing:linjing . /app/
