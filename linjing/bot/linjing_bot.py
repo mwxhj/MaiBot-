@@ -419,9 +419,10 @@ class LinjingBot:
         """初始化处理器"""
         logger.info("正在初始化处理器...")
         
-        # 获取处理器配置
+        # 获取处理器具体配置和管道顺序配置
         processor_configs = self.config.get("processors", {})
-        pipeline_order = processor_configs.get("pipeline", [
+        # 从 bot 配置块读取管道顺序，如果不存在则使用默认值
+        pipeline_order = self.config.get("bot", {}).get("processor_pipeline", [
             ProcessorName.READ_AIR,
             ProcessorName.THOUGHT_GENERATOR,
             ProcessorName.RESPONSE_COMPOSER

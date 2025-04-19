@@ -32,6 +32,7 @@ class ResponseComposer(BaseProcessor):
 
     def __init__(
         self,
+        name: str, # 添加 name 参数
         config: Dict[str, Any],
         priority: int = 300,
     ) -> None:
@@ -39,10 +40,12 @@ class ResponseComposer(BaseProcessor):
         初始化响应生成器。
 
         Args:
+            name: 处理器名称
             config: 配置字典，包含生成回复所需的参数
             priority: 处理器优先级，默认为300（执行顺序靠后）
         """
-        super().__init__(config, priority)
+        # 调用父类的 __init__，并传递 name
+        super().__init__(name, config) # 传递 name 给父类
         self.style_factor = config.get("style_factor", 0.8)
         self.character_name = config.get("character_name", "灵镜")
         self.response_template = config.get(
