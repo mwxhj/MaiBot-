@@ -369,28 +369,8 @@ class OneBotAdapter(Bot):
                 # LinjingBot.handle_message 期望接收转换后的 Message 对象
                 await self._message_handler(event["message"]) # 使用内部变量名
             except Exception as e:
-                # === 手动格式化并记录堆栈跟踪 ===
-                import traceback
-                import io
-                tb_str = io.StringIO()
-                traceback.print_exc(file=tb_str)
-                tb_str.seek(0)
-                stack_trace = tb_str.read()
-                logger.critical(f"捕获到异常: 类型={type(e)}, 错误={e!r}")
-                logger.critical(f"--- Stack Trace START ---\n{stack_trace}--- Stack Trace END ---")
-                # 记录事件数据
-                try:
-                    import json
-                    # 注意：此时 event['message'] 可能是 Message 对象，需要特殊处理
-                    event_copy = event.copy() # 复制字典以避免修改原始事件
-                    if isinstance(event_copy.get("message"), Message):
-                         event_copy["message"] = str(event_copy["message"]) # 或使用 to_dict()
-                    event_str = json.dumps(event_copy, indent=2, ensure_ascii=False, default=str)
-                    logger.critical(f"异常发生时的 event 数据 (部分): {event_str[:1000]}{'...' if len(event_str) > 1000 else ''}")
-                except Exception as log_e:
-                    logger.critical(f"记录 event 数据时出错: {log_e!r}")
-                # 记录原始错误，但不再依赖 exc_info=True
-                logger.error(f"调用主消息处理函数时出错: {e}", exc_info=False)
+                # 恢复原始的异常处理和日志记录
+                logger.error(f"调用主消息处理函数时出错: {e}", exc_info=True) # 重新启用 exc_info=True
         elif event_type == "message" and not self._message_handler: # 使用内部变量名 (修正缩进)
              logger.warning("收到消息事件，但没有注册主消息处理函数")
     

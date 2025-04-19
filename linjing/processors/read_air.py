@@ -114,7 +114,12 @@ class ReadAirProcessor(BaseProcessor):
                 context.log_processor(self.name, "无法分析消息")
         
         except Exception as e:
-            logger.error(f"读空气处理失败 - 输入数据: {context.to_dict()}", exc_info=True)
+            # 修改日志记录方式，避免 f-string 格式化问题
+            try:
+                context_dict_str = json.dumps(context.to_dict(), indent=2, ensure_ascii=False, default=str)
+                logger.error(f"读空气处理失败 - 输入数据:\n{context_dict_str}", exc_info=True)
+            except Exception as log_e:
+                 logger.error(f"记录读空气失败日志时出错: {log_e}", exc_info=True) # 记录原始错误和日志记录错误
             context.log_processor(self.name, f"处理失败: {type(e).__name__} - {str(e)}")
         
         return context
@@ -202,11 +207,11 @@ class ReadAirProcessor(BaseProcessor):
             history_text += f"{role}: {msg['content']}\n"
         
         # 构建提示词
+        # 转义 f-string 中的大括号
         prompt = f"""作为一个擅长理解对话语境的AI，请分析以下消息的情感、意图和社交期望。
 
 历史对话:
 {history_text}
-
 当前消息:
 用户: {message}
 
@@ -218,25 +223,25 @@ class ReadAirProcessor(BaseProcessor):
 
 格式示例:
 ```json
-{
-  "emotion": {
+{{
+  "emotion": {{
     "happy": 0.8,
     "anxious": 0.3
-  },
-  "intent": {
+  }},
+  "intent": {{
     "primary": "寻求信息",
     "secondary": "表达担忧",
     "confidence": 0.85
-  },
-  "social_context": {
+  }},
+  "social_context": {{
     "expectation": "希望得到准确信息并减轻焦虑",
     "relationship_building": true
-  },
-  "implicit": {
+  }},
+  "implicit": {{
     "concerns": ["担心结果", "缺乏信息"],
     "confidence": 0.7
-  }
-}
+  }}
+}}
 ```
 
 请确保返回JSON格式正确，不要包含额外的解释或文本。"""
