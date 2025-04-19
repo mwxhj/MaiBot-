@@ -338,8 +338,8 @@ adapters:
     reverse_ws_port: ${ONEBOT_PORT:-6700}  # OneBot标准端口
     family: AF_INET  # 指定IPv4协议
     access_token: "${ONEBOT_ACCESS_TOKEN}"  # OneBot访问令牌
-    # **新增：配置 NapCat HTTP API 地址**
-    http_api_url: "http://napcat:3000/"
+    # **修改：配置 NapCat HTTP API 地址为正确的端口 3001**
+    http_api_url: "http://napcat:3001/"
     heartbeat_interval: 5000  # 心跳间隔，单位毫秒
     rate_limit: 5.0   # 每秒API请求限制
     burst_limit: 10    # 突发请求限制
