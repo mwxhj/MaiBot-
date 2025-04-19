@@ -442,7 +442,6 @@ class ThoughtGenerator(BaseProcessor):
                     content=thought,
                     memory_type="thought",
                     importance=self.thought_importance, # 使用从配置读取的值
-                    importance=importance,
                     user_id=context.user_id,
                     associated_message=context.message
                 )
