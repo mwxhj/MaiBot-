@@ -106,12 +106,18 @@ class ResponseComposer(BaseProcessor):
                 await self._add_multimodal_content(reply_message, context)
             logger.debug("多模态内容处理完毕 (如果需要)。") # 添加日志
             
-            logger.debug(f"准备将回复对象设置到 context: {reply_message}") # 修改日志
+            # 在设置响应之前，详细记录将要设置的 reply_message 内容
+            reply_text_for_log = reply_message.extract_plain_text() # 提取纯文本内容用于日志
+            logger.debug(f"最终生成的回复消息对象 (纯文本): '{reply_text_for_log}'") # 记录纯文本
+            logger.debug(f"最终生成的回复消息对象 (完整结构): {reply_message}") # 记录完整结构
+
+            logger.debug(f"准备将回复对象设置到 context: {reply_message}") # 保留原有日志
             # 使用 create_response 来设置最终响应，而不是 set_state
             context.create_response(reply_message)
             # 保留 set_state 以防其他地方可能用到，但主要依赖 create_response
             context.set_state("reply", reply_message)
-            logger.info(f"已生成回复并设置到 context: {reply[:50]}...") # 修改日志文本
+            # 使用提取的纯文本更新日志信息
+            logger.info(f"已生成回复并设置到 context: {reply_text_for_log[:50]}{'...' if len(reply_text_for_log) > 50 else ''}")
             
         except Exception as e:
             logger.error(f"生成回复时出错: {e}", exc_info=True)

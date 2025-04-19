@@ -315,9 +315,12 @@ class ThoughtGenerator(BaseProcessor):
         """
         analysis = context.get_state("read_air_analysis")
         logger.debug(f"格式化'读空气'分析结果: {analysis}") # 添加日志
+        # 定义一个特殊的标记表示无法分析
+        UNANALYZABLE_CONTENT_MARKER = "内容无法分析（可能是图片等非文本内容）"
         if not analysis or not isinstance(analysis, dict): # 检查 analysis 是否为字典
-            logger.warning(f"无效的'读空气'分析结果类型: {type(analysis)}")
-            return "无对话分析"
+            logger.warning(f"无效的'读空气'分析结果类型: {type(analysis)}，使用占位符")
+            # 返回特定标记而不是通用文本
+            return UNANALYZABLE_CONTENT_MARKER
 
         result = ""
 
