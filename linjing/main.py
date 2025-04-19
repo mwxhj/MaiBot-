@@ -11,6 +11,7 @@ import signal
 import asyncio
 import argparse
 import logging
+import importlib # 导入 importlib
 from typing import Dict, Any, Optional
 
 # 设置模块导入路径
@@ -113,6 +114,22 @@ def main() -> None:
 
     # === 修改配置加载和日志设置逻辑 ===
     config_path = args.config if args.config else None # 获取命令行指定的路径，可能为 None
+
+    # 强制重新加载 config 模块
+    try:
+        import linjing.config # 确保模块被导入
+        importlib.reload(linjing.config) # 强制重新加载
+        logger.debug("已强制重新加载 linjing.config 模块")
+        # 现在再从重新加载后的模块导入 ConfigManager
+        from linjing.config import ConfigManager
+    except ImportError as e:
+         logger.error(f"无法导入 linjing.config: {e}")
+         sys.exit(1)
+    except Exception as e:
+         logger.error(f"重新加载 linjing.config 时出错: {e}")
+         # 可以选择继续尝试，或者退出
+         from linjing.config import ConfigManager # 尝试正常导入
+
     config_manager_instance = ConfigManager(config_path=config_path) # 实例化 ConfigManager
 
     # 在加载配置后设置日志级别
