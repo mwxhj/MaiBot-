@@ -210,11 +210,15 @@ class ResponseComposer(BaseProcessor):
         if not self.personality:
             return "友好、乐于助人"
         
-        traits = self.personality.get("traits", [])
-        if not traits:
+        # Correct access: Access the 'traits' attribute directly
+        traits_list = self.personality.traits if hasattr(self.personality, 'traits') else []
+        if not traits_list:
             return "友好、乐于助人"
-        
-        return "、".join(traits)
+
+        # Ensure traits_list contains strings before joining
+        string_traits = [str(trait) for trait in traits_list if isinstance(trait, (str, int, float))] # Handle potential non-string traits
+
+        return "、".join(string_traits)
 
     def _format_response(self, response: str) -> str:
         """
