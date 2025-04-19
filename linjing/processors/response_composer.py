@@ -106,14 +106,19 @@ class ResponseComposer(BaseProcessor):
                 await self._add_multimodal_content(reply_message, context)
             logger.debug("多模态内容处理完毕 (如果需要)。") # 添加日志
             
-            logger.debug(f"准备将回复对象设置到 context state: {reply_message}") # 添加日志
+            logger.debug(f"准备将回复对象设置到 context: {reply_message}") # 修改日志
+            # 使用 create_response 来设置最终响应，而不是 set_state
+            context.create_response(reply_message)
+            # 保留 set_state 以防其他地方可能用到，但主要依赖 create_response
             context.set_state("reply", reply_message)
-            logger.info(f"已生成回复并设置到 context state: {reply[:50]}...") # 修改日志文本
+            logger.info(f"已生成回复并设置到 context: {reply[:50]}...") # 修改日志文本
             
         except Exception as e:
             logger.error(f"生成回复时出错: {e}", exc_info=True)
-            # Correct assignment using set_state
+            # 发生错误时，也使用 create_response 设置错误回复
             error_reply_message = Message(MessageSegment.text(self._generate_error_response()))
+            context.create_response(error_reply_message)
+            # 同时保留错误状态
             context.set_state("reply", error_reply_message)
 
         return context
@@ -376,7 +381,8 @@ class ResponseComposer(BaseProcessor):
             message: 回复消息
             context: 消息上下文
         """
-        multimodal_content = context.get("multimodal_content", [])
+        # 使用 get_state 获取状态，而不是 get
+        multimodal_content = context.get_state("multimodal_content", [])
         
         for item in multimodal_content:
             content_type = item.get("type")
