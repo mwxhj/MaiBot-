@@ -281,19 +281,19 @@ class ThoughtGenerator(BaseProcessor):
         """
         if not context.emotion_state:
             return "情绪平静"
-        logger.debug(f"格式化情绪状态: {context.emotion_state}") # 添加日志
+        logger.debug(f"格式化情绪状态: {context.emotion_state}")
         emotion_text = ""
-        # 处理嵌套的emotion_state结构
-        emotions = context.emotion_state
-        if isinstance(emotions, dict) and 'dimensions' in emotions:
-            emotions = emotions['dimensions']
-            
-        for emotion, intensity in emotions.items():
-            if isinstance(intensity, (int, float)):
-                if intensity > 0.3:
-                    emotion_text += f"{emotion}: {intensity:.2f}, "
-            else:
-                logger.warning(f"情绪强度不是数字类型: emotion={emotion}, type={type(intensity)}, value={intensity}")
+        # 直接访问 EmotionState 对象的 dimensions 属性
+        if hasattr(context.emotion_state, 'dimensions') and isinstance(context.emotion_state.dimensions, dict):
+            emotions = context.emotion_state.dimensions
+            for emotion, intensity in emotions.items():
+                if isinstance(intensity, (int, float)):
+                    if intensity > 0.3:
+                        emotion_text += f"{emotion}: {intensity:.2f}, "
+                else:
+                    logger.warning(f"情绪强度不是数字类型: emotion={emotion}, type={type(intensity)}, value={intensity}")
+        else:
+             logger.warning(f"无效的情绪状态格式: {context.emotion_state}")
 
         return emotion_text.strip(", ") or "情绪平静"
     

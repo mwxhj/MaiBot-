@@ -132,7 +132,8 @@ class Message:
     """
     def __init__(self, message: Optional[Union[str, List[MessageSegment], "Message", MessageSegment]] = None):
         self.segments: List[MessageSegment] = []
-        
+        self.metadata: Dict[str, Any] = {} # 添加 metadata 字典
+
         if message is None:
             pass
         elif isinstance(message, str):
@@ -233,70 +234,75 @@ class Message:
             msg.segments.append(MessageSegment(seg_type, item.get("data", {})))
         return msg
 
-    def id(self) -> str:
+    def id(self) -> Optional[str]:
         """获取消息ID"""
-        return generate_uuid()
+        return self.metadata.get("message_id")
 
     def timestamp(self) -> Optional[float]:
         """获取消息时间戳"""
-        return None
+        return self.metadata.get("timestamp")
 
     def sender(self) -> Optional[Dict[str, Any]]:
         """获取消息发送者"""
-        return None
+        return self.metadata.get("sender")
 
     def meta(self) -> Dict[str, Any]:
-        """获取消息元数据"""
-        return {}
+        """获取所有消息元数据"""
+        return self.metadata
 
     def set_id(self, message_id: str) -> 'Message':
         """设置消息ID"""
-        # This method is not provided in the original file or the new implementation
-        # It's assumed to exist as it's called in the to_onebot_format method
+        if message_id:
+            self.metadata["message_id"] = str(message_id) # 确保是字符串
         return self
 
     def set_timestamp(self, timestamp: float) -> 'Message':
         """设置消息时间戳"""
-        # This method is not provided in the original file or the new implementation
-        # It's assumed to exist as it's called in the to_onebot_format method
+        if timestamp:
+            self.metadata["timestamp"] = float(timestamp) # 确保是浮点数
         return self
 
     def set_sender(self, sender: Dict[str, Any]) -> 'Message':
         """设置消息发送者"""
-        # This method is not provided in the original file or the new implementation
-        # It's assumed to exist as it's called in the to_onebot_format method
+        if sender and isinstance(sender, dict):
+            self.metadata["sender"] = sender
         return self
 
     def set_meta(self, key: str, value: Any) -> 'Message':
-        """设置元数据"""
-        # This method is not provided in the original file or the new implementation
-        # It's assumed to exist as it's called in the to_onebot_format method
+        """设置单个元数据"""
+        self.metadata[key] = value
         return self
 
     def get_meta(self, key: str, default: Any = None) -> Any:
-        """获取元数据"""
-        # This method is not provided in the original file or the new implementation
-        # It's assumed to exist as it's called in the to_onebot_format method
-        return default
+        """获取单个元数据"""
+        return self.metadata.get(key, default)
 
     def get_user_id(self) -> Optional[str]:
         """获取消息发送者ID"""
-        # This method is not provided in the original file or the new implementation
-        # It's assumed to exist as it's called in the get_session_id method
+        sender_info = self.sender()
+        if sender_info and isinstance(sender_info, dict):
+             user_id = sender_info.get('user_id')
+             return str(user_id) if user_id is not None else None # 确保返回字符串或None
         return None
 
     def get_session_id(self) -> str:
         """获取会话ID"""
         user_id = self.get_user_id()
-        if not user_id:
-            return "unknown"
-        
-        # 检查是否是群消息
         group_id = self.get_meta("group_id")
+
         if group_id:
             return f"group_{group_id}"
-        
-        return f"private_{user_id}"
+        elif user_id:
+            return f"private_{user_id}"
+        else:
+            # 尝试从其他元数据推断，或返回默认值
+            event_type = self.get_meta("post_type")
+            if event_type == "notice":
+                 # 例如，使用通知类型和子类型创建会话ID
+                 sub_type = self.get_meta("notice_type")
+                 return f"notice_{sub_type}"
+            # 可以根据需要添加更多逻辑
+            return "unknown_session" # 提供更明确的默认值
 
     def to_onebot_format(self) -> List[Dict[str, Any]]:
         """转换为OneBot消息格式"""
@@ -373,14 +379,17 @@ class Message:
         msg = cls(segments)
         
         # 设置消息元数据
-        msg.set_id(event.get("message_id", ""))
-        
-        # 设置发送者信息
-        sender = event.get("sender", {})
-        msg.set_sender(sender)
-        
-        # 设置群组信息
-        if "group_id" in event:
-            msg.set_meta("group_id", event["group_id"])
-        
-        return msg 
+        # 存储核心元数据
+        msg.set_id(event.get("message_id"))
+        msg.set_timestamp(event.get("time"))
+        msg.set_sender(event.get("sender"))
+
+        # 存储其他可能的元数据，如群组ID, 消息类型等
+        for key in ["post_type", "message_type", "sub_type", "group_id", "user_id", "notice_type", "request_type"]:
+             if key in event:
+                 msg.set_meta(key, event[key])
+        # 如果 sender 不存在，但顶层有 user_id (例如私聊消息)，也存储它
+        if not msg.sender() and "user_id" in event:
+             msg.set_meta("user_id", event["user_id"]) # 存储顶层 user_id
+
+        return msg
