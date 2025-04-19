@@ -14,6 +14,7 @@ from linjing.processors.base_processor import BaseProcessor
 from linjing.processors.message_context import MessageContext
 from linjing.processors.processor_registry import ProcessorRegistry
 from linjing.utils.logger import get_logger
+from linjing.constants import ProcessorName
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -41,11 +42,14 @@ class ReadAirProcessor(BaseProcessor):
         # 调用父类 __init__ 时传递 name 和 config
         super().__init__(name=name, config=config)
         
-        # 置信度阈值，低于此值的分析结果将被忽略
+        # **修改：从处理器特定配置读取 confidence_threshold**
+        # 注意：self.config 是传递给处理器的配置字典，通常来自 config.yaml 的 processors.<processor_name> 部分
         self.confidence_threshold = self.config.get("confidence_threshold", 0.6)
+        logger.debug(f"{self.name} confidence_threshold 设置为: {self.confidence_threshold}")
         
-        # 最大历史消息数量
+        # **修改：从处理器特定配置读取 max_history**
         self.max_history = self.config.get("max_history", 10)
+        logger.debug(f"{self.name} max_history 设置为: {self.max_history}")
         
         # LLM 管理器，用于调用语言模型
         self.llm_manager = None
@@ -113,8 +117,10 @@ class ReadAirProcessor(BaseProcessor):
                 intent_summary += f"({intent.get('confidence', 0):.2f})"
                 
                 emotion_summary = "情感: " + ", ".join(
-                    [f"{k}: {v:.2f}" for k, v in emotion.items() 
-                     if v > self.confidence_threshold]
+                    # **修改：使用 self.confidence_threshold**
+                    # 同时添加类型检查以提高健壮性
+                    [f"{k}: {v:.2f}" for k, v in emotion.items()
+                     if isinstance(v, (int, float)) and v > self.confidence_threshold]
                 )
                 
                 social_summary = "社交期望: " + (
@@ -150,15 +156,17 @@ class ReadAirProcessor(BaseProcessor):
         """
         history = []
         
-        # 限制历史消息数量
+        # **修改：使用 self.max_history**
         recent_history = context.history[-self.max_history:] if context.history else []
         
         # 格式化历史消息
         for msg in recent_history:
+            user_identifier = msg.get_meta("user_display_name") or str(msg.user_id)
             history.append({
                 "role": "user" if msg.get_meta("is_user", False) else "bot",
                 "content": msg.extract_plain_text(),
-                "timestamp": msg.timestamp() or 0
+                "timestamp": msg.timestamp() or 0,
+                "user_identifier": user_identifier
             })
         
         return history
@@ -179,15 +187,18 @@ class ReadAirProcessor(BaseProcessor):
         if not message.strip():
             return None
         
+        # 获取用户标识符(优先使用昵称，没有则用ID)
+        user_identifier = context.message.get_meta("user_display_name") or str(context.user_id)
+        
         # 构建提示词
-        prompt = self._build_analysis_prompt(message, history)
+        prompt = self._build_analysis_prompt(message, history, user_identifier)
         
         try:
             # 调用LLM进行分析，指定任务类型为read_air以使用合适的模型
             response, metadata = await self.llm_manager.generate_text(
                 prompt,
-                max_tokens=4096, # 设置为 4096
-                task="read_air"  # 使用任务路由机制选择合适的模型
+                max_tokens=self.config.get("llm_max_tokens", 1000), # 从配置读取 token 限制
+                task=ProcessorName.READ_AIR  # 使用任务路由机制选择合适的模型
             )
             
             # 记录使用的模型信息
@@ -203,29 +214,28 @@ class ReadAirProcessor(BaseProcessor):
             logger.error(f"消息分析失败: {str(e)}", exc_info=True)
             return None
     
-    def _build_analysis_prompt(self, message: str, history: List[Dict[str, Any]]) -> str:
+    def _build_analysis_prompt(self, message: str, history: List[Dict[str, Any]], user_identifier: str = "用户") -> str:
         """
         构建分析提示词
         
         Args:
             message: 消息文本
             history: 历史消息列表
+            user_identifier: 用户标识符(昵称或ID)
             
         Returns:
             分析提示词
         """
-        # 将历史消息格式化为文本
+        # 将历史消息格式化为文本(严格格式)
         history_text = ""
         for i, msg in enumerate(history):
-            role = "用户" if msg["role"] == "user" else "机器人"
+            role = f"用户 ({msg.get('user_identifier', '用户')})" if msg["role"] == "user" else f"我 ({self.name})"
             history_text += f"{role}: {msg['content']}\n"
         
-        # **修改：从配置加载模板并格式化**
+        # 从配置加载模板并格式化
         try:
-            # 确保从 self.config 获取最新的 prompts 数据
-            # (假设 ConfigManager 更新了传递给处理器的 config 字典)
             current_prompts = self.config.get("prompts", {})
-            self.prompt_template = current_prompts.get("read_air", {}).get("analysis_prompt", self.prompt_template) # 更新模板以防万一
+            self.prompt_template = current_prompts.get("read_air", {}).get("analysis_prompt", self.prompt_template)
 
             if not self.prompt_template or "错误：" in self.prompt_template:
                  logger.error("ReadAir Prompt 模板无效或未加载，无法构建 Prompt。")
@@ -233,7 +243,8 @@ class ReadAirProcessor(BaseProcessor):
 
             prompt = self.prompt_template.format(
                 history_text=history_text,
-                message=message
+                user_identifier=user_identifier,
+                message_content=message
             )
             # YAML 加载时会处理 {{ 和 }}，所以不需要额外转义
         except KeyError as e:

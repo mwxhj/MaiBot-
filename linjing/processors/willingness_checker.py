@@ -13,6 +13,7 @@ from linjing.processors.base_processor import BaseProcessor
 from linjing.processors.message_context import MessageContext
 from linjing.processors.processor_registry import ProcessorRegistry
 from linjing.utils.logger import get_logger
+from linjing.config import ConfigManager
 from linjing.adapters.message_types import MessageSegment # 导入 MessageSegment 用于检查 @
 
 # 获取日志记录器
@@ -112,7 +113,7 @@ class WillingnessChecker(BaseProcessor):
             logger.debug(f"意愿检查 Prompt (发送给 LLM):\n--- PROMPT START ---\n{prompt}\n--- PROMPT END ---") # 记录 Prompt
             response, metadata = await self.llm_manager.generate_text(
                 prompt,
-                max_tokens=100, # 判断意愿通常不需要很长回复
+                max_tokens=self.config.get("llm_max_tokens", 100), # 从配置读取 token 限制
                 task="willingness_check" # 定义新的任务类型
             )
             

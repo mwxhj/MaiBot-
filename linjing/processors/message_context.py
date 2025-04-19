@@ -10,6 +10,7 @@ import time
 import copy
 from collections import defaultdict, deque
 from typing import Any, Dict, List, Optional, Union, Set
+from linjing.config import ConfigManager
 
 from linjing.adapters import Message
 
@@ -51,9 +52,13 @@ class MessageContext:
         # 历史消息记录
         self.history: List[Message] = []
         # 群组历史记录 {group_id: deque}
-        self.group_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=30))
+        config = ConfigManager.get_config()
+        group_max_history = config.get("processors", {}).get("read_air", {}).get("group_max_history", 30)
+        group_user_max_history = config.get("processors", {}).get("read_air", {}).get("group_user_max_history", 10)
+        
+        self.group_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=group_max_history))
         # 用户群组历史记录 {(group_id, user_id): deque}
-        self.group_user_history: Dict[tuple, deque] = defaultdict(lambda: deque(maxlen=10))
+        self.group_user_history: Dict[tuple, deque] = defaultdict(lambda: deque(maxlen=group_user_max_history))
         
         # 关联的记忆
         self.memories: List[Any] = []

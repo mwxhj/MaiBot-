@@ -59,7 +59,11 @@ class OneBotAdapter(Bot):
 
         # API限速器
         from linjing.adapters.adapter_utils import ApiRateLimiter
-        self.rate_limiter = ApiRateLimiter(rate_limit=5.0, burst_limit=10)
+        # **修改：从配置读取速率限制**
+        rate_limit = config.get("rate_limit", 5.0)
+        burst_limit = config.get("burst_limit", 10)
+        self.rate_limiter = ApiRateLimiter(rate_limit=rate_limit, burst_limit=burst_limit)
+        logger.debug(f"API 限速器设置: rate={rate_limit}/s, burst={burst_limit}")
 
         # 注册适配器
         from linjing.adapters.adapter_utils import AdapterRegistry
@@ -222,10 +226,16 @@ class OneBotAdapter(Bot):
         if self.is_reverse:
             return
 
+        # **修改：从配置读取心跳间隔**
+        heartbeat_interval_ms = self.config.get("heartbeat_interval", 30000) # 从适配器配置读取
+        heartbeat_interval_sec = heartbeat_interval_ms / 1000.0
+        logger.debug(f"心跳间隔设置为: {heartbeat_interval_sec} 秒")
+
         while self.connected:
             try:
-                await asyncio.sleep(30)
+                await asyncio.sleep(heartbeat_interval_sec) # 使用配置值
                 if self.connected and self.websocket:
+                    logger.debug("发送心跳包...") # 添加日志
                     await self.websocket.send(json.dumps({
                         "post_type": "meta_event",
                         "meta_event_type": "heartbeat",

@@ -95,7 +95,7 @@ class MoodModel:
                 changes[dim] += dimension_effects[dim]
                 
             # 限制单次变化量
-            max_change = 0.15  # 最大变化量
+            max_change = self.config.get("emotion", {}).get("max_change_per_turn", 0.15)  # 从配置读取最大变化量
             changes[dim] = max(-max_change, min(max_change, changes[dim]))
         
         return changes

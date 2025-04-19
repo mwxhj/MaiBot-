@@ -11,6 +11,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple, Union, TypeVar, Type, ClassVar
 
 from ..utils.logger import get_logger
+from linjing.config import ConfigManager
 
 logger = get_logger(__name__)
 
@@ -132,7 +133,20 @@ class BaseModel:
             return None
     
     @classmethod
-    async def get_all(cls: Type[T], db_manager, conditions: Dict[str, Any] = None, limit: int = 100) -> List[T]:
+    async def get_all(cls: Type[T], db_manager, conditions: Dict[str, Any] = None, limit: int = None) -> List[T]:
+        """
+        获取所有符合条件的模型实例
+        
+        Args:
+            db_manager: 数据库管理器
+            conditions: 查询条件字典
+            limit: 最大返回数量，如为None则使用配置中的默认值
+            
+        Returns:
+            模型实例列表
+        """
+        if limit is None:
+            limit = ConfigManager.get_config().get("storage", {}).get("database", {}).get("default_query_limit", 100)
         """
         获取所有符合条件的模型实例。
         

@@ -59,12 +59,38 @@ class ResponseComposer(BaseProcessor):
         prompts_config = config.get("prompts", {}).get("response_composer", {})
         self.response_prompt_template = prompts_config.get("response_prompt", "")
         self.fallback_prompt_template = prompts_config.get("fallback_prompt", "")
+        # **新增：从处理器特定配置读取其他参数**
+        # 注意：self.config 是传递给处理器的配置字典
+        self.max_history = self.config.get("max_history", 5)
+        self.fallback_responses = self.config.get("fallback_responses", [
+            "抱歉，我没能完全理解您的意思，能请您再说明一下吗？",
+            "不好意思，我没太明白您的意思，可以请您换个方式表达吗？",
+            "抱歉，我可能理解有误，您能再详细说明一下您的需求吗？",
+        ])
+        self.error_responses = self.config.get("error_responses", [
+            "抱歉，我遇到了一些技术问题，无法正常回复您的消息。",
+            "对不起，处理您的请求时出现了错误，请稍后再试。",
+        ])
+        self.default_emoji = self.config.get("default_emoji", "😊") # 从配置读取默认表情
+        # 读取 response_template 和 use_multimodal (之前已有，但确保是从处理器配置读取)
+        self.response_template = self.config.get("response_template", "{response}")
+        self.use_multimodal = self.config.get("use_multimodal", True)
+        # 读取 style_factor (之前已有)
+        self.style_factor = self.config.get("style_factor", 0.8)
+        # 读取 character_name (之前已有，但建议从 bot 配置获取)
+        # self.character_name = self.config.get("character_name", "灵镜") # 保留，但下面会优先用 bot.name
+        # 尝试从全局配置获取 bot name 作为 character_name
+        global_config = config.get("global_config", {}) # 假设全局配置通过 'global_config' 键传递
+        self.character_name = global_config.get("bot", {}).get("name", "灵镜")
+
+
         if not self.response_prompt_template:
              logger.error("未能从配置中加载 ResponseComposer response_prompt 模板！")
              self.response_prompt_template = "错误：缺少 ResponseComposer 回复 Prompt 模板。"
         if not self.fallback_prompt_template:
              logger.error("未能从配置中加载 ResponseComposer fallback_prompt 模板！")
              self.fallback_prompt_template = "错误：缺少 ResponseComposer 备用 Prompt 模板。"
+        logger.debug(f"{name} max_history 设置为: {self.max_history}")
 
 
     def set_llm_manager(self, llm_manager: Any) -> None:
@@ -172,7 +198,7 @@ class ResponseComposer(BaseProcessor):
                 response, metadata = await self.llm_manager.generate_text(
                     prompt,
                     task="chat",  # 回复生成是对话任务
-                    max_tokens=4096 # 设置为 4096
+                    max_tokens=self.config.get("max_tokens", 1000) # 从配置读取 token 限制
                 )
                 # **新增：记录从 LLM (chat 任务) 返回的原始响应**
                 logger.debug(f"LLM 返回的原始回复文本: {repr(response)}")
@@ -222,7 +248,8 @@ class ResponseComposer(BaseProcessor):
 
             prompt = self.response_prompt_template.format(
                 history=history,
-                user_message_text=user_message_text,
+                user_identifier=context.message.get_meta("user_display_name") or str(context.user_id),
+                message_content=user_message_text,
                 thought=thought,
                 traits=traits,
                 character_name=self.character_name
@@ -250,11 +277,13 @@ class ResponseComposer(BaseProcessor):
             return "无历史对话"
         
         formatted_history = []
-        for entry in history[-5:]:  # 只使用最近的5条对话
+        # **修改：使用 self.max_history**
+        for entry in history[-self.max_history:]:
             if "user" in entry:
-                formatted_history.append(f"用户: {entry['user']}")
+                user_identifier = entry.get("user_identifier", "用户")
+                formatted_history.append(f"用户 ({user_identifier}): {entry['user']}")
             if "bot" in entry:
-                formatted_history.append(f"{self.character_name}: {entry['bot']}")
+                formatted_history.append(f"我 ({self.character_name}): {entry['bot']}")
         
         return "\n".join(formatted_history)
 
@@ -303,8 +332,8 @@ class ResponseComposer(BaseProcessor):
             emoji_tendency = self.personality.get_preference("emoji_usage", 0.0)
             # 根据倾向随机决定是否添加表情 (乘以 0.5 降低频率)
             if emoji_tendency > 0.1 and random.random() < (emoji_tendency * 0.5):
-                 # 暂时硬编码一个简单的表情
-                 formatted_response += " 😊"
+                 # **修改：使用配置的默认表情**
+                 formatted_response += f" {self.default_emoji}"
             
             # 暂时注释掉短语部分，因为 Personality 类没有 phrases 且访问方式错误
             # if phrases and random.random() < 0.2:
@@ -388,7 +417,7 @@ class ResponseComposer(BaseProcessor):
                 response, metadata = await self.llm_manager.generate_text(
                     prompt,
                     task="chat",  # 备用回复也是对话任务
-                    max_tokens=4096 # 设置为 4096
+                    max_tokens=self.config.get("max_tokens", 1000) # 从配置读取 token 限制
                 )
                 
                 # 记录使用的模型信息

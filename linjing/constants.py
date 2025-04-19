@@ -70,6 +70,7 @@ class ProcessorName:
     READ_AIR = "read_air"
     THOUGHT_GENERATOR = "thought_generator"
     RESPONSE_COMPOSER = "response_composer"
+    WILLINGNESS_CHECKER = "willingness_checker"
 
 # 错误代码
 class ErrorCode:
@@ -83,4 +84,7 @@ class ErrorCode:
     PERMISSION_ERROR = 1007
     RATE_LIMIT_ERROR = 1008
     NETWORK_ERROR = 1009
-    UNKNOWN_ERROR = 9999 
+    UNKNOWN_ERROR = 9999
+
+# 缓存键常量
+CACHE_KEY_MEMORIES = "memories"

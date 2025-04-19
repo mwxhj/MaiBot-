@@ -39,12 +39,23 @@ class ThoughtGenerator(BaseProcessor):
         # 调用父类 __init__ 时传递 name 和 config
         super().__init__(name=name, config=config)
         
-        # 思考深度，影响思考的详细程度
+        # **修改：从处理器特定配置读取 thinking_depth**
+        # 注意：self.config 是传递给处理器的配置字典
         self.thinking_depth = self.config.get("thinking_depth", 3)
+        logger.debug(f"{self.name} thinking_depth 设置为: {self.thinking_depth}")
         
-        # 是否保存思考结果到记忆
+        # **修改：从处理器特定配置读取 save_to_memory**
         self.save_to_memory = self.config.get("save_to_memory", True)
+        logger.debug(f"{self.name} save_to_memory 设置为: {self.save_to_memory}")
         
+        # **修改：从处理器特定配置读取 max_history**
+        self.max_history = self.config.get("max_history", 5) # 用于 _format_history
+        logger.debug(f"{self.name} max_history 设置为: {self.max_history}")
+
+        # **修改：从处理器特定配置读取 thought_importance**
+        self.thought_importance = self.config.get("thought_importance", 0.5) # 用于 _save_thought_to_memory
+        logger.debug(f"{self.name} thought_importance 设置为: {self.thought_importance}")
+
         # **修改：从配置加载思考模板**
         # 注意：这里假设 config 字典包含了加载后的 prompts 数据
         self.thinking_template = config.get("prompts", {}).get("thought_generator", {}).get("thinking_prompt", "")
@@ -138,7 +149,7 @@ class ThoughtGenerator(BaseProcessor):
             # 调用LLM生成思考，使用任务路由选择合适的模型
             thought, metadata = await self.llm_manager.generate_text(
                 prompt,
-                max_tokens=4096, # 设置为 4096
+                max_tokens=self.config.get("max_tokens", 1000), # 从配置读取 token 限制
                 task="thought_generation"  # 使用专门的任务类型
             )
             
@@ -200,7 +211,8 @@ class ThoughtGenerator(BaseProcessor):
 
             prompt = self.thinking_template.format(
                 character_name=character_name, # 添加角色名
-                message_text=message_text,
+                user_identifier=context.message.get_meta("user_display_name") or str(context.user_id),
+                message_content=message_text,
                 history_text=history_text,
                 memories_text=memories_text,
                 emotion_text=emotion_text,
@@ -229,13 +241,16 @@ class ThoughtGenerator(BaseProcessor):
         """
         history_text = ""
         
-        # 获取最近的历史消息
-        max_history = self.config.get("max_history", 5)
-        recent_history = context.history[-max_history:] if context.history else []
+        # **修改：使用 self.max_history**
+        recent_history = context.history[-self.max_history:] if context.history else []
         
         # 格式化历史消息
         for msg in recent_history:
-            role = "用户" if msg.get_meta("is_user", False) else "我"
+            if msg.get_meta("is_user", False):
+                user_identifier = msg.get_meta("user_display_name") or str(msg.user_id)
+                role = f"用户 ({user_identifier})"
+            else:
+                role = f"我 ({self.name})"
             content = msg.extract_plain_text()
             history_text += f"{role}: {content}\n"
         
@@ -415,11 +430,11 @@ class ThoughtGenerator(BaseProcessor):
         """
         try:
             if hasattr(context, "memory_manager") and context.memory_manager:
-                # 创建思考记忆
-                importance = self.config.get("thought_importance", 0.5)
+                # **修改：使用 self.thought_importance**
                 await context.memory_manager.store_memory(
                     content=thought,
                     memory_type="thought",
+                    importance=self.thought_importance, # 使用从配置读取的值
                     importance=importance,
                     user_id=context.user_id,
                     associated_message=context.message

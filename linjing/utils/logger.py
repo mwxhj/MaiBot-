@@ -13,6 +13,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 from loguru import logger
+from linjing.config import ConfigManager
 
 def setup_logger(level: str = "INFO", log_dir: str = "logs") -> None:
     """
@@ -50,7 +51,7 @@ def setup_logger(level: str = "INFO", log_dir: str = "logs") -> None:
         format=log_format,
         level=level,
         rotation="00:00",  # 每天午夜轮换
-        retention="30 days",  # 保留30天
+        retention=f"{ConfigManager.get_config().get('system', {}).get('logging', {}).get('retention_days', 30)} days",  # 从配置读取保留天数
         compression="zip",  # 压缩旧日志
         encoding="utf-8",
     )
@@ -61,7 +62,7 @@ def setup_logger(level: str = "INFO", log_dir: str = "logs") -> None:
         format=log_format,
         level="ERROR",
         rotation="00:00",
-        retention="30 days",
+        retention=f"{ConfigManager.get_config().get('system', {}).get('logging', {}).get('retention_days', 30)} days",  # 从配置读取保留天数
         compression="zip",
         encoding="utf-8",
     )

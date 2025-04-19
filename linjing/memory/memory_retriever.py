@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Union
 import time
 
 from linjing.memory.memory_manager import Memory
-from linjing.constants import MemoryType
+from linjing.constants import MemoryType, CACHE_KEY_MEMORIES
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class MemoryRetriever:
             cache_entry = self.cache[cache_key]
             if time.time() - cache_entry["timestamp"] < self.cache_ttl:
                 logger.debug(f"使用缓存结果: {query[:20]}")
-                return cache_entry["memories"]
+                return cache_entry[CACHE_KEY_MEMORIES]
         
         # 如果没有指定记忆类型，默认查询所有类型
         if not memory_types:
@@ -124,7 +124,7 @@ class MemoryRetriever:
         # 更新缓存
         if use_cache:
             self.cache[cache_key] = {
-                "memories": result,
+                CACHE_KEY_MEMORIES: result,
                 "timestamp": time.time()
             }
             
@@ -177,8 +177,9 @@ class MemoryRetriever:
         # 使用LLM进一步优化结果排序（可选）
         if self.llm_manager and len(scored_memories) > 1:
             try:
-                # 尝试使用LLM重新排序前10个结果
-                top_memories = [m for m, _ in scored_memories[:10]]
+                # 尝试使用LLM重新排序前N个结果
+                rerank_top_n = self.config.get("retrieval", {}).get("rerank_llm_top_n", 10)
+                top_memories = [m for m, _ in scored_memories[:rerank_top_n]]
                 reranked_memories = await self._rerank_with_llm(top_memories, query)
                 
                 # 如果LLM重排序成功，替换原列表开头的元素
@@ -230,7 +231,10 @@ class MemoryRetriever:
             """
             
             # 生成排序结果
-            response = await self.llm_manager.generate_text(prompt, max_tokens=50)
+            response = await self.llm_manager.generate_text(
+                prompt,
+                max_tokens=self.config.get("retrieval", {}).get("rerank_llm_max_tokens", 50)
+            )
             
             # 解析排序结果
             try:
@@ -299,7 +303,7 @@ class MemoryRetriever:
                 memory_type_str = str(memory_type)
             
             # 构建查询条件
-            query = f"SELECT * FROM memories WHERE user_id = ? AND memory_type = ? ORDER BY importance DESC LIMIT ?"
+            query = f"SELECT * FROM {CACHE_KEY_MEMORIES} WHERE user_id = ? AND memory_type = ? ORDER BY importance DESC LIMIT ?"
             params = (user_id, memory_type_str, limit)
             
             # 执行查询

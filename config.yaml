@@ -12,6 +12,10 @@ system:
   plugins_dir: "plugins"
   templates_dir: "templates"
   assets_dir: "assets"
+  logging:
+    retention_days: 30  # 日志保留天数
+  network:
+    default_download_timeout: 30.0  # 默认文件下载超时(秒)
 
 # 机器人核心设置
 bot:
@@ -134,6 +138,10 @@ storage:
     collection_name: "memories"
     dimension: 1536  # OpenAI嵌入向量维度
     similarity: "Cosine"  # 首字母大写，符合Qdrant API要求
+    default_timeout: 10.0  # 默认操作超时(秒)
+    default_batch_size: 100  # 默认批量大小
+    default_cache_size: 1000  # 默认客户端缓存大小
+    default_search_limit: 10  # 默认搜索结果数
 
 # ======================== 更新后的配置部分 ========================
 
@@ -176,12 +184,14 @@ memory:
     batch_size: 10  # 批量处理文本进行 Embedding 的数量
     max_retries: 3  # 调用 Embedding API 失败时的最大重试次数
     timeout: 30  # 调用 Embedding API 的超时时间 (秒)
+    pending_processing_limit: 100  # 处理待处理嵌入默认限制
 
   # 关系数据库配置 (Relational Database Configuration)
   database:
     type: "sqlite"  # 数据库类型: "sqlite", "postgresql" 等
     path: "data/memories.db"  # SQLite 数据库文件路径
     max_connections: 10  # 数据库连接池的最大连接数 (如果适用)
+    default_query_limit: 100  # 默认数据库查询限制
 
 # 情感系统设置 (更新)
 emotion:
@@ -219,6 +229,8 @@ emotion:
     message_length: 0.1   # 消息长度对情绪的影响权重
     message_tone: 0.3     # 消息语气 (通过情感分析得到) 的影响权重
     user_relationship: 0.4 # 与用户的关系强度 (如果有) 的影响权重
+    message_length_threshold_long: 200  # 判断长消息阈值(字符数)
+    message_length_threshold_short: 10  # 判断短消息阈值(字符数)
     time_of_day: 0.2      # 一天中的时间段对情绪的影响权重
 
   # 情绪规则配置 (Emotion Rules Configuration)
@@ -310,6 +322,7 @@ processors:
   # 处理器配置
   read_air:
     enabled: true
+    llm_max_tokens: 1000  # LLM分析最大Token数
     description: "理解用户输入和环境信息的处理器"
     confidence_threshold: 0.6
     max_history: 10
@@ -340,6 +353,7 @@ processors:
     skip_on_mention: true # 被 @ 时跳过检查
     default_willingness: true # LLM 调用失败时的默认行为
     max_history_for_willingness: 3 # 用于判断意愿时参考的历史消息数量
+    llm_max_tokens: 100  # LLM判断意愿最大Token数
 
 # 适配器设置
 adapters:
@@ -355,6 +369,9 @@ adapters:
     http_api_url: "http://napcat:3001/"
     heartbeat_interval: 5000  # 心跳间隔，单位毫秒
     rate_limit: 5.0   # 每秒API请求限制
+    api_defaults:
+      rate_limit: 5.0  # 默认API速率限制
+      burst_limit: 10  # 默认API突发限制
     burst_limit: 10    # 突发请求限制
     
     # QQ机器人功能设置 (这些设置可能需要在具体实现中添加)

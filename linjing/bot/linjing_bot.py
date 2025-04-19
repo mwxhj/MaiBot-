@@ -446,7 +446,7 @@ class LinjingBot:
                     processor.set_personality(self.personality)
 
                 # **新增：初始化 WillingnessChecker**
-                elif name == "willingness_checker": # 使用字符串名称，因为它不是 ProcessorName 枚举成员
+                elif name == ProcessorName.WILLINGNESS_CHECKER: # 使用常量
                     from linjing.processors.willingness_checker import WillingnessChecker
                     processor = WillingnessChecker(name=name, config=processor_config)
                     processor.set_llm_manager(self.llm_manager)

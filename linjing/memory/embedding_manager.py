@@ -288,7 +288,18 @@ class EmbeddingManager:
                     
                 return False
     
-    async def process_pending_embeddings(self, limit: int = 100) -> int:
+    async def process_pending_embeddings(self, limit: int = None) -> int:
+        """
+        处理待生成嵌入的记忆
+        
+        Args:
+            limit: 单次处理的最大记录数，如为None则使用配置中的默认值
+            
+        Returns:
+            成功处理的记录数
+        """
+        if limit is None:
+            limit = self.config.get("pending_processing_limit", 100)
         """
         处理待生成嵌入的记忆
         

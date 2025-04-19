@@ -291,7 +291,23 @@ class KnowledgeGraph:
             return None
     
     async def find_entities(self, entity_type: Optional[str] = None, name_like: Optional[str] = None,
-                          limit: int = 100) -> List[Dict[str, Any]]:
+                          limit: int = None) -> List[Dict[str, Any]]:
+        """查找符合条件的实体
+        
+        Args:
+            entity_type: 实体类型过滤
+            name_like: 实体名称模糊匹配
+            limit: 最大返回数量，如为None则使用配置中的默认值
+            
+        Returns:
+            实体信息列表
+        """
+        if not self.db_manager or not self.initialize_done:
+            logger.warning("知识图谱未初始化，无法查找实体")
+            return []
+            
+        if limit is None:
+            limit = self.config.get("knowledge_graph", {}).get("default_entity_limit", 100)
         """
         查找符合条件的实体
         
@@ -348,7 +364,25 @@ class KnowledgeGraph:
     
     async def find_relations(self, source_id: Optional[str] = None, target_id: Optional[str] = None,
                            relation_type: Optional[str] = None, min_confidence: float = 0.0,
-                           limit: int = 100) -> List[Dict[str, Any]]:
+                           limit: int = None) -> List[Dict[str, Any]]:
+        """查找符合条件的关系
+        
+        Args:
+            source_id: 源实体ID过滤
+            target_id: 目标实体ID过滤
+            relation_type: 关系类型过滤
+            min_confidence: 最小置信度
+            limit: 最大返回数量，如为None则使用配置中的默认值
+            
+        Returns:
+            关系信息列表
+        """
+        if not self.db_manager or not self.initialize_done:
+            logger.warning("知识图谱未初始化，无法查找关系")
+            return []
+            
+        if limit is None:
+            limit = self.config.get("knowledge_graph", {}).get("default_relation_limit", 100)
         """
         查找符合条件的关系
         
@@ -689,7 +723,8 @@ class KnowledgeGraph:
         visited = set()
         queue = [[(source_id, None)]]  # (entity_id, relation_data)
         
-        while queue and len(paths) < 10:  # 最多返回10条路径
+        max_paths = self.config.get("knowledge_graph", {}).get("max_search_paths", 10)
+        while queue and len(paths) < max_paths:  # 最多返回配置的路径数量
             path = queue.pop(0)
             current_entity, _ = path[-1]
             

@@ -59,7 +59,7 @@ class ConnectionConfig:
     api_key: Optional[str] = None
     https: bool = False
     prefix: Optional[str] = None
-    timeout: float = 10.0
+    timeout: float = field(default_factory=lambda: ConfigManager.get_config().get("storage", {}).get("vector_db", {}).get("default_timeout", 10.0))
     
     # 本地存储配置
     local_path: Optional[str] = None
@@ -69,8 +69,8 @@ class ConnectionConfig:
     retry_delay: float = 1.0
     
     # 扩展配置
-    batch_size: int = 100      # 批量操作大小
-    cache_size: int = 1000     # 客户端缓存大小
+    batch_size: int = field(default_factory=lambda: ConfigManager.get_config().get("storage", {}).get("vector_db", {}).get("default_batch_size", 100))      # 批量操作大小
+    cache_size: int = field(default_factory=lambda: ConfigManager.get_config().get("storage", {}).get("vector_db", {}).get("default_cache_size", 1000))     # 客户端缓存大小
     
     # 内部字段
     _similarity_map: Dict[str, Distance] = field(default_factory=lambda: {
@@ -586,10 +586,13 @@ class VectorDBManagerEnhanced:
                 return []
         
         try:
+            # 如果未指定limit，则使用配置中的默认值
+            effective_limit = limit if limit is not None else self.config.batch_size
+            
             search_params = {
                 "collection_name": self.config.collection_name,
                 "query_vector": query_vector,
-                "limit": limit,
+                "limit": effective_limit,
                 "with_vectors": True,
                 "with_payload": True
             }
