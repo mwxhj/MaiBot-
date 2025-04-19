@@ -86,16 +86,15 @@ class DatabaseManager:
                     # 打印将要传递给 create_pool 的 host 和 port 值
                     host_to_use = self.db_host
                     port_to_use = self.db_port
-                    logger.debug(f"DatabaseManager.connect attempting to create pool with host: {host_to_use}, port: {port_to_use}")
+                    logger.debug(f"DatabaseManager.connect attempting to create pool with host: {self.db_host}") # 恢复打印 self.db_host
                     # --- DEBUG LOGGING END ---
                     self.pool = await asyncpg.create_pool(
                         user=self.db_user,
                         password=self.db_password,
                         database=self.db_name,
-                        # 尝试使用 addresses 参数代替 host 和 port
-                        # host=self.db_host,
-                        # port=self.db_port,
-                        addresses=[(host_to_use, port_to_use)],
+                        # 恢复使用 host 和 port 参数
+                        host=self.db_host,
+                        port=self.db_port,
                         timeout=self.connection_config.get("timeout", 30),
                         # 可以添加 min_size, max_size 等连接池参数
                     )
@@ -543,7 +542,7 @@ class DatabaseManager:
             # 添加 user_moods 表 (PostgreSQL)
             moods_table = """
             CREATE TABLE IF NOT EXISTS user_moods (
-                id SERIAL PRIMARY KEY, -- 再次确认 PostgreSQL 语法
+                id SERIAL PRIMARY KEY, -- 再次修正 PostgreSQL 语法
                 user_id TEXT NOT NULL,
                 mood_data JSONB NOT NULL, -- 使用 JSONB 存储情绪数据
                 timestamp TIMESTAMPTZ DEFAULT NOW()
