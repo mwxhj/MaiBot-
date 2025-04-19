@@ -10,13 +10,12 @@ LLM模块，提供大型语言模型的接口。
 from .llm_manager import LLMManager
 from .prompt_templates import PromptTemplate
 from .token_counter import TokenCounter
-from .providers import BaseProvider, OpenAIProvider, AzureProvider
+from .providers import BaseProvider, OpenAICompatibleProvider
 
 __all__ = [
     'LLMManager',
     'PromptTemplate',
     'TokenCounter',
     'BaseProvider',
-    'OpenAIProvider', 
-    'AzureProvider'
+    'OpenAICompatibleProvider'
 ] 
