@@ -106,8 +106,10 @@ class ResponseComposer(BaseProcessor):
             
         except Exception as e:
             logger.error(f"生成回复时出错: {e}", exc_info=True)
-            context["reply"] = Message(MessageSegment.text(self._generate_error_response()))
-        
+            # Correct assignment using set_state
+            error_reply_message = Message(MessageSegment.text(self._generate_error_response()))
+            context.set_state("reply", error_reply_message)
+
         return context
 
     async def _generate_response(self, context: MessageContext, thought: str) -> str:
