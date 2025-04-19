@@ -54,13 +54,13 @@ class LLMManager:
         # 加载提供商
         self.providers: Dict[str, BaseProvider] = {} # 存储实例化的 Provider 对象，键为 provider_id
         self.provider_configs: Dict[str, Dict[str, Any]] = {} # 存储原始配置，键为 provider_id
-        self.default_provider_id = self.llm_config.get("default_provider", "") # 顶层默认 provider_id
+        self.provider_models: Dict[str, List[str]] = {} # 存储每个provider支持的模型列表
 
         # 任务路由配置
         self.usage_strategy = self.llm_config.get("usage_strategy", {})
-        self.task_routing = self.usage_strategy.get("task_routing", {}) # 任务到 provider_id 的映射
+        self.task_routing = self.usage_strategy.get("task_routing", {}) # 任务到 {provider_id, model} 的映射
 
-        logger.info(f"LLM管理器初始化，默认提供商 ID: {self.default_provider_id}")
+        logger.info("LLM管理器初始化")
         logger.debug(f"任务路由配置: {self.task_routing}")
         logger.debug(f"支持的提供商类型: {list(self.PROVIDER_TYPES.keys())}")
 
@@ -164,18 +164,23 @@ class LLMManager:
                  logger.error(f"提供商 {provider_id} (类型: {provider_type}) 初始化方法返回 False。")
 
 
-        # 检查默认提供商是否有效
-        if self.default_provider_id and self.default_provider_id not in self.providers:
-            logger.error(f"配置的默认提供商 '{self.default_provider_id}' 未成功初始化或不存在。")
-            # 不再自动选择后备，需要用户修复配置
-            if not self.providers:
-                 logger.error("没有可用的 LLM 提供商！管理器初始化失败。")
-                 return False # Initialization failed
+        # 验证任务路由配置
+        for task, routing_info in self.task_routing.items():
+            if not isinstance(routing_info, dict) or "provider_id" not in routing_info or "model" not in routing_info:
+                logger.error(f"任务 '{task}' 的路由配置无效，必须包含 provider_id 和 model 字段")
+                continue
+            
+            provider_id = routing_info["provider_id"]
+            model = routing_info["model"]
+            
+            if provider_id not in self.providers:
+                logger.error(f"任务 '{task}' 配置的提供商 '{provider_id}' 不可用或未初始化")
+            elif model not in self.provider_models.get(provider_id, []):
+                logger.warning(f"任务 '{task}' 配置的模型 '{model}' 不在提供商 '{provider_id}' 的支持列表中")
 
-        # 验证任务路由中配置的 provider_id 是否都存在
-        for task, provider_id in self.task_routing.items():
-             if provider_id not in self.providers:
-                  logger.warning(f"任务 '{task}' 配置的提供商 '{provider_id}' 不可用或未初始化。调用时将失败。")
+        if not self.providers:
+            logger.error("没有可用的 LLM 提供商！管理器初始化失败。")
+            return False
 
         return successful_providers > 0
 
@@ -185,42 +190,41 @@ class LLMManager:
         """
         return self.providers.get(provider_id)
 
-    def _get_provider_for_task(self, task: str) -> Tuple[BaseProvider, str, Dict[str, Any]]:
+    def _get_provider_and_model_for_task(self, task: str) -> Tuple[BaseProvider, str, str]:
         """
-        根据任务类型获取提供商实例、ID和其配置。
+        根据任务类型获取提供商实例、提供商ID和模型名称。
 
         Args:
             task: 任务类型 (例如 'chat', 'embeddings')
 
         Returns:
-            (提供商实例, 提供商ID, 提供商配置)
+            (提供商实例, 提供商ID, 模型名称)
 
         Raises:
-            ValueError: 如果找不到任务对应的可用提供商。
+            ValueError: 如果找不到任务对应的可用提供商或模型。
         """
-        # 1. 查找任务特定路由
-        provider_id = self.task_routing.get(task)
+        # 1. 查找任务路由配置
+        routing_info = self.task_routing.get(task)
+        if not routing_info or not isinstance(routing_info, dict):
+            raise ValueError(f"任务 '{task}' 未配置有效的路由信息")
 
-        # 2. 如果没有任务特定路由，使用默认提供商
-        if not provider_id:
-            provider_id = self.default_provider_id
-            if not provider_id:
-                 # 如果连默认 provider 都没有配置
-                 raise ValueError(f"任务 '{task}' 未配置特定路由，且未设置默认提供商 (default_provider)。")
-            logger.debug(f"任务 '{task}' 未配置特定路由，使用默认提供商 '{provider_id}'")
-        else:
-             logger.debug(f"任务 '{task}' 路由到提供商 '{provider_id}'")
+        provider_id = routing_info.get("provider_id")
+        model = routing_info.get("model")
+        
+        if not provider_id or not model:
+            raise ValueError(f"任务 '{task}' 的路由配置缺少 provider_id 或 model 字段")
 
-        # 3. 获取提供商实例和配置
+        # 2. 获取提供商实例
         provider = self.get_provider(provider_id)
-        provider_config = self.provider_configs.get(provider_id)
+        if not provider:
+            raise ValueError(f"任务 '{task}' 配置的提供商 '{provider_id}' 未找到或未成功初始化")
 
-        # 4. 检查提供商是否存在
-        if provider and provider_config:
-            return provider, provider_id, provider_config
-        else:
-             # 如果配置的 provider_id 无效或未初始化成功
-             raise ValueError(f"任务 '{task}' 配置的提供商 '{provider_id}' 未找到或未成功初始化。")
+        # 3. 检查模型是否在提供商支持列表中
+        if model not in self.provider_models.get(provider_id, []):
+            logger.warning(f"任务 '{task}' 配置的模型 '{model}' 不在提供商 '{provider_id}' 的支持列表中")
+
+        logger.debug(f"任务 '{task}' 路由到提供商 '{provider_id}' 的模型 '{model}'")
+        return provider, provider_id, model
 
 
     async def generate_text(
@@ -239,29 +243,25 @@ class LLMManager:
         Args:
             prompt: 输入提示词 (str) 或消息列表 (List[Dict[str, str]])。
             task: 任务类型，用于路由 (默认 'chat')。
-            max_tokens: 最大生成 token 数 (覆盖 provider 配置)。
-            temperature: 温度 (覆盖 provider 配置)。
+            max_tokens: 最大生成 token 数。
+            temperature: 温度。
             stop: 停止序列。
-            model_override: 临时指定要使用的模型名称，覆盖配置中的默认模型。
+            model_override: 临时指定要使用的模型名称，覆盖配置中的模型。
             **kwargs: 其他传递给 provider 的参数。
 
         Returns:
             (生成的文本, 元数据字典)。
 
         Raises:
-            ValueError: 如果找不到任务对应的提供商或模型配置。
+            ValueError: 如果找不到任务对应的可用提供商或模型。
             Exception: 如果底层 Provider 调用失败。
         """
-        provider, provider_id, provider_config = self._get_provider_for_task(task)
-
-        # 确定要使用的模型
-        model_name = model_override or provider_config.get('model')
-        if not model_name:
-            raise ValueError(f"提供商 '{provider_id}' 未配置默认聊天模型 ('model')，且未提供 'model_override'。")
-
-        # 从 Provider 配置获取默认参数（如果调用时未提供）
-        final_max_tokens = max_tokens if max_tokens is not None else provider_config.get('max_tokens')
-        final_temperature = temperature if temperature is not None else provider_config.get('temperature')
+        provider, provider_id, model_name = self._get_provider_and_model_for_task(task)
+        
+        # 允许调用时覆盖模型
+        if model_override:
+            model_name = model_override
+            logger.debug(f"使用调用时覆盖的模型 '{model_name}' 替代配置的模型")
 
         logger.debug(f"使用提供商 '{provider_id}' (模型: {model_name}) 为任务 '{task}' 生成文本")
 
@@ -270,8 +270,8 @@ class LLMManager:
             text, metadata = await provider.generate_text(
                 model=model_name,
                 prompt=prompt,
-                max_tokens=final_max_tokens,
-                temperature=final_temperature,
+                max_tokens=max_tokens,
+                temperature=temperature,
                 stop=stop,
                 **kwargs
             )
@@ -297,38 +297,26 @@ class LLMManager:
         model_override: Optional[str] = None # 允许临时覆盖模型
     ) -> Tuple[Union[List[float], List[List[float]]], Dict[str, Any]]:
         """
-        生成文本嵌入向量。根据 'embeddings' 任务路由选择提供商和模型。
+        生成文本嵌入向量。根据任务路由选择提供商和模型。
 
         Args:
             text: 输入文本或文本列表。
-            task: 任务类型 (固定为 'embeddings')。
-            model_override: 临时指定要使用的嵌入模型名称，覆盖配置中的默认模型。
+            task: 任务类型 (默认 'embeddings')。
+            model_override: 临时指定要使用的嵌入模型名称，覆盖配置中的模型。
 
         Returns:
             (嵌入向量或向量列表, 元数据字典)。
 
         Raises:
-            ValueError: 如果找不到任务对应的提供商或嵌入模型配置。
+            ValueError: 如果找不到任务对应的可用提供商或模型。
             Exception: 如果底层 Provider 调用失败。
         """
-        provider, provider_id, provider_config = self._get_provider_for_task(task)
-
-        # 确定要使用的嵌入模型
-        model_name = model_override or provider_config.get('embedding_model')
-
-        # 如果当前 provider 没有配置 embedding_model，尝试从 default provider 获取
-        if not model_name and provider_id != self.default_provider_id:
-             logger.warning(f"提供商 '{provider_id}' 未配置嵌入模型 ('embedding_model')，尝试使用默认提供商 '{self.default_provider_id}' 的配置。")
-             try:
-                  _, _, default_provider_config = self._get_provider_for_task(task='_default_lookup_') # Use a dummy task or direct lookup
-                  model_name = default_provider_config.get('embedding_model')
-             except ValueError:
-                  logger.warning(f"无法获取默认提供商 '{self.default_provider_id}' 的配置。")
-                  pass # 继续执行，下面的检查会处理
-
-        if not model_name:
-            raise ValueError(f"任务 '{task}' 无法找到有效的嵌入模型配置。请在提供商 '{provider_id}' 或默认提供商 '{self.default_provider_id}' 的配置中指定 'embedding_model'。")
-
+        provider, provider_id, model_name = self._get_provider_and_model_for_task(task)
+        
+        # 允许调用时覆盖模型
+        if model_override:
+            model_name = model_override
+            logger.debug(f"使用调用时覆盖的模型 '{model_name}' 替代配置的模型")
 
         logger.debug(f"使用提供商 '{provider_id}' (模型: {model_name}) 为任务 '{task}' 生成嵌入")
 

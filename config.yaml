@@ -49,9 +49,6 @@ bot:
 
 # LLM模型配置
 llm:
-  # 默认使用的提供商ID
-  default_provider: "openai"
-  
   # 令牌计数器设置
   token_counter:
     default_model: "gpt-4o-mini"
@@ -60,35 +57,41 @@ llm:
   providers:
     # OpenAI 供应商
     - id: "openai_main"
-      type: "openai_compatible" # Changed from "openai"
+      type: "openai_compatible"
       name: "OpenAI Main"
       enabled: true
       api_key: "${OPENAI_API_KEY}"
-      model: "gpt-4o-mini"
-      embedding_model: "text-embedding-3-small"
-      temperature: 0.7
-      max_tokens: 2048
       timeout: 60
+      models:
+        - "gpt-4o-mini"
+        - "gpt-4o"
+        - "text-embedding-3-small"
+        - "text-embedding-3-large"
 
     # 自定义供应商示例
     - id: "mingwang_provider"
-      type: "openai_compatible"  # Changed from "openai", assuming compatibility
+      type: "openai_compatible"
       name: "MingWang LLM"
       enabled: true
       api_key: "${MINGWANG_API_KEY}"
       api_base: "${MINGWANG_BASE_URL}"
-      model: "mingwang-chat-v1"
-      embedding_model: "mingwang-embed-v1"
+      timeout: 60
+      models:
+        - "mingwang-chat-v1"
+        - "mingwang-chat-v2-beta"
+        - "mingwang-embed-v1"
 
   # 任务路由策略
   usage_strategy:
-    # 任务到供应商的路由映射
+    # 任务到供应商和模型的路由映射
     task_routing:
-      chat: "openai"
-      embeddings: "openai_models"  # 使用模型路由提供商处理复杂总结任务
-      summarization: "openai_models"  # 使用模型路由提供商处理复杂总结任务
-      creative: "openai_models"       # 使用模型路由提供商处理创意内容
-      read_air: "openai_models"       # 读空气任务使用模型路由提供商
+      chat: { provider_id: "openai_main", model: "gpt-4o-mini" }
+      embeddings: { provider_id: "openai_main", model: "text-embedding-3-small" }
+      summarization: { provider_id: "openai_main", model: "gpt-4o-mini" }
+      creative: { provider_id: "openai_main", model: "gpt-4o" }
+      read_air: { provider_id: "openai_main", model: "gpt-4o-mini" }
+      mingwang_chat: { provider_id: "mingwang_provider", model: "mingwang-chat-v1" }
+      mingwang_embeddings: { provider_id: "mingwang_provider", model: "mingwang-embed-v1" }
 
 # 存储设置
 storage:
