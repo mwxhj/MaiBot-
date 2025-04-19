@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+always speak chinese#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 """
@@ -215,21 +215,25 @@ class MemoryManager:
         
         # 存入关系数据库
         try:
-            await self.db.execute_insert(
-                "conversations",
-                {
-                    "id": memory_id,
-                    "user_id": user_id,
-                    "session_id": session_id,
-                    "timestamp": timestamp,
-                    "content": content,
-                    "role": role,
-                    "metadata": metadata_json,
-                    "vector_id": vector_id,
-                    "importance": importance,
-                    "embedding_generated": embedding_generated
-                }
+            # 构建 INSERT 语句
+            columns = ["id", "user_id", "session_id", "timestamp", "content", "role", "metadata", "vector_id", "importance", "embedding_generated"]
+            placeholders = ", ".join(["?"] * len(columns))
+            sql = f"INSERT INTO conversations ({', '.join(columns)}) VALUES ({placeholders})"
+
+            # 构建参数元组 (顺序必须与 columns 一致)
+            params = (
+                memory_id,
+                user_id,
+                session_id,
+                timestamp,
+                content,
+                role,
+                metadata_json,
+                vector_id,
+                importance,
+                embedding_generated
             )
+            await self.db.execute_insert(sql, params)
             logger.debug(f"已添加对话记忆: {memory_id}")
             return memory_id
         except Exception as e:
@@ -293,20 +297,24 @@ class MemoryManager:
         
         # 存入关系数据库
         try:
-            await self.db.execute_insert(
-                "knowledge",
-                {
-                    "id": memory_id,
-                    "content": content,
-                    "source": source,
-                    "category": category,
-                    "timestamp": timestamp,
-                    "vector_id": vector_id,
-                    "importance": importance,
-                    "metadata": metadata_json,
-                    "embedding_generated": embedding_generated
-                }
+            # 构建 INSERT 语句
+            columns = ["id", "content", "source", "category", "timestamp", "vector_id", "importance", "metadata", "embedding_generated"]
+            placeholders = ", ".join(["?"] * len(columns))
+            sql = f"INSERT INTO knowledge ({', '.join(columns)}) VALUES ({placeholders})"
+
+            # 构建参数元组 (顺序必须与 columns 一致)
+            params = (
+                memory_id,
+                content,
+                source,
+                category,
+                timestamp,
+                vector_id,
+                importance,
+                metadata_json,
+                embedding_generated
             )
+            await self.db.execute_insert(sql, params)
             logger.debug(f"已添加知识记忆: {memory_id}")
             return memory_id
         except Exception as e:
