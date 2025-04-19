@@ -31,11 +31,17 @@ class DatabaseManager:
             config: 数据库配置字典，包含连接参数
         """
         self.config = config or {}
+        # --- DEBUG LOGGING START ---
+        logger.debug(f"DatabaseManager received config: {self.config}")
+        # --- DEBUG LOGGING END ---
         self.db_type = self.config.get("type", "postgresql") # <--- 默认改为 postgresql
-        
+
         if self.db_type == "postgresql":
             # PostgreSQL 连接参数
             self.db_host = self.config.get("host", "localhost")
+            # --- DEBUG LOGGING START ---
+            logger.debug(f"DatabaseManager determined db_host: {self.db_host}")
+            # --- DEBUG LOGGING END ---
             self.db_port = self.config.get("port", 5432)
             self.db_user = self.config.get("user", "postgres")
             # 从环境变量读取密码，环境变量名称来自配置，默认为 "DB_PASSWORD"
