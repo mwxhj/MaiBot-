@@ -13,7 +13,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 from loguru import logger
-from linjing.config import ConfigManager
+from linjing.main import config_manager  # 从 main.py 导入全局配置实例
 
 def setup_logger(level: str = "INFO", log_dir: str = "logs") -> None:
     """
@@ -37,6 +37,11 @@ def setup_logger(level: str = "INFO", log_dir: str = "logs") -> None:
         "<level>{message}</level>"
     )
     
+    # 从配置获取日志保留天数，默认为30天
+    retention_days = 30
+    if config_manager:
+        retention_days = config_manager.get("system.logging.retention_days", 30)
+    
     # 添加控制台处理器
     logger.add(
         sys.stderr,
@@ -51,7 +56,7 @@ def setup_logger(level: str = "INFO", log_dir: str = "logs") -> None:
         format=log_format,
         level=level,
         rotation="00:00",  # 每天午夜轮换
-        retention=f"{ConfigManager.get_config().get('system', {}).get('logging', {}).get('retention_days', 30)} days",  # 从配置读取保留天数
+        retention=f"{retention_days} days",
         compression="zip",  # 压缩旧日志
         encoding="utf-8",
     )
@@ -62,7 +67,7 @@ def setup_logger(level: str = "INFO", log_dir: str = "logs") -> None:
         format=log_format,
         level="ERROR",
         rotation="00:00",
-        retention=f"{ConfigManager.get_config().get('system', {}).get('logging', {}).get('retention_days', 30)} days",  # 从配置读取保留天数
+        retention=f"{retention_days} days",
         compression="zip",
         encoding="utf-8",
     )

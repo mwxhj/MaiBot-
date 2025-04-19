@@ -329,5 +329,8 @@ def main() -> None:
         loop.close()
         logger.info("事件循环已关闭。")
 
+# 导出全局配置实例
+config_manager = ConfigManager()
+
 if __name__ == "__main__":
     main()
