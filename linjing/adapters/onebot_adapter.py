@@ -383,8 +383,8 @@ class OneBotAdapter(Bot):
                     
                     if target_id:
                         try:
-                            # 调用适配器的 send 方法发送消息
-                            await self.send(str(target_id), reply_message)
+                            # **修改：调用适配器的 send 方法发送消息，并传递 message_type**
+                            await self.send(str(target_id), reply_message, message_type)
                             logger.info(f"已向 {message_type} {target_id} 发送回复")
                         except Exception as send_e:
                             logger.error(f"发送回复到 {message_type} {target_id} 时出错: {send_e}", exc_info=True)
@@ -402,7 +402,8 @@ class OneBotAdapter(Bot):
         # 移除了外层的 try...except KeyError 和 try...except Exception
 
 
-    async def send(self, target: str, message: Union[str, Message, MessageSegment]) -> str:
+    # **修改：添加 message_type 参数**
+    async def send(self, target: str, message: Union[str, Message, MessageSegment], message_type: str) -> str:
         """发送消息"""
         if not self.connected:
             raise ConnectionError("未连接到OneBot实现")
@@ -422,9 +423,10 @@ class OneBotAdapter(Bot):
         # 构造API请求
         api_request = {
             "action": "send_msg",
+            # **修改：使用传入的 message_type 和对应的 id 键**
             "params": {
-                "message_type": "private" if target.isdigit() else "group",
-                target.isdigit() and "user_id" or "group_id": int(target), # 确保 ID 是整数
+                "message_type": message_type,
+                "user_id" if message_type == "private" else "group_id": int(target), # 使用正确的 ID 键
                 "message": onebot_message
             }
         }
@@ -432,12 +434,12 @@ class OneBotAdapter(Bot):
         logger.debug(f"准备发送的 API 请求: {json.dumps(api_request, ensure_ascii=False)}")
 
         try:
-            # **新增：发送前检查 WebSocket 状态**
-            if not self.websocket or self.websocket.closed:
-                 logger.error(f"尝试发送消息时 WebSocket 连接已关闭或不存在 (Target: {target})")
-                 raise ConnectionError("WebSocket connection is closed or unavailable.")
+            # **修改：发送前检查 WebSocket 状态，移除 .closed**
+            if not self.websocket or not self.websocket.open: # 使用 .open
+                 logger.error(f"尝试发送消息时 WebSocket 连接未开启或不存在 (Target: {target}, Type: {message_type})")
+                 raise ConnectionError("WebSocket connection is not open or unavailable.")
 
-            logger.debug(f"WebSocket 状态 (发送前): open={self.websocket.open}, closed={self.websocket.closed}")
+            logger.debug(f"WebSocket 状态 (发送前): open={self.websocket.open}") # 只记录 open 状态
             # 发送请求
             await self.websocket.send(json.dumps(api_request))
             # **新增：记录发送成功**
