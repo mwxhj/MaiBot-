@@ -541,7 +541,7 @@ class DatabaseManager:
             # 添加 user_moods 表 (PostgreSQL)
             moods_table = """
             CREATE TABLE IF NOT EXISTS user_moods (
-                id SERIAL PRIMARY KEY, -- 使用 SERIAL 作为自增主键
+                id SERIAL PRIMARY KEY, -- 使用 SERIAL 作为自增主键 (PostgreSQL 语法)
                 user_id TEXT NOT NULL,
                 mood_data JSONB NOT NULL, -- 使用 JSONB 存储情绪数据
                 timestamp TIMESTAMPTZ DEFAULT NOW()
@@ -601,7 +601,7 @@ class DatabaseManager:
             # 添加 user_moods 表 (SQLite)
             moods_table = """
             CREATE TABLE IF NOT EXISTS user_moods (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INTEGER PRIMARY KEY AUTOINCREMENT, -- SQLite 语法保持不变
                 user_id TEXT NOT NULL,
                 mood_data TEXT NOT NULL, -- SQLite 使用 TEXT 存储 JSON
                 timestamp REAL NOT NULL
