@@ -60,9 +60,12 @@ class LLMManager:
         self.usage_strategy = self.llm_config.get("usage_strategy", {})
         self.task_routing = self.usage_strategy.get("task_routing", {}) # 任务到 {provider_id, model} 的映射
 
-        logger.info("LLM管理器初始化")
-        logger.debug(f"任务路由配置: {self.task_routing}")
-        logger.debug(f"支持的提供商类型: {list(self.PROVIDER_TYPES.keys())}")
+        logger.info("LLM管理器初始化，加载配置：")
+        logger.info(f"提供商数量: {len(self.llm_config.get('providers', []))}")
+        logger.info(f"加载的任务路由数量: {len(self.task_routing)}")
+        for task, route in self.task_routing.items():
+            logger.info(f"任务 '{task}' 路由到: {route}")
+        logger.info(f"支持的提供商类型: {list(self.PROVIDER_TYPES.keys())}")
 
     async def initialize(self) -> bool:
         """

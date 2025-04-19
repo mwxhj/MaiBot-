@@ -92,6 +92,7 @@ llm:
       read_air: { provider_id: "openai_main", model: "gpt-4o-mini" }
       mingwang_chat: { provider_id: "mingwang_provider", model: "mingwang-chat-v1" }
       mingwang_embeddings: { provider_id: "mingwang_provider", model: "mingwang-embed-v1" }
+      thought_generation: { provider_id: "openai_main", model: "gpt-4o" }
 
 # 存储设置
 storage:

@@ -133,7 +133,7 @@ class ThoughtGenerator(BaseProcessor):
             thought, metadata = await self.llm_manager.generate_text(
                 prompt, 
                 max_tokens=1000,
-                task="creative"  # 思考生成是创意任务，使用高质量模型
+                task="thought_generation"  # 使用专门的任务类型
             )
             
             # 记录使用的模型信息

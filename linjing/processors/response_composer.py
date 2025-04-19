@@ -101,7 +101,7 @@ class ResponseComposer(BaseProcessor):
             if self.use_multimodal and hasattr(context, "multimodal_content"):
                 await self._add_multimodal_content(reply_message, context)
             
-            context["reply"] = reply_message
+            context.set_state("reply", reply_message)
             logger.info(f"已生成回复: {reply[:50]}...")
             
         except Exception as e:
