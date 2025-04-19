@@ -115,11 +115,19 @@ class DatabaseManager:
             else:
                 raise ValueError(f"不支持的数据库类型: {self.db_type}")
                 
-            # 初始化表结构 (仅在首次成功连接后执行)
-            if self.create_tables and not self._initialized:
-                await self._initialize_tables()
-                
+            # 在调用可能触发递归的操作之前，先标记为已初始化
             self._initialized = True
+
+            # 初始化表结构 (仅在首次成功连接后执行)
+            # 注意：现在 _initialized 已经是 True，所以这个条件需要调整
+            # 或者，我们可以依赖 connect 方法只被成功调用一次的逻辑
+            # 让我们假设 connect 成功后就应该初始化表（如果配置允许）
+            # 移除 not self._initialized 条件检查似乎更合理
+            if self.create_tables: # 只检查配置项
+                 # 检查表是否真的需要初始化可能更好，但先简化逻辑
+                 logger.debug("配置了创建表，尝试初始化...")
+                 await self._initialize_tables()
+            # self._initialized = True # 已上移
             return True
             
         except Exception as e:
