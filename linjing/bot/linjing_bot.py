@@ -447,7 +447,7 @@ class LinjingBot:
                 
                 elif name == ProcessorName.RESPONSE_COMPOSER:
                     from linjing.processors.response_composer import ResponseComposer
-                    processor = ResponseComposer(config=processor_config)
+                    processor = ResponseComposer(name=name, config=processor_config) # 传递 name 参数
                     processor.set_llm_manager(self.llm_manager)
                     processor.set_personality(self.personality)
                 
