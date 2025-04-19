@@ -114,9 +114,8 @@ class ReadAirProcessor(BaseProcessor):
                 context.log_processor(self.name, "无法分析消息")
         
         except Exception as e:
-            # 将异常对象和字符串分开记录，避免格式化问题
-            logger.error("读空气处理失败:", exc_info=e) 
-            context.log_processor(self.name, f"处理失败: {type(e).__name__} - {e}")
+            logger.error(f"读空气处理失败 - 输入数据: {context.to_dict()}", exc_info=True)
+            context.log_processor(self.name, f"处理失败: {type(e).__name__} - {str(e)}")
         
         return context
     
