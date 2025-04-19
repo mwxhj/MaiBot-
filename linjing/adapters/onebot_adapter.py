@@ -48,6 +48,14 @@ class OneBotAdapter(Bot):
         self.server_task = None
         self.message_listener_task = None
         self.heartbeat_task = None
+        # **新增：读取 HTTP API 地址配置**
+        self.http_api_url = config.get("http_api_url")
+        if self.http_api_url:
+             # 确保 URL 以 / 结尾，方便拼接
+             self.http_api_url = self.http_api_url.rstrip('/') + '/'
+             logger.info(f"OneBot HTTP API URL 已配置: {self.http_api_url}")
+        else:
+             logger.info("未配置 OneBot HTTP API URL，将尝试使用 WebSocket 发送。")
 
         # API限速器
         from linjing.adapters.adapter_utils import ApiRateLimiter
@@ -433,24 +441,69 @@ class OneBotAdapter(Bot):
         # **新增：记录完整的 API 请求内容**
         logger.debug(f"准备发送的 API 请求: {json.dumps(api_request, ensure_ascii=False)}")
 
-        try:
-            # **修改：发送前检查 WebSocket 状态，移除 .closed**
-            if not self.websocket or not self.websocket.open: # 使用 .open
-                 logger.error(f"尝试发送消息时 WebSocket 连接未开启或不存在 (Target: {target}, Type: {message_type})")
-                 raise ConnectionError("WebSocket connection is not open or unavailable.")
+        # **修改：根据是否配置了 HTTP API URL 选择发送方式**
+        if self.http_api_url:
+            # --- 使用 HTTP API 发送 ---
+            api_endpoint = "send_msg"
+            full_api_url = self.http_api_url + api_endpoint
+            logger.debug(f"准备通过 HTTP POST 发送消息到: {full_api_url}")
+            try:
+                # 确保 self.session 存在且未关闭
+                if not self.session or self.session.closed:
+                     logger.error("尝试通过 HTTP 发送消息时 aiohttp session 不可用。")
+                     # 尝试重新创建 session (或者在 connect 时确保创建)
+                     self.session = aiohttp.ClientSession()
+                     logger.info("已重新创建 aiohttp session。")
+                     # 如果 session 仍然不可用，则抛出异常
+                     if not self.session or self.session.closed:
+                          raise ConnectionError("aiohttp session is closed or unavailable.")
 
-            logger.debug(f"WebSocket 状态 (发送前): open={self.websocket.open}") # 只记录 open 状态
-            # 发送请求
-            await self.websocket.send(json.dumps(api_request))
-            # **新增：记录发送成功**
-            logger.debug(f"WebSocket send 调用完成 (Target: {target})")
+                # 发送 POST 请求
+                async with self.session.post(full_api_url, json=api_request["params"]) as resp:
+                    # 检查响应状态码
+                    if resp.status == 200:
+                        response_data = await resp.json()
+                        logger.debug(f"HTTP API 响应 ({resp.status}): {response_data}")
+                        # OneBot HTTP API 通常会返回 message_id
+                        message_id = response_data.get("data", {}).get("message_id", str(int(time.time())))
+                        return str(message_id)
+                    else:
+                        error_text = await resp.text()
+                        logger.error(f"HTTP API 请求失败 ({resp.status}): {error_text}")
+                        raise ConnectionError(f"HTTP API request failed with status {resp.status}: {error_text}")
+            except aiohttp.ClientError as e:
+                 logger.error(f"HTTP API 请求连接错误: {e}", exc_info=True)
+                 raise ConnectionError(f"HTTP API connection error: {e}")
+            except Exception as e:
+                 logger.error(f"通过 HTTP API 发送消息时发生未知错误: {e}", exc_info=True)
+                 raise # 重新抛出异常
 
-            # 简单实现：返回当前时间戳作为消息ID
-            return str(int(time.time()))
+        else:
+            # --- 回退到 WebSocket 发送 ---
+            logger.debug("未配置 HTTP API URL，尝试通过 WebSocket 发送。")
+            try:
+                # 发送前检查 WebSocket 状态 (移除 .open 检查，因为反向连接可能没有这个属性)
+                if not self.websocket:
+                     logger.error(f"尝试通过 WebSocket 发送消息时连接不存在 (Target: {target}, Type: {message_type})")
+                     raise ConnectionError("WebSocket connection is unavailable.")
+                
+                # 对于反向 WS，可能没有 .open 属性，直接尝试发送
+                # logger.debug(f"WebSocket 状态 (发送前): open={getattr(self.websocket, 'open', 'N/A')}") # 尝试获取 open 属性
+                
+                # 发送请求
+                await self.websocket.send(json.dumps(api_request))
+                logger.debug(f"WebSocket send 调用完成 (Target: {target})")
 
-        except Exception as e:
-            logger.error(f"发送消息失败: {e}", exc_info=True)
-            raise
+                # 简单实现：返回当前时间戳作为消息ID
+                return str(int(time.time()))
+
+            except ConnectionClosed as e:
+                 logger.error(f"尝试通过 WebSocket 发送消息时连接已关闭: {e}", exc_info=True)
+                 self.connected = False # 更新连接状态
+                 raise ConnectionError(f"WebSocket connection closed: {e}")
+            except Exception as e:
+                logger.error(f"通过 WebSocket 发送消息失败: {e}", exc_info=True)
+                raise
 
     async def call_api(self, api: str, **params) -> Any:
         """调用OneBot API"""
@@ -466,13 +519,62 @@ class OneBotAdapter(Bot):
             "params": params
         }
 
-        try:
-            # 发送请求
-            await self.websocket.send(json.dumps(api_request))
+        # **修改：根据是否配置了 HTTP API URL 选择调用方式**
+        if self.http_api_url:
+            # --- 使用 HTTP API 调用 ---
+            api_endpoint = api # API 名称通常直接对应端点路径
+            full_api_url = self.http_api_url + api_endpoint
+            logger.debug(f"准备通过 HTTP POST 调用 API: {full_api_url}")
+            try:
+                # 确保 self.session 存在且未关闭
+                if not self.session or self.session.closed:
+                     logger.error("尝试通过 HTTP 调用 API 时 aiohttp session 不可用。")
+                     self.session = aiohttp.ClientSession()
+                     logger.info("已重新创建 aiohttp session。")
+                     if not self.session or self.session.closed:
+                          raise ConnectionError("aiohttp session is closed or unavailable.")
 
-            # 简单实现：不等待响应
-            return {"status": "async", "retcode": 0}
+                # 发送 POST 请求，将参数作为 JSON body 发送
+                async with self.session.post(full_api_url, json=params) as resp:
+                    # 检查响应状态码
+                    if resp.status == 200:
+                        response_data = await resp.json()
+                        logger.debug(f"HTTP API 调用响应 ({resp.status}): {response_data}")
+                        # 直接返回 OneBot API 的响应数据
+                        return response_data
+                    else:
+                        error_text = await resp.text()
+                        logger.error(f"HTTP API 调用失败 ({resp.status}): {error_text}")
+                        # 可以考虑返回一个表示错误的字典，或者抛出异常
+                        # return {"status": "failed", "retcode": resp.status, "msg": error_text, "data": None}
+                        raise ConnectionError(f"HTTP API call failed with status {resp.status}: {error_text}")
+            except aiohttp.ClientError as e:
+                 logger.error(f"HTTP API 调用连接错误: {e}", exc_info=True)
+                 raise ConnectionError(f"HTTP API connection error: {e}")
+            except Exception as e:
+                 logger.error(f"通过 HTTP API 调用时发生未知错误: {e}", exc_info=True)
+                 raise
 
-        except Exception as e:
-            logger.error(f"调用API失败: {e}", exc_info=True)
-            raise
+        else:
+            # --- 回退到 WebSocket 调用 ---
+            logger.debug("未配置 HTTP API URL，尝试通过 WebSocket 调用 API。")
+            try:
+                # 发送前检查 WebSocket 状态
+                if not self.websocket:
+                     logger.error(f"尝试通过 WebSocket 调用 API 时连接不存在 (API: {api})")
+                     raise ConnectionError("WebSocket connection is unavailable.")
+
+                # 发送请求
+                await self.websocket.send(json.dumps(api_request))
+                logger.debug(f"WebSocket API 调用 ({api}) 发送完成")
+
+                # 简单实现：不等待响应 (保持原逻辑)
+                return {"status": "async", "retcode": 0}
+
+            except ConnectionClosed as e:
+                 logger.error(f"尝试通过 WebSocket 调用 API 时连接已关闭: {e}", exc_info=True)
+                 self.connected = False # 更新连接状态
+                 raise ConnectionError(f"WebSocket connection closed: {e}")
+            except Exception as e:
+                logger.error(f"通过 WebSocket 调用 API 失败: {e}", exc_info=True)
+                raise
