@@ -207,8 +207,12 @@ class LLMManager:
             ValueError: 如果找不到任务对应的可用提供商或模型。
         """
         # 1. 查找任务路由配置
+        # === 添加调试日志 ===
+        logger.debug(f"查找任务 '{task}' 的路由。当前路由表: {self.task_routing}")
         routing_info = self.task_routing.get(task)
         if not routing_info or not isinstance(routing_info, dict):
+            # 在抛出错误前再记录一次详细信息
+            logger.error(f"无法为任务 '{task}' 找到有效的路由信息。路由表内容: {self.task_routing}")
             raise ValueError(f"任务 '{task}' 未配置有效的路由信息")
 
         provider_id = routing_info.get("provider_id")
