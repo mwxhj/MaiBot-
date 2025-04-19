@@ -110,6 +110,18 @@ llm:
 
 
 
+    - id: "DUCKgemini_provider"
+      type: "openai_compatible"
+      name: "DUCKgemini LLM"
+      enabled: true
+      api_key: "${DUCKgemini_API_KEY}"
+      api_base: "${DUCKgemini_BASE_URL}"
+      timeout: 60
+      models:
+        - "gemini-1.5-pro-latest"
+
+
+
   # 任务路由策略
   usage_strategy:
     # 任务到供应商和模型的路由映射
@@ -124,21 +136,21 @@ llm:
           model: "text-embedding-3-small"
       # 其他任务暂时保持单个提供商
       summarization:
-        - provider_id: "DEEPSEEK_provider"
-          model: "deepseek-chat"
+        - provider_id: "DUCKgemini_provider"
+          model: "gemini-1.5-pro-latest"
       creative:
-        - provider_id: "DEEPSEEK_provider"
-          model: "deepseek-chat"
+        - provider_id: "DUCKgemini_provider"
+          model: "gemini-1.5-pro-latest"
       read_air:
-        - provider_id: "DEEPSEEK_provider"
-          model: "deepseek-chat"
+        - provider_id: "DUCKgemini_provider"
+          model: "gemini-1.5-pro-latest"
       thought_generation:
-        - provider_id: "DEEPSEEK_provider"
-          model: "deepseek-chat"
+        - provider_id: "DUCKgemini_provider"
+          model: "gemini-1.5-pro-latest"
       # **新增：意愿检查任务路由**
       willingness_check:
-        - provider_id: "DEEPSEEK_provider" # 或者选择其他合适的模型
-          model: "deepseek-chat"
+        - provider_id: "DUCKgemini_provider" # 或者选择其他合适的模型
+          model: "gemini-1.5-pro-latest"
 
 # 存储设置
 storage:

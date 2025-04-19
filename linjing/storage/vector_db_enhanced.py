@@ -182,7 +182,15 @@ class VectorDBManagerEnhanced:
             config_dict["local_path"] = os.path.join(data_dir, "qdrant_db")
         
         # 创建配置对象
-        self.config = ConnectionConfig(**config_dict)
+        # 再次尝试过滤，确保只传递 ConnectionConfig 定义的字段
+        import inspect
+        config_fields = {f.name for f in inspect.signature(ConnectionConfig).parameters.values()}
+        filtered_config_dict = {k: v for k, v in config_dict.items() if k in config_fields}
+        try:
+            self.config = ConnectionConfig(**filtered_config_dict)
+        except TypeError as e:
+            logger.error(f"创建 ConnectionConfig 时出错。传入的原始 config_dict: {config_dict}, 过滤后的 filtered_config_dict: {filtered_config_dict}", exc_info=True)
+            raise e
         
         # 初始化状态
         self.client: Optional[QdrantClient] = None
