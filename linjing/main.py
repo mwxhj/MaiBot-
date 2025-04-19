@@ -12,13 +12,14 @@ import asyncio
 import argparse
 import logging
 import importlib # 导入 importlib
+import inspect   # 导入 inspect
 from typing import Dict, Any, Optional
 
 # 设置模块导入路径
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
 # 导入必要的类和函数
-from linjing.config import ConfigManager # 导入 ConfigManager 类
+# from linjing.config import ConfigManager # 延迟导入
 from linjing.constants import VERSION
 from linjing.bot.linjing_bot import LinjingBot
 from linjing.utils.logger import setup_logger
@@ -118,6 +119,7 @@ def main() -> None:
     # 强制重新加载 config 模块
     try:
         import linjing.config # 确保模块被导入
+        logger.debug(f"尝试重新加载模块: {linjing.config.__file__}") # 打印加载的文件路径
         importlib.reload(linjing.config) # 强制重新加载
         logger.debug("已强制重新加载 linjing.config 模块")
         # 现在再从重新加载后的模块导入 ConfigManager
@@ -129,6 +131,15 @@ def main() -> None:
          logger.error(f"重新加载 linjing.config 时出错: {e}")
          # 可以选择继续尝试，或者退出
          from linjing.config import ConfigManager # 尝试正常导入
+
+    # === 在实例化之前检查 __init__ 签名 ===
+    try:
+        logger.debug(f"即将实例化 ConfigManager。检查其 __init__ 方法签名...")
+        init_source = inspect.getsource(ConfigManager.__init__)
+        logger.debug(f"ConfigManager.__init__ 源码:\n{init_source}")
+    except Exception as e:
+        logger.error(f"无法使用 inspect 获取 ConfigManager.__init__ 源码: {e}")
+    # =====================================
 
     config_manager_instance = ConfigManager(config_path=config_path) # 实例化 ConfigManager
 
