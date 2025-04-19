@@ -42,7 +42,8 @@ class ConfigManager:
 
     def __init__(self, config_path: Optional[str] = None): # 允许外部传入路径
         """
-        初始化配置管理器
+        初始化配置管理器 (轻量级)。
+        仅设置路径和空的配置字典。
 
         Args:
             config_path: YAML 配置文件路径 (可选)
@@ -50,14 +51,20 @@ class ConfigManager:
         # 修正 config_path 的默认值计算
         self.config_path = config_path or os.path.join(self.PROJECT_ROOT, "config.yaml") # 默认加载 MaiBot-/config.yaml
         self.config: Dict[str, Any] = {}
-        # 使用标准 logging，因为 loguru 可能尚未配置
-        logging.info(f"ConfigManager initialized. Expecting config file at: {self.config_path}")
+        # 不再在此处执行加载或记录日志
 
-
-        # 加载配置
+    def load(self) -> None:
+        """
+        加载配置、覆盖环境变量并设置路径。
+        这个方法应该在所有模块导入完成后，在 main 函数中调用。
+        """
+        logging.info(f"Loading configuration from: {self.config_path}")
         self._load_config()
-
-        # 日志级别设置移到 main 函数中，在 setup_logger 调用前
+        # 注意：_load_config 内部的 logging 语句现在可以安全使用
+        # 因为假设 setup_logger 已经被调用（或者标准 logging 已配置）
+        self._override_from_env()
+        self._set_container_paths()
+        logging.info("Configuration loaded successfully.")
 
     def _load_config(self) -> None:
         """加载配置文件"""
@@ -89,11 +96,7 @@ class ConfigManager:
              self.config = {}
 
 
-        # 从环境变量覆盖一些敏感配置
-        self._override_from_env()
-
-        # 设置容器化路径
-        self._set_container_paths()
+        # 这些调用已移至 load() 方法
 
     def _set_container_paths(self) -> None:
         """设置容器化路径配置"""
@@ -265,18 +268,4 @@ class ConfigManager:
              logging.error(f"Error setting config key '{key_path}': {e}", exc_info=True)
 
 
-# 全局配置实例
-config_manager = ConfigManager()
-
-# 可选：添加一个函数以方便地获取日志目录
-def get_log_directory() -> str:
-    """返回配置的日志目录路径。"""
-    # 确保 LOG_PATH 在实例上可用
-    if hasattr(config_manager, 'LOG_PATH'):
-        return config_manager.LOG_PATH
-    else:
-        # 提供一个回退值，以防 LOG_PATH 未设置
-        logging.warning("ConfigManager.LOG_PATH not found, returning default log path.")
-        # 使用与 ConfigManager 中相同的逻辑计算默认值
-        default_project_root = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-        return os.path.join(default_project_root, 'data', 'logs')
+# 全局实例和辅助函数已移除，将在 main.py 中创建实例

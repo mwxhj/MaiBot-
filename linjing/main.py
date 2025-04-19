@@ -19,7 +19,7 @@ from typing import Dict, Any, Optional
 # 将 MaiBot- 目录添加到 sys.path
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
-from linjing.config import config_manager, get_log_directory # 从独立模块导入配置管理器和日志目录函数
+from linjing.config import ConfigManager # 从 config 包导入 ConfigManager 类
 # 确定 .env 文件相对于 main.py 的路径
 dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.env'))
 dotenv.load_dotenv(dotenv_path=dotenv_path)
@@ -92,36 +92,26 @@ def main() -> None:
         print(f"林静聊天机器人 v{VERSION}")
         sys.exit(0)
 
-    # 使用从 linjing.config 导入的全局 config_manager 实例
-    config_path = args.config if args.config else None
-    if config_path:
-        # 如果命令行指定了配置文件，需要重新加载配置
-        # 注意：这假设 config_manager 实例已经存在，并且可以重新加载
-        # 如果 config_manager 设计为单例且不允许重载，则需要调整逻辑
-        logger.info(f"Command line specified config path: {config_path}. Reloading configuration.")
-        # 假设 ConfigManager 有一个 reload 方法，或者需要重新实例化
-        # config_manager.reload(config_path) # 示例：如果存在 reload 方法
-        # 或者，如果必须重新实例化（不推荐，因为会丢失之前的状态）:
-        # global config_manager
-        # config_manager = ConfigManager(config_path=config_path)
-        # 这里我们暂时假设 config_manager 在启动时已正确加载默认或环境变量指定的配置
-        # 并且命令行参数主要用于覆盖，或者在 ConfigManager 内部处理
-        # 最简单的处理方式是让 ConfigManager 在初始化时检查 args.config
-        # 但这会引入 main 对 config 的反向依赖，所以最好是在 main 中处理
-        # 目前，我们仅记录日志，并依赖 config_manager 已被正确初始化
-        logger.warning("Command line config path provided, but reloading logic is not fully implemented here. Ensure ConfigManager handles this or was initialized correctly.")
+    # 获取命令行指定的配置文件路径
+    config_path_arg = args.config if args.config else None
 
+    # 创建 ConfigManager 实例，如果命令行指定了路径，则使用它
+    config_manager = ConfigManager(config_path=config_path_arg)
+    logger.info(f"ConfigManager instance created. Using config file: {config_manager.config_path}")
+    # 显式调用 load 方法来加载配置、覆盖环境变量和设置路径
+    config_manager.load()
 
-    # 设置日志级别 (现在从导入的 config_manager 获取)
+    # 设置日志级别 (现在可以安全地从已加载的配置中获取)
     log_level_from_config = config_manager.get("system.log_level", "INFO")
     log_level = "DEBUG" if args.debug else log_level_from_config
-    # 确保 setup_logger 使用正确的 log_path (从 config_manager 获取)
-    # 注意：config_manager 需要暴露 LOG_PATH 属性或提供 get_log_path 方法
-    # 假设 config_manager.LOG_PATH 存在
-    log_dir = get_log_directory() # 使用导入的函数获取日志目录
-    setup_logger(level=log_level, log_dir=log_dir) # 传递 log_dir
+
+    # 调用 setup_logger，传入 config_manager 实例
+    # log_dir 参数现在是可选的，setup_logger 会从 config_manager 获取路径
+    setup_logger(config_manager, level=log_level)
+    # 记录实际使用的日志目录 (从 config_manager 获取)
+    actual_log_dir = getattr(config_manager, 'LOG_PATH', 'Unknown') # 获取实际路径用于记录
     logger.info(f"日志级别设置为: {log_level}")
-    logger.info(f"日志文件目录: {log_dir}")
+    logger.info(f"日志文件目录: {actual_log_dir}")
 
 
     handle_signals()
@@ -130,6 +120,7 @@ def main() -> None:
 
     try:
         # 将全局配置字典传递给 main_async
+        # 将 config_manager 的配置字典传递给 main_async
         loop.run_until_complete(main_async(config_manager.config))
     except KeyboardInterrupt:
         logger.info("接收到键盘中断")

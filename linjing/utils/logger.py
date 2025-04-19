@@ -10,21 +10,36 @@ import sys
 import time
 import logging
 from logging.handlers import RotatingFileHandler
-from typing import Optional
+# 导入 ConfigManager 类型提示，如果需要的话
+from typing import Optional, TYPE_CHECKING
+if TYPE_CHECKING:
+    from ..config import ConfigManager # 修正类型检查的导入路径
+    # 注意：如果 ConfigManager 类本身不在 linjing/config.py 中，需要调整
 
 from loguru import logger
-from linjing.config import config_manager # 从 config.py 导入全局配置实例
+# 移除顶层 config_manager 导入
 
-def setup_logger(level: str = "INFO", log_dir: str = "logs") -> None:
+# 修改函数签名，接收 config_manager 实例
+def setup_logger(config_manager: 'ConfigManager', level: str = "INFO", log_dir: Optional[str] = None) -> None:
     """
     设置日志记录器
-    
+
     Args:
-        level: 日志级别
-        log_dir: 日志文件目录
+        config_manager: ConfigManager 实例.
+        level: 日志级别.
+        log_dir: 日志文件目录 (可选, 如果提供则覆盖配置中的路径).
     """
+    # 确定日志目录，优先使用传入的 log_dir，其次是配置，最后是默认值 'logs'
+    # 确保从 config_manager 获取 LOG_PATH
+    log_path_from_config = getattr(config_manager, 'LOG_PATH', None)
+    if not log_path_from_config:
+        # 如果实例上没有 LOG_PATH，尝试从配置字典获取
+        log_path_from_config = config_manager.get("system.logging.log_dir", 'logs')
+
+    actual_log_dir = log_dir or log_path_from_config
+
     # 创建日志目录
-    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(actual_log_dir, exist_ok=True)
     
     # 移除默认处理器
     logger.remove()
@@ -38,9 +53,8 @@ def setup_logger(level: str = "INFO", log_dir: str = "logs") -> None:
     )
     
     # 从配置获取日志保留天数，默认为30天
-    retention_days = 30
-    if config_manager:
-        retention_days = config_manager.get("system.logging.retention_days", 30)
+    # 从传入的 config_manager 获取日志保留天数
+    retention_days = config_manager.get("system.logging.retention_days", 30)
     
     # 添加控制台处理器
     logger.add(
@@ -52,7 +66,7 @@ def setup_logger(level: str = "INFO", log_dir: str = "logs") -> None:
     
     # 添加文件处理器 (按日期分割)
     logger.add(
-        os.path.join(log_dir, "linjing_{time:YYYY-MM-DD}.log"),
+        os.path.join(actual_log_dir, "linjing_{time:YYYY-MM-DD}.log"), # 使用 actual_log_dir
         format=log_format,
         level=level,
         rotation="00:00",  # 每天午夜轮换
@@ -63,7 +77,7 @@ def setup_logger(level: str = "INFO", log_dir: str = "logs") -> None:
     
     # 添加错误日志文件处理器
     logger.add(
-        os.path.join(log_dir, "error_{time:YYYY-MM-DD}.log"),
+        os.path.join(actual_log_dir, "error_{time:YYYY-MM-DD}.log"), # 使用 actual_log_dir
         format=log_format,
         level="ERROR",
         rotation="00:00",
