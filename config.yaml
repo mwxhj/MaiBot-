@@ -85,14 +85,12 @@ llm:
   usage_strategy:
     # 任务到供应商和模型的路由映射
     task_routing:
-      chat: { provider_id: "openai_main", model: "gpt-4o-mini" }
-      embeddings: { provider_id: "openai_main", model: "text-embedding-3-small" }
-      summarization: { provider_id: "openai_main", model: "gpt-4o-mini" }
-      creative: { provider_id: "openai_main", model: "gpt-4o" }
-      read_air: { provider_id: "openai_main", model: "gpt-4o-mini" }
-      mingwang_chat: { provider_id: "mingwang_provider", model: "mingwang-chat-v1" }
-      mingwang_embeddings: { provider_id: "mingwang_provider", model: "mingwang-embed-v1" }
-      thought_generation: { provider_id: "openai_main", model: "gpt-4o" }
+      chat: { provider_id: "mingwang_provider", model: "deepseek-v3-0324" }
+      embeddings: { provider_id: "mingwang_provider", model: "text-embedding-3-small" }
+      summarization: { provider_id: "mingwang_provider", model: "deepseek-v3-0324" }
+      creative: { provider_id: "mingwang_provider", model: "deepseek-v3-0324" }
+      read_air: { provider_id: "mingwang_provider", model: "deepseek-v3-0324" }
+      thought_generation: { provider_id: "openai_main", model: "deepseek-v3-0324" }
 
 # 存储设置
 storage:
