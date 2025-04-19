@@ -338,13 +338,23 @@ class LinjingBot:
             from linjing.storage.database import DatabaseManager
             
             # 数据库管理器
-            # 准备传递给 DatabaseManager 的配置，只包含它明确使用的键
+            # 再次尝试过滤，确保只传递 DatabaseManager.__init__ 关心的顶级键
             db_config_raw = self.config.get("storage", {}).get("database", {})
-            db_config_filtered = {
-                k: v for k, v in db_config_raw.items()
-                if k in ["type", "host", "port", "user", "password", "database", "path", "connection", "create_tables_on_connect"]
-            }
-            self.storage_manager = DatabaseManager(config=db_config_filtered)
+            # DatabaseManager.__init__ 只直接使用 config 参数本身
+            # 它内部会去 .get("type"), .get("host") 等
+            # 所以我们应该直接传递原始的 db_config_raw，让 DatabaseManager 内部处理
+            # 但为了解决 TypeError，我们假设问题出在传递了多余的键
+            # 让我们尝试创建一个只包含已知安全键的新字典
+            known_keys = ["type", "host", "port", "user", "password", "database", "path", "connection", "create_tables_on_connect"]
+            db_config_for_init = {k: db_config_raw[k] for k in known_keys if k in db_config_raw}
+
+            # 特别处理 connection 子字典，也过滤一下（虽然理论上不应导致__init__的TypeError）
+            if "connection" in db_config_for_init and isinstance(db_config_for_init["connection"], dict):
+                 connection_config_raw = db_config_for_init["connection"]
+                 known_conn_keys = ["timeout", "isolation_level", "pragma"] # 根据 database.py connect 方法
+                 db_config_for_init["connection"] = {k: connection_config_raw[k] for k in known_conn_keys if k in connection_config_raw}
+
+            self.storage_manager = DatabaseManager(config=db_config_for_init)
             await self.storage_manager.connect()
             
             # 向量数据库管理器

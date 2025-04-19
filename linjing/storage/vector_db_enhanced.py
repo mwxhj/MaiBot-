@@ -26,6 +26,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Callable, TypeVar, cast
 
+# 导入 ConfigManager 以便在 dataclass 中引用，但这不再是好的做法
+# from linjing import ConfigManager # 移除这个导入
+
 # Qdrant相关导入
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as rest
@@ -59,7 +62,8 @@ class ConnectionConfig:
     api_key: Optional[str] = None
     https: bool = False
     prefix: Optional[str] = None
-    timeout: float = field(default_factory=lambda: ConfigManager.get_config().get("storage", {}).get("vector_db", {}).get("default_timeout", 10.0))
+    # timeout: float = field(default_factory=lambda: ConfigManager.get_config().get("storage", {}).get("vector_db", {}).get("default_timeout", 10.0))
+    timeout: float = 10.0 # 使用简单的默认值，实际值应来自传入的配置
     
     # 本地存储配置
     local_path: Optional[str] = None
@@ -69,8 +73,10 @@ class ConnectionConfig:
     retry_delay: float = 1.0
     
     # 扩展配置
-    batch_size: int = field(default_factory=lambda: ConfigManager.get_config().get("storage", {}).get("vector_db", {}).get("default_batch_size", 100))      # 批量操作大小
-    cache_size: int = field(default_factory=lambda: ConfigManager.get_config().get("storage", {}).get("vector_db", {}).get("default_cache_size", 1000))     # 客户端缓存大小
+    # batch_size: int = field(default_factory=lambda: ConfigManager.get_config().get("storage", {}).get("vector_db", {}).get("default_batch_size", 100))      # 批量操作大小
+    # cache_size: int = field(default_factory=lambda: ConfigManager.get_config().get("storage", {}).get("vector_db", {}).get("default_cache_size", 1000))     # 客户端缓存大小
+    batch_size: int = 100 # 使用简单的默认值
+    cache_size: int = 1000 # 使用简单的默认值
     
     # 内部字段
     _similarity_map: Dict[str, Distance] = field(default_factory=lambda: {
