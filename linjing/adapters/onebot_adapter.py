@@ -367,7 +367,32 @@ class OneBotAdapter(Bot):
             try:
                 logger.debug(f"调用主消息处理函数: {self._message_handler.__name__}")
                 # LinjingBot.handle_message 期望接收转换后的 Message 对象
-                await self._message_handler(event["message"]) # 使用内部变量名
+                # **修改：接收 handle_message 的返回值**
+                reply_message = await self._message_handler(event["message"]) # 使用内部变量名
+
+                # **新增：检查是否有回复需要发送**
+                if reply_message:
+                    logger.debug(f"主处理函数返回了回复，准备发送: {reply_message}")
+                    # 从原始 event 中获取发送目标
+                    target_id = None
+                    message_type = event.get("message_type")
+                    if message_type == "private":
+                        target_id = event.get("user_id")
+                    elif message_type == "group":
+                        target_id = event.get("group_id")
+                    
+                    if target_id:
+                        try:
+                            # 调用适配器的 send 方法发送消息
+                            await self.send(str(target_id), reply_message)
+                            logger.info(f"已向 {message_type} {target_id} 发送回复")
+                        except Exception as send_e:
+                            logger.error(f"发送回复到 {message_type} {target_id} 时出错: {send_e}", exc_info=True)
+                    else:
+                        logger.warning(f"无法确定回复目标，原始事件: {event}")
+                else:
+                    logger.debug("主处理函数未返回回复消息")
+
             except Exception as e:
                 # 恢复原始的异常处理和日志记录
                 logger.error(f"调用主消息处理函数时出错: {e}", exc_info=True) # 重新启用 exc_info=True

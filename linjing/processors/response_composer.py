@@ -151,7 +151,9 @@ class ResponseComposer(BaseProcessor):
         """
         # 构建提示词
         prompt = self._build_prompt(context, thought)
-        
+        # **新增：记录发送给 LLM (chat 任务) 的完整提示词**
+        logger.debug(f"构建的回复生成提示词 (发送给 LLM):\n--- PROMPT START ---\n{prompt}\n--- PROMPT END ---")
+
         # 如果有LLM管理器，使用LLM生成回复
         if self.llm_manager:
             try:
@@ -160,7 +162,9 @@ class ResponseComposer(BaseProcessor):
                     task="chat",  # 回复生成是对话任务
                     max_tokens=4096 # 设置为 4096
                 )
-                
+                # **新增：记录从 LLM (chat 任务) 返回的原始响应**
+                logger.debug(f"LLM 返回的原始回复文本: {repr(response)}")
+
                 # 记录使用的模型信息
                 router_info = metadata.get("router_info", {})
                 if router_info:
