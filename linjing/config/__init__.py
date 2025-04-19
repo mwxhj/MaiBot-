@@ -4,6 +4,6 @@
 将 config.py 中的主要对象暴露到包命名空间。
 """
 
-from .config import config_manager, get_log_directory
+from ..config import config_manager, get_log_directory # 从上级目录的 config.py 导入
 
 __all__ = ['config_manager', 'get_log_directory']
