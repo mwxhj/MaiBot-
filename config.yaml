@@ -103,8 +103,8 @@ llm:
         - provider_id: "mingwang_provider"
           model: "deepseek-v3-0324"
       thought_generation:
-        - provider_id: "openai_main"
-          model: "gpt-4o-mini"
+        - provider_id: "mingwang_provider"
+          model: "deepseek-v3-0324"
 
 # 存储设置
 storage:

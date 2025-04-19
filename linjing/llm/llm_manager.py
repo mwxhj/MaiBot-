@@ -132,6 +132,19 @@ class LLMManager:
                 provider_config = expand_env_vars(provider_config_raw)
                 logger.debug(f"准备初始化提供商 {provider_id} (类型: {provider_type})")
 
+                # --- 添加凭证检查 ---
+                if provider_type == "openai_compatible":
+                    api_key = provider_config.get("api_key")
+                    api_base = provider_config.get("api_base") # 可选检查
+                    if not api_key:
+                        logger.warning(f"提供商 {provider_id} (类型: {provider_type}) 因缺少 'api_key' 而自动禁用。")
+                        continue # 跳过此提供商
+                    # 如果配置了 api_base 但环境变量未设置导致其为空，也禁用
+                    if "api_base" in provider_config_raw and not api_base: # Check original config if api_base was intended
+                         logger.warning(f"提供商 {provider_id} (类型: {provider_type}) 配置了 'api_base' 但其值为空 (可能环境变量未设置)，自动禁用。")
+                         continue # 跳过此提供商
+                # --- 凭证检查结束 ---
+
                 # 创建提供商实例
                 provider = provider_class(provider_config)
 
@@ -281,8 +294,9 @@ class LLMManager:
         """
         routing_options = self._get_routing_options_for_task(task)
         last_exception = None
+        logger.debug(f"任务 '{task}': 获取到 {len(routing_options)} 个路由选项，开始尝试...")
 
-        for option in routing_options:
+        for i, option in enumerate(routing_options):
             provider_id = option["provider_id"]
             model_name = option["model"]
             provider = self.get_provider(provider_id) # Provider should exist due to checks in _get_routing_options_for_task
@@ -297,7 +311,7 @@ class LLMManager:
                  logger.debug(f"使用调用时覆盖的模型 '{current_model_name}'")
 
 
-            logger.info(f"尝试使用提供商 '{provider_id}' (模型: {current_model_name}) 为任务 '{task}' 生成文本")
+            logger.info(f"任务 '{task}': 尝试选项 {i+1}/{len(routing_options)} - 提供商 '{provider_id}' (模型: {current_model_name})")
 
             try:
                 text, metadata = await provider.generate_text(
