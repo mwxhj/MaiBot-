@@ -74,6 +74,19 @@ llm:
         - "text-embedding-3-large"
 
     # 自定义供应商示例
+    - id: "DEEPDUCK_provider"
+      type: "openai_compatible"
+      name: "DEEPDUCK LLM"
+      enabled: true
+      api_key: "${DEEPDUCK_API_KEY}"
+      api_base: "${DEEPDUCK_BASE_URL}"
+      timeout: 60
+      models:
+        - "deepseek-v3-0324"
+        - "text-embedding-3-small"
+        - "deepseek-v3-0324"
+
+
     - id: "mingwang_provider"
       type: "openai_compatible"
       name: "MingWang LLM"
@@ -82,8 +95,8 @@ llm:
       api_base: "${MINGWANG_BASE_URL}"
       timeout: 60
       models:
-        - "gemini-2.0-flash-thinking-exp-01-21-search"
-        - "text-embedding-3-small"
+        - "gemini-2.5-pro-exp-03-25"
+
 
   # 任务路由策略
   usage_strategy:
@@ -92,28 +105,28 @@ llm:
       # chat 任务: 优先 OpenAI，失败则回退到 MingWang
       chat:
         - provider_id: "mingwang_provider"
-          model: "gemini-2.0-flash-thinking-exp-01-21-search"
+          model: "gemini-2.5-pro-exp-03-25"
       # embeddings 任务: 优先 MingWang，失败则回退到 OpenAI
       embeddings:
-        - provider_id: "mingwang_provider"
+        - provider_id: "DEEPDUCK_provider"
           model: "text-embedding-3-small"
       # 其他任务暂时保持单个提供商
       summarization:
-        - provider_id: "mingwang_provider"
-          model: "gemini-2.0-flash-thinking-exp-01-21-search"
+        - provider_id: "DEEPDUCK_provider"
+          model: "deepseek-v3-0324"
       creative:
-        - provider_id: "mingwang_provider"
-          model: "gemini-2.0-flash-thinking-exp-01-21-search"
+        - provider_id: "DEEPDUCK_provider"
+          model: "deepseek-v3-0324"
       read_air:
-        - provider_id: "mingwang_provider"
-          model: "gemini-2.0-flash-thinking-exp-01-21-search"
+        - provider_id: "DEEPDUCK_provider"
+          model: "deepseek-v3-0324"
       thought_generation:
-        - provider_id: "mingwang_provider"
-          model: "gemini-2.0-flash-thinking-exp-01-21-search"
+        - provider_id: "DEEPDUCK_provider"
+          model: "deepseek-v3-0324"
       # **新增：意愿检查任务路由**
       willingness_check:
-        - provider_id: "mingwang_provider" # 或者选择其他合适的模型
-          model: "gemini-2.0-flash-thinking-exp-01-21-search"
+        - provider_id: "DEEPDUCK_provider" # 或者选择其他合适的模型
+          model: "deepseek-v3-0324"
 
 # 存储设置
 storage:
