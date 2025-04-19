@@ -13,7 +13,7 @@ from logging.handlers import RotatingFileHandler
 # 导入 ConfigManager 类型提示，如果需要的话
 from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
-    from ..config import ConfigManager # 修正类型检查的导入路径
+    from .. import ConfigManager # ConfigManager 现在位于上层 linjing 包的 __init__.py
     # 注意：如果 ConfigManager 类本身不在 linjing/config.py 中，需要调整
 
 from loguru import logger

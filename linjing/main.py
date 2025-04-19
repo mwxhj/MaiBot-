@@ -19,7 +19,7 @@ from typing import Dict, Any, Optional
 # 将 MaiBot- 目录添加到 sys.path
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
 
-from linjing.config import ConfigManager # 从 config 包导入 ConfigManager 类
+from linjing import ConfigManager # 直接从 linjing 包导入 ConfigManager 类
 # 确定 .env 文件相对于 main.py 的路径
 dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.env'))
 dotenv.load_dotenv(dotenv_path=dotenv_path)
