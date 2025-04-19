@@ -15,10 +15,7 @@ import yaml     # 添加 yaml 导入
 import dotenv   # 添加 dotenv 导入
 from typing import Dict, Any, Optional
 
-# --- ConfigManager Class Definition Start ---
-# (代码从 linjing/config.py 移动到这里)
-
-# 加载环境变量 (移到类定义之前或之内，确保尽早加载)
+from linjing.config import config_manager  # 从独立模块导入配置管理器
 # 确定 .env 文件相对于 main.py 的路径
 dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.env'))
 dotenv.load_dotenv(dotenv_path=dotenv_path)
@@ -225,8 +222,6 @@ class ConfigManager:
         else:
              logging.error(f"Setting config: cannot set final value on non-dict/list object: {key_path}")
 
-# --- ConfigManager Class Definition End ---
-
 
 # 设置模块导入路径 (恢复此行以进行包内导入)
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
@@ -328,9 +323,6 @@ def main() -> None:
              logger.info("剩余任务已处理。")
         loop.close()
         logger.info("事件循环已关闭。")
-
-# 导出全局配置实例
-config_manager = ConfigManager()
 
 if __name__ == "__main__":
     main()
