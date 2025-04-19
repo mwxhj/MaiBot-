@@ -340,6 +340,9 @@ class LinjingBot:
             # 数据库管理器
             # 再次尝试过滤，确保只传递 DatabaseManager.__init__ 关心的顶级键
             db_config_raw = self.config.get("storage", {}).get("database", {})
+            # --- DEBUG LOGGING START ---
+            logger.debug(f"LinjingBot._init_storage passing config to DatabaseManager: {db_config_raw}")
+            # --- DEBUG LOGGING END ---
             # DatabaseManager.__init__ 只直接使用 config 参数本身
             # 它内部会去 .get("type"), .get("host") 等
             # 所以我们应该直接传递原始的 db_config_raw，让 DatabaseManager 内部处理
