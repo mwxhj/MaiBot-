@@ -41,7 +41,7 @@ RUN pip install --no-cache-dir \
     uvicorn \
     websockets>=11.0.3 \
     aiosqlite \
-    asyncpg \
+    asyncpg==0.27.0 \
     psycopg2-binary
 
 # 复制应用代码
