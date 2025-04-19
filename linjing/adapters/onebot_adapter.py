@@ -368,7 +368,17 @@ class OneBotAdapter(Bot):
                 # LinjingBot.handle_message 期望接收转换后的 Message 对象
                 await self._message_handler(event["message"]) # 使用内部变量名
             except Exception as e:
-                logger.error(f"调用主消息处理函数时出错: {e}", exc_info=True)
+                # 添加详细调试日志
+                logger.critical(f"捕获到异常: 类型={type(e)}, 错误={e!r}") # 使用 !r 获取 repr
+                try:
+                    # 尝试打印原始事件数据，注意可能很大
+                    import json
+                    event_str = json.dumps(event, indent=2, ensure_ascii=False, default=str) # 处理无法序列化的对象
+                    logger.critical(f"异常发生时的 event 数据 (部分): {event_str[:1000]}{'...' if len(event_str) > 1000 else ''}")
+                except Exception as log_e:
+                    logger.critical(f"记录 event 数据时出错: {log_e!r}")
+                # 保留原始错误日志
+                logger.error(f"调用主消息处理函数时出错: {e}", exc_info=True) # exc_info=True 会记录堆栈跟踪
         elif event_type == "message" and not self._message_handler: # 使用内部变量名
              logger.warning("收到消息事件，但没有注册主消息处理函数")
 
