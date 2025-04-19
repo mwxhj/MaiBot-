@@ -204,36 +204,66 @@ class LinjingBot:
         # 从处理后的上下文中获取最终回复
         final_reply = result_context.get_state("reply")
 
-        # 存储对话到记忆 (分别存储用户消息和机器人回复)
-        if self.memory_manager:
-            # 存储用户消息
+        # --- Defer memory saving and emotion update until after returning ---
+        # (Alternatively, run these in background tasks)
+
+        # 更新情绪状态 (Defer this)
+        # if final_reply and self.emotion_manager:
+        #     # 假设从上下文中提取情绪因素
+        #     emotion_factors = result_context.get_state("emotion_factors", {})
+        #     await self.emotion_manager.update_emotion(context.user_id, emotion_factors)
+
+        # 发布消息发送事件
+        if final_reply:
+            await self.event_bus.publish(
+                EventType.MESSAGE_SENT,
+                {"message": final_reply, "context": result_context}
+            )
+
+        # --- Return the reply first ---
+        if final_reply:
+             # Schedule memory saving as a background task
+             asyncio.create_task(self._save_conversation_async(context.user_id, context.session_id, message, final_reply))
+             return final_reply
+        else:
+             # If no reply, still try to save user message? Or just return None.
+             # Let's just return None for now if no reply was generated.
+             logger.warning(f"消息处理完成但未生成回复: UserID={context.user_id}, SessionID={context.session_id}")
+             return None
+
+
+    async def _save_conversation_async(self, user_id, session_id, user_message, bot_reply):
+        """Helper coroutine to save conversation asynchronously."""
+        if not self.memory_manager:
+            return
+
+        # Save user message
+        try:
+            user_content = user_message.extract_plain_text() if hasattr(user_message, 'extract_plain_text') else str(user_message)
+            await self.memory_manager.add_conversation_memory(
+                user_id=user_id,
+                session_id=session_id,
+                content=user_content,
+                role="user"
+            )
+        except Exception as e:
+            logger.error(f"后台存储用户消息失败: {e}", exc_info=True)
+
+        # Save bot reply
+        if bot_reply and hasattr(bot_reply, 'extract_plain_text'):
             try:
-                user_content = message.extract_plain_text() if hasattr(message, 'extract_plain_text') else str(message)
+                bot_content = bot_reply.extract_plain_text()
                 await self.memory_manager.add_conversation_memory(
-                    user_id=context.user_id,
-                    session_id=context.session_id,
-                    content=user_content,
-                    role="user"
-                    # metadata 可以从 message 对象中提取，如果需要的话
+                    user_id=user_id,
+                    session_id=session_id,
+                    content=bot_content,
+                    role="assistant"
                 )
             except Exception as e:
-                logger.error(f"存储用户消息到记忆失败: {e}", exc_info=True)
+                logger.error(f"后台存储机器人回复失败: {e}", exc_info=True)
 
-            # 存储机器人回复 (如果存在)
-            if final_reply and hasattr(final_reply, 'extract_plain_text'):
-                 try:
-                    bot_content = final_reply.extract_plain_text()
-                    await self.memory_manager.add_conversation_memory(
-                        user_id=context.user_id,
-                        session_id=context.session_id,
-                        content=bot_content,
-                        role="assistant" # 或者 "bot"
-                    )
-                 except Exception as e:
-                     logger.error(f"存储机器人回复到记忆失败: {e}", exc_info=True)
-
-        # 更新情绪状态
-        if final_reply and self.emotion_manager:
+        # Update emotion state (Also deferred)
+        if bot_reply and self.emotion_manager:
             # 假设从上下文中提取情绪因素
             emotion_factors = result_context.get_state("emotion_factors", {})
             await self.emotion_manager.update_emotion(context.user_id, emotion_factors)
