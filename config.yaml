@@ -116,7 +116,7 @@ llm:
     task_routing:
       # chat 任务: 优先 OpenAI，失败则回退到 MingWang
       chat:
-        - provider_id: "mingwang_provider"
+        - provider_id: "DEEPSEEK_provider"
           model: "gemini-2.5-pro-exp-03-25"
       # embeddings 任务: 优先 MingWang，失败则回退到 OpenAI
       embeddings:
@@ -124,20 +124,20 @@ llm:
           model: "text-embedding-3-small"
       # 其他任务暂时保持单个提供商
       summarization:
-        - provider_id: "DEEPDUCK_provider"
+        - provider_id: "DEEPSEEK_provider"
           model: "deepseek-chat"
       creative:
-        - provider_id: "DEEPDUCK_provider"
+        - provider_id: "DEEPSEEK_provider"
           model: "deepseek-chat"
       read_air:
-        - provider_id: "DEEPDUCK_provider"
+        - provider_id: "DEEPSEEK_provider"
           model: "deepseek-chat"
       thought_generation:
-        - provider_id: "DEEPDUCK_provider"
+        - provider_id: "DEEPSEEK_provider"
           model: "deepseek-chat"
       # **新增：意愿检查任务路由**
       willingness_check:
-        - provider_id: "DEEPDUCK_provider" # 或者选择其他合适的模型
+        - provider_id: "DEEPSEEK_provider" # 或者选择其他合适的模型
           model: "deepseek-chat"
 
 # 存储设置
