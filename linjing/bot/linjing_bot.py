@@ -8,6 +8,7 @@
 import os
 import sys
 import asyncio
+import json # 导入 json 模块
 import importlib
 import inspect
 from typing import Dict, List, Any, Optional, Tuple, Type, Callable
@@ -237,11 +238,17 @@ class LinjingBot:
         # Save user message
         if self.memory_manager:
             try:
-                user_content = user_message.extract_plain_text() if hasattr(user_message, 'extract_plain_text') else str(user_message)
+                # 检查 user_message 是否有 to_dict 方法
+                if hasattr(user_message, 'to_dict') and callable(user_message.to_dict):
+                    user_content_serializable = user_message.to_dict()
+                    user_content = json.dumps(user_content_serializable, ensure_ascii=False)
+                else:
+                    # 回退到字符串表示
+                    user_content = str(user_message)
                 await self.memory_manager.add_conversation_memory(
                     user_id=context.user_id,
                     session_id=context.session_id,
-                    content=user_content,
+                    content=user_content, # 传递 JSON 字符串或普通字符串
                     role="user"
                 )
             except Exception as e:
@@ -249,13 +256,19 @@ class LinjingBot:
 
         # Save bot reply
         if bot_reply and self.memory_manager and hasattr(bot_reply, 'extract_plain_text'):
-            try:
-                bot_content = bot_reply.extract_plain_text()
+            try: # 修正：检查 bot_reply 是否有 to_dict
+                if hasattr(bot_reply, 'to_dict') and callable(bot_reply.to_dict):
+                    bot_content_serializable = bot_reply.to_dict()
+                    bot_content = json.dumps(bot_content_serializable, ensure_ascii=False)
+                else:
+                    # 回退到字符串表示
+                    bot_content = str(bot_reply)
+
                 await self.memory_manager.add_conversation_memory(
                     user_id=context.user_id,
                     session_id=context.session_id,
-                    content=bot_content,
-                    role="assistant"
+                    content=bot_content, # 传递 JSON 字符串或普通字符串
+                    role="assistant" # 修正：保持 role 为 assistant
                 )
             except Exception as e:
                 logger.error(f"后台存储机器人回复失败 (UserID: {context.user_id}): {e}", exc_info=True)

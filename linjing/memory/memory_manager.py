@@ -13,6 +13,7 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from linjing.adapters.message_types import Message, MessageSegment # 导入 Message 类
 from linjing.storage.database import DatabaseManager
 from linjing.storage.vector_db_manager_factory import VectorDBManagerFactory
 from linjing.storage.storage_models import MemoryModel
@@ -431,7 +432,7 @@ class MemoryManager:
         limit: int = 20,
         offset: int = 0,
         include_metadata: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> List[Message]: # 修改返回类型为 List[Message]
         """
         获取对话历史
         
@@ -443,7 +444,7 @@ class MemoryManager:
             include_metadata: 是否包含元数据
             
         Returns:
-            对话记录列表
+            对话记录列表 (Message 对象)
         """
         if not self._initialized:
             await self.initialize()
@@ -469,28 +470,49 @@ class MemoryManager:
             conversations = []
             for row in results:
                 # 假设 row 是一个字典，使用列名访问
-                conv = {
-                    "id": row.get("id"), # 使用 .get() 避免潜在的 KeyError
-                    "session_id": row.get("session_id"),
-                    "timestamp": row.get("timestamp"),
-                    "content": row.get("content"),
-                    "role": row.get("role"),
-                }
+                # 从数据库行创建 Message 对象
+                msg_id = row.get("id")
+                session_id_db = row.get("session_id") # 避免与参数名冲突
+                timestamp = row.get("timestamp")
+                content = row.get("content")
+                role = row.get("role")
+                metadata = {}
                 
                 if include_metadata:
                     metadata_json = row.get("metadata")
                     if metadata_json:
                         try:
-                            conv["metadata"] = json.loads(metadata_json)
+                            metadata = json.loads(metadata_json)
                         except json.JSONDecodeError:
-                            logger.warning(f"无法解析对话 {row.get('id')} 的元数据: {metadata_json}")
-                            conv["metadata"] = {}
-                    else:
-                         conv["metadata"] = {}
+                            logger.warning(f"无法解析对话 {msg_id} 的元数据: {metadata_json}")
+                            metadata = {} # 保留空字典
                 
-                conversations.append(conv)
+                # 创建 Message 对象，假设 Message 构造函数或方法支持这些参数
+                # 尝试从 content (JSON字符串) 恢复 Message 对象
+                try:
+                    if content and content.startswith('[') and content.endswith(']'): # 简单检查是否像JSON列表
+                        segments_data = json.loads(content)
+                        message_obj = Message.from_dict(segments_data)
+                    else: # 回退到纯文本处理
+                        message_obj = Message([MessageSegment.text(content or "")]) # 使用 content 或空字符串
+                except json.JSONDecodeError:
+                    logger.warning(f"无法解析对话 {msg_id} 的 content JSON，回退到纯文本: {content[:50]}...")
+                    message_obj = Message([MessageSegment.text(content or "")]) # 解析失败也回退
+
+                message_obj.set_id(msg_id) # 使用 set_id 方法
+                message_obj.set_timestamp(timestamp) # 使用 set_timestamp 方法
+
+                # 使用 set_meta 填充元数据
+                if metadata: # 从数据库加载的元数据
+                    for key, value in metadata.items():
+                        message_obj.set_meta(key, value)
+                message_obj.set_meta("is_user", (role == "user")) # 添加 is_user 标志
+                message_obj.set_meta("session_id", session_id_db) # 添加 session_id
+                message_obj.set_meta("role", role) # 添加 role
+
+                conversations.append(message_obj)
             
-            return conversations
+            return conversations # 返回 Message 对象列表
         except Exception as e:
             logger.error(f"获取对话历史失败: {e}", exc_info=True)
             return []
