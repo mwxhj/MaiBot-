@@ -44,6 +44,7 @@ bot:
   processor_pipeline: [
     "read_air",
     "thought_generator",
+    "willingness_checker", # **新增：插入意愿检查器**
     "response_composer"
   ]
 
@@ -104,6 +105,10 @@ llm:
           model: "gemini-2.0-flash-thinking-exp-01-21-search"
       thought_generation:
         - provider_id: "mingwang_provider"
+          model: "gemini-2.0-flash-thinking-exp-01-21-search"
+      # **新增：意愿检查任务路由**
+      willingness_check:
+        - provider_id: "mingwang_provider" # 或者选择其他合适的模型
           model: "gemini-2.0-flash-thinking-exp-01-21-search"
 
 # 存储设置
@@ -327,6 +332,14 @@ processors:
     max_length: 500
     format_response: true
     filter_sensitive: true
+  
+  # **新增：WillingnessChecker 配置**
+  willingness_checker:
+    enabled: true
+    description: "判断是否适合表达内心想法的处理器"
+    skip_on_mention: true # 被 @ 时跳过检查
+    default_willingness: true # LLM 调用失败时的默认行为
+    max_history_for_willingness: 3 # 用于判断意愿时参考的历史消息数量
 
 # 适配器设置
 adapters:

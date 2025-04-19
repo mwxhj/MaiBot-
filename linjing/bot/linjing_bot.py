@@ -444,6 +444,13 @@ class LinjingBot:
                     processor = ThoughtGenerator(name=name, config=processor_config) # 传递 name 参数
                     processor.set_llm_manager(self.llm_manager)
                     processor.set_personality(self.personality)
+
+                # **新增：初始化 WillingnessChecker**
+                elif name == "willingness_checker": # 使用字符串名称，因为它不是 ProcessorName 枚举成员
+                    from linjing.processors.willingness_checker import WillingnessChecker
+                    processor = WillingnessChecker(name=name, config=processor_config)
+                    processor.set_llm_manager(self.llm_manager)
+                    processor.set_personality(self.personality)
                 
                 elif name == ProcessorName.RESPONSE_COMPOSER:
                     from linjing.processors.response_composer import ResponseComposer

@@ -281,13 +281,23 @@ class MessagePipeline:
             logger.debug(f"执行处理器: {processor.name}")
             current_context = await processor.process(current_context)
 
-            # **新增：检查 should_reply 状态，如果为 False 则中止管道**
+            # **新增：检查 should_reply 状态 (来自 ReadAir)，如果为 False 则中止管道**
             should_reply = current_context.get_state("should_reply", True) # 默认为 True
             if not should_reply:
-                logger.info(f"处理器 {processor.name} 判断不应回复，中止消息处理管道。")
+                logger.info(f"处理器 {processor.name} (ReadAir) 判断不应回复，中止消息处理管道。")
                 # 清除可能已生成的 response，确保最终不回复
                 current_context.response = None
                 break # 退出处理器循环
+
+            # **新增：检查 is_willing_to_reply 状态 (来自 WillingnessChecker)，如果为 False 则中止管道**
+            # 这个检查只在 willingness_checker 处理器执行后才有意义
+            if processor.name == "willingness_checker":
+                 is_willing = current_context.get_state("is_willing_to_reply", True) # 默认为 True
+                 if not is_willing:
+                      logger.info(f"处理器 {processor.name} 判断不愿回复，中止消息处理管道。")
+                      # 清除可能已生成的 response，确保最终不回复
+                      current_context.response = None
+                      break # 退出处理器循环
         
         # 如果所有处理器执行完毕但没有生成响应，且没有错误
         if current_context.response is None and current_context.error is None:
