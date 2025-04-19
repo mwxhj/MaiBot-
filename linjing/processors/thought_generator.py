@@ -133,8 +133,8 @@ class ThoughtGenerator(BaseProcessor):
         try:
             # 调用LLM生成思考，使用任务路由选择合适的模型
             thought, metadata = await self.llm_manager.generate_text(
-                prompt, 
-                max_tokens=1000,
+                prompt,
+                max_tokens=4096, # 设置为 4096
                 task="thought_generation"  # 使用专门的任务类型
             )
             

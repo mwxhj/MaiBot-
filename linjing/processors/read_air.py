@@ -174,7 +174,7 @@ class ReadAirProcessor(BaseProcessor):
             # 调用LLM进行分析，指定任务类型为read_air以使用合适的模型
             response, metadata = await self.llm_manager.generate_text(
                 prompt,
-                max_tokens=1500, # Increase max_tokens significantly
+                max_tokens=4096, # 设置为 4096
                 task="read_air"  # 使用任务路由机制选择合适的模型
             )
             

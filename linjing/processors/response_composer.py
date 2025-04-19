@@ -158,7 +158,7 @@ class ResponseComposer(BaseProcessor):
                 response, metadata = await self.llm_manager.generate_text(
                     prompt,
                     task="chat",  # 回复生成是对话任务
-                    max_tokens=500
+                    max_tokens=4096 # 设置为 4096
                 )
                 
                 # 记录使用的模型信息
@@ -340,7 +340,7 @@ class ResponseComposer(BaseProcessor):
                 response, metadata = await self.llm_manager.generate_text(
                     prompt,
                     task="chat",  # 备用回复也是对话任务
-                    max_tokens=100
+                    max_tokens=4096 # 设置为 4096
                 )
                 
                 # 记录使用的模型信息
