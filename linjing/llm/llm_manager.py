@@ -195,45 +195,58 @@ class LLMManager:
         """
         return self.providers.get(provider_id)
 
-    def _get_provider_and_model_for_task(self, task: str) -> Tuple[BaseProvider, str, str]:
+    def _get_routing_options_for_task(self, task: str) -> List[Dict[str, Any]]:
         """
-        根据任务类型获取提供商实例、提供商ID和模型名称。
+        根据任务类型获取有效的、按优先级排序的路由选项列表。
+        每个选项是一个包含 'provider_id' 和 'model' 的字典。
 
         Args:
             task: 任务类型 (例如 'chat', 'embeddings')
 
         Returns:
-            (提供商实例, 提供商ID, 模型名称)
+            有效的路由选项列表 (List[Dict[str, Any]])。
 
         Raises:
-            ValueError: 如果找不到任务对应的可用提供商或模型。
+            ValueError: 如果任务未配置路由或配置格式无效。
         """
-        # 1. 查找任务路由配置
         # === 添加调试日志 ===
         logger.debug(f"查找任务 '{task}' 的路由。当前路由表: {self.task_routing}")
-        routing_info = self.task_routing.get(task)
-        if not routing_info or not isinstance(routing_info, dict):
+        routing_options_config = self.task_routing.get(task)
+
+        if not routing_options_config:
             # 在抛出错误前再记录一次详细信息
             logger.error(f"无法为任务 '{task}' 找到有效的路由信息。路由表内容: {self.task_routing}")
             raise ValueError(f"任务 '{task}' 未配置有效的路由信息")
-
-        provider_id = routing_info.get("provider_id")
-        model = routing_info.get("model")
         
-        if not provider_id or not model:
-            raise ValueError(f"任务 '{task}' 的路由配置缺少 provider_id 或 model 字段")
+        # 确保配置是列表格式
+        if not isinstance(routing_options_config, list):
+             logger.error(f"任务 '{task}' 的路由配置必须是一个列表，但得到的是: {type(routing_options_config)}")
+             raise ValueError(f"任务 '{task}' 的路由配置格式无效，应为列表")
 
-        # 2. 获取提供商实例
-        provider = self.get_provider(provider_id)
-        if not provider:
-            raise ValueError(f"任务 '{task}' 配置的提供商 '{provider_id}' 未找到或未成功初始化")
+        valid_options = []
+        for option in routing_options_config:
+            if not isinstance(option, dict) or "provider_id" not in option or "model" not in option:
+                logger.warning(f"任务 '{task}' 的路由选项无效 (缺少 provider_id 或 model): {option}")
+                continue
+            
+            provider_id = option["provider_id"]
+            if provider_id not in self.providers:
+                logger.warning(f"任务 '{task}' 的路由选项引用的提供商 '{provider_id}' 不可用或未初始化，跳过此选项")
+                continue
+                
+            # 检查模型是否在支持列表中 (可选，但建议保留警告)
+            model = option["model"]
+            if model not in self.provider_models.get(provider_id, []):
+                 logger.warning(f"任务 '{task}' 的路由选项配置的模型 '{model}' 不在提供商 '{provider_id}' 的支持列表中")
 
-        # 3. 检查模型是否在提供商支持列表中
-        if model not in self.provider_models.get(provider_id, []):
-            logger.warning(f"任务 '{task}' 配置的模型 '{model}' 不在提供商 '{provider_id}' 的支持列表中")
+            valid_options.append(option) # 只添加包含可用 provider_id 的选项
 
-        logger.debug(f"任务 '{task}' 路由到提供商 '{provider_id}' 的模型 '{model}'")
-        return provider, provider_id, model
+        if not valid_options:
+             logger.error(f"任务 '{task}' 没有找到任何可用的路由选项 (所有配置的提供商都不可用或配置无效)")
+             raise ValueError(f"任务 '{task}' 没有可用的路由选项")
+
+        logger.debug(f"任务 '{task}' 的有效路由选项 (按优先级): {valid_options}")
+        return valid_options
 
 
     async def generate_text(
@@ -264,39 +277,59 @@ class LLMManager:
         Raises:
             ValueError: 如果找不到任务对应的可用提供商或模型。
             Exception: 如果底层 Provider 调用失败。
+            RuntimeError: 如果尝试了所有提供商都失败了。
         """
-        provider, provider_id, model_name = self._get_provider_and_model_for_task(task)
-        
-        # 允许调用时覆盖模型
-        if model_override:
-            model_name = model_override
-            logger.debug(f"使用调用时覆盖的模型 '{model_name}' 替代配置的模型")
+        routing_options = self._get_routing_options_for_task(task)
+        last_exception = None
 
-        logger.debug(f"使用提供商 '{provider_id}' (模型: {model_name}) 为任务 '{task}' 生成文本")
+        for option in routing_options:
+            provider_id = option["provider_id"]
+            model_name = option["model"]
+            provider = self.get_provider(provider_id) # Provider should exist due to checks in _get_routing_options_for_task
 
-        try:
-            # 直接调用 Provider，让异常向上冒泡
-            text, metadata = await provider.generate_text(
-                model=model_name,
-                prompt=prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                stop=stop,
-                **kwargs
-            )
+            # 允许调用时覆盖模型 (如果提供了 model_override，则只尝试这个模型，忽略配置中的其他模型)
+            current_model_name = model_override if model_override else model_name
+            if model_override and current_model_name != model_name: # If override is set but doesn't match current option's model, skip
+                 if option == routing_options: # Only log skip message once if override is active
+                      logger.debug(f"使用调用时覆盖的模型 '{current_model_name}'，跳过配置中的模型 '{model_name}'")
+                 continue # Skip if model_override doesn't match the current option's model
+            elif model_override:
+                 logger.debug(f"使用调用时覆盖的模型 '{current_model_name}'")
 
-            # 添加额外元数据
-            metadata["provider_id"] = provider_id
-            metadata["provider_name"] = provider.name
-            metadata["model_used"] = model_name
-            metadata["task"] = task
 
-            return text, metadata
+            logger.info(f"尝试使用提供商 '{provider_id}' (模型: {current_model_name}) 为任务 '{task}' 生成文本")
 
-        except Exception as e:
-            logger.error(f"提供商 '{provider_id}' (模型: {model_name}) 在任务 '{task}' 中生成文本失败: {e}", exc_info=True)
-            # 按策略 B，直接抛出异常
-            raise e
+            try:
+                text, metadata = await provider.generate_text(
+                    model=current_model_name,
+                    prompt=prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    stop=stop,
+                    **kwargs
+                )
+
+                # 添加额外元数据
+                metadata["provider_id"] = provider_id
+                metadata["provider_name"] = provider.name
+                metadata["model_used"] = current_model_name
+                metadata["task"] = task
+                logger.info(f"提供商 '{provider_id}' (模型: {current_model_name}) 成功为任务 '{task}' 生成文本")
+                return text, metadata # Success! Return immediately.
+
+            except Exception as e:
+                last_exception = e
+                # 使用 logger.exception 自动记录异常信息和堆栈跟踪
+                logger.exception(f"提供商 '{provider_id}' (模型: {current_model_name}) 在任务 '{task}' 中生成文本失败。尝试下一个提供商...")
+                # Continue to the next provider in the list
+
+        # If the loop finishes, all providers failed
+        logger.error(f"任务 '{task}' 尝试了所有 {len(routing_options)} 个提供商都失败了。")
+        if last_exception:
+            raise RuntimeError(f"任务 '{task}' 无法完成：所有提供商均失败。最后错误: {last_exception}") from last_exception
+        else:
+            # Should not happen if _get_routing_options_for_task works correctly
+            raise RuntimeError(f"任务 '{task}' 无法完成：没有可用的提供商。")
 
 
     async def generate_embedding(
@@ -319,35 +352,52 @@ class LLMManager:
         Raises:
             ValueError: 如果找不到任务对应的可用提供商或模型。
             Exception: 如果底层 Provider 调用失败。
+            RuntimeError: 如果尝试了所有提供商都失败了。
         """
-        provider, provider_id, model_name = self._get_provider_and_model_for_task(task)
-        
-        # 允许调用时覆盖模型
-        if model_override:
-            model_name = model_override
-            logger.debug(f"使用调用时覆盖的模型 '{model_name}' 替代配置的模型")
+        routing_options = self._get_routing_options_for_task(task)
+        last_exception = None
 
-        logger.debug(f"使用提供商 '{provider_id}' (模型: {model_name}) 为任务 '{task}' 生成嵌入")
+        for option in routing_options:
+            provider_id = option["provider_id"]
+            model_name = option["model"]
+            provider = self.get_provider(provider_id)
 
-        try:
-            # 直接调用 Provider，让异常向上冒泡
-            embedding, metadata = await provider.generate_embedding(
-                 model=model_name,
-                 text=text
-            )
+            # 允许调用时覆盖模型
+            current_model_name = model_override if model_override else model_name
+            if model_override and current_model_name != model_name:
+                 if option == routing_options:
+                      logger.debug(f"使用调用时覆盖的模型 '{current_model_name}'，跳过配置中的模型 '{model_name}'")
+                 continue
+            elif model_override:
+                 logger.debug(f"使用调用时覆盖的模型 '{current_model_name}'")
 
-            # 添加额外元数据
-            metadata["provider_id"] = provider_id
-            metadata["provider_name"] = provider.name
-            metadata["model_used"] = model_name
-            metadata["task"] = task
+            logger.info(f"尝试使用提供商 '{provider_id}' (模型: {current_model_name}) 为任务 '{task}' 生成嵌入")
 
-            return embedding, metadata
+            try:
+                embedding, metadata = await provider.generate_embedding(
+                     model=current_model_name,
+                     text=text
+                )
 
-        except Exception as e:
-            logger.error(f"提供商 '{provider_id}' (模型: {model_name}) 在任务 '{task}' 中生成嵌入失败: {e}", exc_info=True)
-            # 按策略 B，直接抛出异常
-            raise e
+                # 添加额外元数据
+                metadata["provider_id"] = provider_id
+                metadata["provider_name"] = provider.name
+                metadata["model_used"] = current_model_name
+                metadata["task"] = task
+                logger.info(f"提供商 '{provider_id}' (模型: {current_model_name}) 成功为任务 '{task}' 生成嵌入")
+                return embedding, metadata # Success!
+
+            except Exception as e:
+                last_exception = e
+                logger.exception(f"提供商 '{provider_id}' (模型: {current_model_name}) 在任务 '{task}' 中生成嵌入失败。尝试下一个提供商...")
+                # Continue to the next provider
+
+        # If the loop finishes, all providers failed
+        logger.error(f"任务 '{task}' 尝试了所有 {len(routing_options)} 个提供商都失败了。")
+        if last_exception:
+            raise RuntimeError(f"任务 '{task}' 无法完成：所有提供商均失败。最后错误: {last_exception}") from last_exception
+        else:
+            raise RuntimeError(f"任务 '{task}' 无法完成：没有可用的提供商。")
 
     def get_token_counter(self) -> TokenCounter:
         """获取令牌计数器实例"""

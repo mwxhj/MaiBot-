@@ -149,7 +149,8 @@ class OpenAICompatibleProvider(BaseProvider):
             return generated_text, metadata
 
         except Exception as e:
-            logger.error(f"提供商 {self.provider_id}: 调用 generate_text (模型: {model}) 失败: {e}", exc_info=True)
+            # 使用 logger.exception 自动处理异常信息和堆栈跟踪
+            logger.exception(f"提供商 {self.provider_id}: 调用 generate_text (模型: {model}) 失败")
             # 根据策略 B，重新抛出异常
             raise e
 

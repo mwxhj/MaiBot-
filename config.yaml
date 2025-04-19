@@ -84,13 +84,27 @@ llm:
   usage_strategy:
     # 任务到供应商和模型的路由映射
     task_routing:
-      chat: { provider_id: "mingwang_provider", model: "deepseek-v3-0324" }
-      embeddings: { provider_id: "mingwang_provider", model: "text-embedding-3-small" }
-      summarization: { provider_id: "mingwang_provider", model: "deepseek-v3-0324" }
-      creative: { provider_id: "mingwang_provider", model: "deepseek-v3-0324" }
-      read_air: { provider_id: "mingwang_provider", model: "deepseek-v3-0324" }
-      # 将模型改为 openai_main 支持的模型，例如 gpt-4o-mini
-      thought_generation: { provider_id: "openai_main", model: "gpt-4o-mini" }
+      # chat 任务: 优先 OpenAI，失败则回退到 MingWang
+      chat:
+        - provider_id: "mingwang_provider"
+          model: "deepseek-v3-0324"
+      # embeddings 任务: 优先 MingWang，失败则回退到 OpenAI
+      embeddings:
+        - provider_id: "mingwang_provider"
+          model: "text-embedding-3-small"
+      # 其他任务暂时保持单个提供商
+      summarization:
+        - provider_id: "mingwang_provider"
+          model: "deepseek-v3-0324"
+      creative:
+        - provider_id: "mingwang_provider"
+          model: "deepseek-v3-0324"
+      read_air:
+        - provider_id: "mingwang_provider"
+          model: "deepseek-v3-0324"
+      thought_generation:
+        - provider_id: "openai_main"
+          model: "gpt-4o-mini"
 
 # 存储设置
 storage:
