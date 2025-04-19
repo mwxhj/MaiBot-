@@ -82,10 +82,6 @@ llm:
 
   # 任务路由策略
   usage_strategy:
-    # auto_fallback: true # Removed/Commented out as per refactoring plan
-    # error_threshold: 5 # Removed/Commented out as per refactoring plan
-    # recovery_time: 300  # Removed/Commented out as per refactoring plan
-
     # 任务到供应商的路由映射
     task_routing:
       chat: "openai"
@@ -118,42 +114,172 @@ storage:
     dimension: 1536  # OpenAI嵌入向量维度
     similarity: "Cosine"  # 首字母大写，符合Qdrant API要求
 
-# 记忆系统设置
-memory:
-  # 记忆重要性设置
-  max_conversation_history: 50
-  memory_decay_rate: 0.95
-  importance_threshold: 0.5
-  max_memories_per_retrieval: 5
-  
-  # 记忆检索设置
-  retrieval:
-    max_results: 5       # 默认最大检索结果数
-    similarity_threshold: 0.75  # 相似度阈值，低于此值的结果将被过滤
-    
-  # 嵌入管理器设置
-  embedding:
-    batch_size: 10  # 批处理大小
-    max_retries: 3  # 嵌入生成最大重试次数
+# ======================== 更新后的配置部分 ========================
 
-# 情感系统设置
+# 记忆系统设置 (更新)
+memory:
+  # 记忆存储设置 (Storage Settings)
+  storage:
+    type: "hybrid"  # 存储模式: "hybrid" (混合), "vector" (仅向量), "database" (仅数据库)
+    max_conversation_history: 50  # 最大对话历史记录数 (用于短期记忆)
+    memory_decay_rate: 0.95  # 记忆重要性随时间衰减的速率 (0-1, 1表示不衰减)
+    importance_threshold: 0.5  # 形成长期记忆的重要性阈值 (0-1)
+    max_memories_per_retrieval: 5  # 单次检索操作返回的最大记忆数量
+
+  # 向量存储配置 (Vector Store Configuration)
+  vector_store:
+    type: "qdrant"  # 向量数据库类型: "qdrant", "chromadb", "faiss" 等
+    path: "data/vector_store"  # 本地存储路径 (如果适用)
+    collection_name: "memories"  # 向量集合/索引的名称
+    dimension: 1536  # 向量维度 (需与使用的 Embedding 模型匹配, e.g., OpenAI text-embedding-ada-002 is 1536)
+    similarity: "Cosine"  # 向量相似度计算方法: "Cosine", "Euclidean", "DotProduct"
+
+  # 知识图谱配置 (Knowledge Graph Configuration)
+  knowledge_graph:
+    enabled: true  # 是否启用知识图谱功能
+    max_relations: 1000  # 图谱中允许的最大关系数量
+    relation_decay: 0.9  # 关系强度随时间衰减的速率 (0-1)
+    min_relation_strength: 0.3  # 认为关系有效的最小强度阈值 (0-1)
+
+  # 记忆检索配置 (Retrieval Configuration)
+  retrieval:
+    max_results: 5  # 最终返回给用户的最大检索结果数量
+    similarity_threshold: 0.75  # 向量相似度阈值 (0-1, 仅返回高于此阈值的结果)
+    # 记忆排序权重 (总和建议为 1.0)
+    time_weight: 0.3  # 时间因素 (新近度) 的权重
+    importance_weight: 0.5  # 记忆重要性评分的权重
+    relevance_weight: 0.2  # 与查询的向量相似度 (相关性) 的权重
+
+  # 嵌入管理器配置 (Embedding Manager Configuration)
+  embedding:
+    batch_size: 10  # 批量处理文本进行 Embedding 的数量
+    max_retries: 3  # 调用 Embedding API 失败时的最大重试次数
+    timeout: 30  # 调用 Embedding API 的超时时间 (秒)
+
+  # 关系数据库配置 (Relational Database Configuration)
+  database:
+    type: "sqlite"  # 数据库类型: "sqlite", "postgresql" 等
+    path: "data/memories.db"  # SQLite 数据库文件路径
+    max_connections: 10  # 数据库连接池的最大连接数 (如果适用)
+
+# 情感系统设置 (更新)
 emotion:
-  # 情绪系统是否启用
-  enabled: true
-  
-  # 默认情绪维度及其初始值
+  enabled: true  # 是否启用情感系统
+  update_interval: 60  # 情感状态自动更新/衰减的间隔时间 (秒)
+  max_history: 100  # 存储的情感状态历史记录的最大数量
+
+  # 情绪维度配置 (Emotion Dimensions Configuration)
+  # 定义机器人核心的情绪维度及其属性
   dimensions:
-    happiness: 0.5      # 快乐-悲伤
-    excitement: 0.3     # 兴奋-平静
-    confidence: 0.6     # 自信-怯懦
-    friendliness: 0.7   # 友好-疏远
-    curiosity: 0.8      # 好奇-冷漠
-    patience: 0.6       # 耐心-急躁
-    trust: 0.5          # 信任-怀疑
-  
-  # 情绪衰减设置
-  emotion_decay_rate: 0.05   # 情绪衰减率
-  emotion_decay_interval: 3600  # 情绪衰减间隔(秒)
+    happiness: # 快乐-悲伤
+      base: 0.5       # 情绪维度的基础值/中性值 (0-1)
+      range: 0.3      # 情绪围绕基础值的正常波动范围 (+/-)
+      decay_rate: 0.05 # 该维度情绪向基础值衰减的速率 (每 update_interval)
+    excitement: # 兴奋-平静
+      base: 0.4
+      range: 0.4
+      decay_rate: 0.1
+    confidence: # 自信-怯懦
+      base: 0.6
+      range: 0.2
+      decay_rate: 0.03
+    friendliness: # 友好-疏远
+      base: 0.7
+      range: 0.2
+      decay_rate: 0.04
+    curiosity: # 好奇-冷漠
+      base: 0.8
+      range: 0.1
+      decay_rate: 0.02
+    # 可以根据需要添加更多维度, 如 patience (耐心), trust (信任) 等
+
+  # 情绪影响因子 (Influence Factors Configuration)
+  influence_factors:
+    message_length: 0.1   # 消息长度对情绪的影响权重
+    message_tone: 0.3     # 消息语气 (通过情感分析得到) 的影响权重
+    user_relationship: 0.4 # 与用户的关系强度 (如果有) 的影响权重
+    time_of_day: 0.2      # 一天中的时间段对情绪的影响权重
+
+  # 情绪规则配置 (Emotion Rules Configuration)
+  rules:
+    # 示例: 基于关键词的情绪变化
+    positive_keywords: ["开心", "高兴", "喜欢", "爱", "棒"] # 触发积极情绪的关键词列表
+    negative_keywords: ["生气", "讨厌", "恨", "糟糕"] # 触发消极情绪的关键词列表
+    intensity_multiplier: 1.5 # 规则触发时情绪变化的强度乘数
+    # 可以在代码中定义更复杂的规则 (基于正则表达式、阈值、组合条件等)
+    # 建议将规则的具体参数 (如阈值、变化量) 放入配置
+
+  # 情绪表达配置 (Emotion Expression Configuration)
+  expression:
+    min_intensity: 0.3  # 情绪强度低于此阈值时，不明显表露情绪 (0-1)
+    max_emojis: 3       # 单条回复中最多使用的、与情绪相关的 emoji 数量
+    # 情绪到表达风格的映射 (示例)
+    style_mapping:
+      # 当某种情绪占主导时，倾向于使用的回复风格权重
+      friendly: 0.7    # 友好风格的倾向权重
+      formal: 0.3      # 正式风格的倾向权重
+      humorous: 0.5    # 幽默风格的倾向权重
+
+# 人格系统设置 (更新)
+personality:
+  # 基础人格特质 (基于大五人格模型 - Big Five)
+  big_five:
+    openness: # 开放性: 想象力、创造力、好奇心 vs 保守、务实
+      base: 0.7       # 特质的基础值 (0-1)
+      variability: 0.1 # 特质围绕基础值的正常波动范围 (+/-)
+    conscientiousness: # 尽责性: 条理性、可靠性、自律 vs 随性、灵活
+      base: 0.6
+      variability: 0.15
+    extraversion: # 外向性: 社交性、活力、热情 vs 内向、安静
+      base: 0.5
+      variability: 0.2
+    agreeableness: # 宜人性: 合作、同情、信任 vs 竞争、直接
+      base: 0.8
+      variability: 0.1
+    neuroticism: # 神经质(情绪稳定性): 焦虑、敏感 vs 平静、稳定
+      base: 0.3
+      variability: 0.05
+
+  # 认知风格 (Cognitive Style)
+  # 定义机器人的思维和解决问题的方式倾向
+  cognitive_style:
+    analytical: 0.6   # 分析性思维倾向 (逻辑、数据驱动)
+    intuitive: 0.4    # 直觉性思维倾向 (整体感知、模式识别)
+    creative: 0.7     # 创造性倾向 (新颖想法、非传统方法)
+    practical: 0.5    # 实用性倾向 (关注结果、可行性)
+
+  # 价值观体系 (Values System)
+  # 定义机器人认为重要的核心原则或信念
+  values:
+    knowledge: 0.9    # 对知识和学习的重视程度
+    harmony: 0.8      # 对和谐与和平的重视程度
+    achievement: 0.6  # 对成就和成功的重视程度
+    helpfulness: 0.85 # 对帮助他人的重视程度
+    honesty: 0.75     # 对诚实和正直的重视程度
+    # 可以添加更多价值观, 如 "creativity", "justice" 等
+
+  # 行为偏好 (Behavioral Preferences)
+  # 定义机器人在互动中的具体行为倾向
+  preferences:
+    # 回复风格的默认权重 (会被当前情绪和情境影响)
+    response_style:
+      friendly: 0.7   # 友好风格的默认权重
+      formal: 0.2     # 正式风格的默认权重
+      humorous: 0.5   # 幽默风格的默认权重
+      concise: 0.6    # 简洁风格的默认权重
+    emoji_usage: 0.5  # 使用 emoji 的频率或倾向 (0-1)
+    detail_level: 0.6 # 回复的详细程度 (0-1, 0=非常简洁, 1=非常详细)
+    initiative: 0.4   # 主动发起对话或提出建议的倾向 (0-1)
+
+  # 兴趣领域 (Interest Areas)
+  # 定义机器人对不同话题的兴趣程度 (加权)
+  interests:
+    technology: 0.8
+    art: 0.6
+    science: 0.7
+    philosophy: 0.5
+    literature: 0.6
+    # 可以根据需要添加更多兴趣领域
 
 # 处理器配置
 processors:
@@ -208,36 +334,6 @@ adapters:
       command_prefix: "/"         # 命令前缀
       keyword_trigger: true       # 是否启用关键词触发
       trigger_keywords: ["林静", "机器人"]  # 触发关键词
-
-# 人格系统
-personality:
-  # 人格特质 (Big Five)
-  traits:
-    openness: 0.7          # 开放性
-    conscientiousness: 0.6 # 尽责性
-    extraversion: 0.5      # 外向性
-    agreeableness: 0.8     # 宜人性
-    neuroticism: 0.3       # 神经质
-  
-  # 兴趣领域
-  interests: ["阅读", "音乐", "科技", "星空", "绘画"]
-  
-  # 价值观
-  values:
-    harmony: 0.8     # 和谐
-    knowledge: 0.9   # 知识
-    creativity: 0.7  # 创造力
-    helpfulness: 0.9 # 助人为乐
-    honesty: 0.8     # 诚实
-    curiosity: 0.9   # 好奇心
-  
-  # 偏好设置
-  preferences:
-    response_style: "friendly"  # 回复风格: friendly, formal, casual, humorous
-    verbosity: 0.6              # 回复详细程度 (0-1)
-    emoji_usage: 0.5            # emoji使用频率 (0-1)
-    politeness: 0.7             # 礼貌程度 (0-1)
-    humor_style: "gentle"       # 幽默风格: gentle, sarcastic, dry, silly
 
 # 插件系统 - 目前代码中未实现，将此部分设为禁用状态
 plugins:

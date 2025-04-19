@@ -129,7 +129,7 @@ class EmotionManager:
         """
         self.config = config
         self.db_manager = db_manager
-        self.mood_model = MoodModel()
+        self.mood_model = MoodModel(config)
         self.emotion_rules = EmotionRules()
         
         # 情绪衰减配置

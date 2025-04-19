@@ -16,17 +16,26 @@ logger = get_logger(__name__)
 class MoodModel:
     """情绪模型，负责计算情绪变化"""
     
-    def __init__(self):
-        """初始化情绪模型"""
+    def __init__(self, config):
+        """初始化情绪模型
+        
+        Args:
+            config: 配置字典，包含 emotion 相关配置
+        """
+        self.config = config
+        
+        # 从配置中获取情绪参数
+        emotion_config = config.get("emotion", {})
+        
         # 情绪变化基准系数
-        self.base_change_rate = 0.05
+        self.base_change_rate = emotion_config.get("base_change_rate", 0.05)
         
         # 情绪惯性系数（之前的情绪状态对当前的影响程度）
-        self.inertia_factor = 0.7
+        self.inertia_factor = emotion_config.get("inertia_factor", 0.7)
         
         # 情绪关联矩阵（情绪维度之间的关联关系）
-        self.dimension_correlations = {
-            # 正相关
+        self.dimension_correlations = emotion_config.get("dimension_correlations", {
+            # 默认关联矩阵
             "happiness": {"excitement": 0.3, "friendliness": 0.4, "confidence": 0.2},
             "excitement": {"happiness": 0.3, "curiosity": 0.3},
             "confidence": {"happiness": 0.2, "patience": 0.2},
@@ -34,9 +43,7 @@ class MoodModel:
             "curiosity": {"excitement": 0.3},
             "patience": {"trust": 0.3},
             "trust": {"friendliness": 0.4, "patience": 0.3},
-            
-            # 负相关通过计算得出
-        }
+        })
     
     def compute_changes(self, current_emotion, factors: Dict[str, Any], message_text: str = "") -> Dict[str, float]:
         """
@@ -184,36 +191,29 @@ class MoodModel:
         if not message_text:
             return changes
             
-        # 简单的关键词匹配
+        # 从配置中获取关键词规则
+        rules = self.config.get("emotion", {}).get("rules", {})
+        positive_keywords = rules.get("positive_keywords", [])
+        negative_keywords = rules.get("negative_keywords", [])
+        intensity_multiplier = rules.get("intensity_multiplier", 1.5)
+        
+        # 构建关键词匹配模式
         keyword_patterns = {
             # 积极关键词
-            r'\b(喜欢|爱|棒|厉害|好|太好了|感谢|谢谢|开心|高兴|牛|赞)\b': {
-                "happiness": 0.8,
-                "friendliness": 0.6
-            },
-            r'\b(有趣|interesting|wow|哇|惊讶|amazing|amazing|不敢相信)\b': {
-                "excitement": 0.7, 
-                "curiosity": 0.5
-            },
-            r'\b(信任|相信|believe|trust|reliable|可靠)\b': {
-                "trust": 0.8
+            r'\b(' + '|'.join(positive_keywords) + r')\b': {
+                "happiness": 0.8 * intensity_multiplier,
+                "friendliness": 0.6 * intensity_multiplier
             },
             
             # 消极关键词
-            r'\b(讨厌|stupid|愚蠢|蠢|差|糟糕|烦|烦人|恶心|討厭)\b': {
-                "happiness": -0.6,
-                "friendliness": -0.4
-            },
-            r'\b(不耐烦|hurry|快点|赶紧|慢|太慢了)\b': {
-                "patience": -0.7
-            },
-            r'\b(不信|骗子|骗人|liar|不可靠|不可信)\b': {
-                "trust": -0.8
+            r'\b(' + '|'.join(negative_keywords) + r')\b': {
+                "happiness": -0.6 * intensity_multiplier,
+                "friendliness": -0.4 * intensity_multiplier
             },
             
             # 问题关键词
             r'\?|\？|为什么|what|how|怎么|如何|who|where|which': {
-                "curiosity": 0.3
+                "curiosity": 0.3 * intensity_multiplier
             }
         }
         
@@ -223,12 +223,15 @@ class MoodModel:
                 for dim, effect in effects.items():
                     changes[dim] = changes.get(dim, 0) + self.base_change_rate * effect
                     
-        # 文本长度对耐心的影响
+        # 文本长度对耐心的影响（从配置获取影响因子）
+        influence_factors = self.config.get("emotion", {}).get("influence_factors", {})
+        text_length_factor = influence_factors.get("message_length", 0.1)
+        
         text_length = len(message_text)
         if text_length > 200:  # 较长文本
-            changes["patience"] = changes.get("patience", 0) - self.base_change_rate * 0.3
+            changes["patience"] = changes.get("patience", 0) - self.base_change_rate * text_length_factor
         elif text_length < 10:  # 非常短的文本
-            changes["patience"] = changes.get("patience", 0) + self.base_change_rate * 0.1
+            changes["patience"] = changes.get("patience", 0) + self.base_change_rate * text_length_factor * 0.5
             
         return changes
     
