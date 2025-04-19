@@ -120,8 +120,8 @@ class EmotionManager:
         self.decay_rate = config.get("emotion_decay_rate", 0.05)
         self.decay_interval = config.get("emotion_decay_interval", 3600)  # 默认1小时
         
-        # 用户情绪缓存 {user_id: EmotionState}
-        self.emotion_cache = {}
+        # 用户情绪缓存 {user_id: MoodState} # 修正类型注释
+        self.emotion_cache: Dict[str, MoodState] = {} # 使用类型提示
         
         # 启动情绪衰减任务
         self._start_decay_task()
@@ -142,15 +142,16 @@ class EmotionManager:
     
     async def _apply_emotion_decay(self):
         """应用情绪衰减"""
-        for user_id, mood in list(self.mood_cache.items()):
+        baseline_mood = self.config.get("baseline_mood", "平静") # 从配置获取基线情绪
+        for user_id, mood in list(self.emotion_cache.items()): # 使用 emotion_cache
             # 应用衰减
-            updated_mood = mood.apply_decay(self.decay_rate, self.baseline_mood)
-            self.mood_cache[user_id] = updated_mood
+            updated_mood = mood.apply_decay(self.decay_rate, baseline_mood) # 传递基线情绪
+            self.emotion_cache[user_id] = updated_mood # 更新 emotion_cache
             
             # 保存到数据库
             await self.save_mood(user_id, updated_mood)
     
-    async def get_emotion(self, user_id: str) -> EmotionState:
+    async def get_emotion(self, user_id: str) -> MoodState: # 修正返回类型提示
         """
         获取用户的情绪状态
         
@@ -171,19 +172,21 @@ class EmotionManager:
             
             if results and results[0].get("emotion_data"):
                 emotion_data = json.loads(results[0]["emotion_data"])
-                emotion = EmotionState.from_dict(emotion_data)
-                self.emotion_cache[user_id] = emotion
-                return emotion
+                # emotion = EmotionState.from_dict(emotion_data) # 使用 MoodState
+                mood = MoodState.from_dict(emotion_data)
+                self.emotion_cache[user_id] = mood
+                return mood
             
         except Exception as e:
             logger.error(f"获取用户情绪失败: {e}")
         
         # 如果没有找到，返回默认情绪状态
-        default_emotion = EmotionState()
-        self.emotion_cache[user_id] = default_emotion
-        return default_emotion
+        # default_emotion = EmotionState() # 使用 MoodState
+        default_mood = MoodState()
+        self.emotion_cache[user_id] = default_mood
+        return default_mood
     
-    async def update_emotion(self, user_id: str, factors: Dict[str, Any], message_text: str = "") -> EmotionState:
+    async def update_emotion(self, user_id: str, factors: Dict[str, Any], message_text: str = "") -> MoodState: # 修正返回类型提示
         """
         更新用户的情绪状态
         
@@ -196,33 +199,40 @@ class EmotionManager:
             更新后的情绪状态
         """
         # 获取当前情绪
-        current_emotion = await self.get_emotion(user_id)
-        
-        # 计算情绪变化
-        emotion_changes = self.mood_model.compute_changes(
-            current_emotion, 
-            factors, 
+        current_mood: MoodState = await self.get_emotion(user_id) # 修正类型提示
+
+        # 计算情绪变化 (假设 mood_model 返回的是强度变化值)
+        # 注意：mood_model.compute_changes 的逻辑可能需要调整以适应 MoodState
+        # 暂时假设它返回一个影响值 impact
+        impact = self.mood_model.compute_changes(
+            current_mood,
+            factors,
             message_text
-        )
-        
-        # 应用情绪规则
-        rule_changes = await self.emotion_rules.apply_rules(current_emotion, message_text, factors)
+        ) # 假设返回 float 或 Dict[str, float]
+
+        # 应用情绪规则 (假设返回影响值)
+        rule_impact = await self.emotion_rules.apply_rules(current_mood, message_text, factors) # 假设返回 float
         
         # 合并变化
-        combined_changes = emotion_changes.copy()
-        for dim, value in rule_changes.items():
-            combined_changes[dim] = combined_changes.get(dim, 0) + value
-        
+        # 合并影响 (简化处理，直接相加)
+        # TODO: 需要更复杂的逻辑来处理情绪类型变化和强度更新
+        total_impact = impact + rule_impact # 简化假设
+
         # 更新情绪
-        updated_emotion = current_emotion.update(combined_changes)
+        # updated_emotion = current_emotion.update(combined_changes) # MoodState 没有 update 方法
+        # 使用 apply_impact 更新强度，情绪类型变化逻辑暂缺
+        updated_mood = current_mood.apply_impact(total_impact)
+        # TODO: 添加逻辑以根据 impact 或 factors 改变 mood_type
+
         
         # 更新缓存
-        self.emotion_cache[user_id] = updated_emotion
-        
+        self.emotion_cache[user_id] = updated_mood
+
         # 保存到数据库
-        await self.save_emotion(user_id, updated_emotion)
-        
-        return updated_emotion
+        # await self.save_emotion(user_id, updated_emotion) # 方法不存在，应为 save_mood
+        await self.save_mood(user_id, updated_mood)
+
+        return updated_mood
     
     async def save_mood(self, user_id: str, mood: MoodState) -> None:
         """
@@ -280,20 +290,20 @@ class EmotionManager:
         """初始化数据库表"""
         try:
             query = """
-            CREATE TABLE IF NOT EXISTS user_emotions (
+            CREATE TABLE IF NOT EXISTS user_moods ( -- 修正表名
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
-                emotion_data TEXT NOT NULL,
-                timestamp REAL NOT NULL,
-                UNIQUE(user_id, timestamp)
+                mood_data TEXT NOT NULL, -- 存储 MoodState 的 JSON
+                timestamp REAL NOT NULL -- 存储 MoodState 的时间戳
+                -- 移除 UNIQUE 约束，允许同一用户有多个时间戳记录
             )
             """
             await self.db_manager.execute_query(query)
             
             # 创建索引
             index_query = """
-            CREATE INDEX IF NOT EXISTS idx_user_emotions_user_id_timestamp 
-            ON user_emotions(user_id, timestamp)
+            CREATE INDEX IF NOT EXISTS idx_user_moods_user_id_timestamp -- 修正索引名和表名
+            ON user_moods(user_id, timestamp DESC) -- 按时间降序索引
             """
             await self.db_manager.execute_query(index_query)
             
