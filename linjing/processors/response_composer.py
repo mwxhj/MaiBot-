@@ -231,14 +231,19 @@ class ResponseComposer(BaseProcessor):
         
         # 如果有人格设置，可以添加个性化表情或语气词
         if self.personality and random.random() < self.style_factor:
-            emojis = self.personality.get("emojis", [])
-            phrases = self.personality.get("phrases", [])
+            # Incorrect access: emojis = self.personality.get("emojis", [])
+            # Incorrect access: phrases = self.personality.get("phrases", [])
             
-            if emojis and random.random() < 0.3:
-                formatted_response += f" {random.choice(emojis)}"
+            # 获取 emoji 使用倾向
+            emoji_tendency = self.personality.get_preference("emoji_usage", 0.0)
+            # 根据倾向随机决定是否添加表情 (乘以 0.5 降低频率)
+            if emoji_tendency > 0.1 and random.random() < (emoji_tendency * 0.5):
+                 # 暂时硬编码一个简单的表情
+                 formatted_response += " 😊"
             
-            if phrases and random.random() < 0.2:
-                formatted_response += f" {random.choice(phrases)}"
+            # 暂时注释掉短语部分，因为 Personality 类没有 phrases 且访问方式错误
+            # if phrases and random.random() < 0.2:
+            #     formatted_response += f" {random.choice(phrases)}"
         
         return formatted_response
 
