@@ -77,7 +77,7 @@ llm:
       api_base: "${MINGWANG_BASE_URL}"
       timeout: 60
       models:
-        - "deepseek-v3-0324"
+        - "gemini-2.0-flash-thinking-exp-01-21-search"
         - "text-embedding-3-small"
 
   # 任务路由策略
@@ -87,7 +87,7 @@ llm:
       # chat 任务: 优先 OpenAI，失败则回退到 MingWang
       chat:
         - provider_id: "mingwang_provider"
-          model: "deepseek-v3-0324"
+          model: "gemini-2.0-flash-thinking-exp-01-21-search"
       # embeddings 任务: 优先 MingWang，失败则回退到 OpenAI
       embeddings:
         - provider_id: "mingwang_provider"
@@ -95,16 +95,16 @@ llm:
       # 其他任务暂时保持单个提供商
       summarization:
         - provider_id: "mingwang_provider"
-          model: "deepseek-v3-0324"
+          model: "gemini-2.0-flash-thinking-exp-01-21-search"
       creative:
         - provider_id: "mingwang_provider"
-          model: "deepseek-v3-0324"
+          model: "gemini-2.0-flash-thinking-exp-01-21-search"
       read_air:
         - provider_id: "mingwang_provider"
-          model: "deepseek-v3-0324"
+          model: "gemini-2.0-flash-thinking-exp-01-21-search"
       thought_generation:
         - provider_id: "mingwang_provider"
-          model: "deepseek-v3-0324"
+          model: "gemini-2.0-flash-thinking-exp-01-21-search"
 
 # 存储设置
 storage:
