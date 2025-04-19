@@ -429,42 +429,58 @@ class MemoryManager:
         self,
         user_id: str,
         session_id: str = None,
-        limit: int = 20,
+        limit: Optional[int] = None, # 改为 Optional[int]，默认值设为 None
         offset: int = 0,
         include_metadata: bool = False
     ) -> List[Message]: # 修改返回类型为 List[Message]
         """
         获取对话历史
-        
+
         Args:
             user_id: 用户ID
             session_id: 会话ID，如为None则获取所有会话
-            limit: 返回记录数量限制
+            limit: 返回记录数量限制 (默认从配置 bot.session.message_context.depth 读取)
             offset: 分页偏移量
             include_metadata: 是否包含元数据
-            
+
         Returns:
             对话记录列表 (Message 对象)
         """
         if not self._initialized:
             await self.initialize()
-        
+
+        # 如果 limit 未指定，从配置获取默认值，否则使用配置值或回退到 20
+        actual_limit = limit
+        if actual_limit is None:
+            # 注意：这里假设 self.config 是一个可以嵌套访问的字典或类似结构
+            # 如果 self.config 不是全局 config_manager.config，可能需要调整访问方式
+            try:
+                # 尝试从配置中获取深度值
+                # 修正：直接使用 self.config 字典访问，假设它包含所需结构
+                session_config = self.config.get("bot", {}).get("session", {})
+                context_config = session_config.get("message_context", {})
+                default_limit = context_config.get("depth", 20) # 从 bot.session.message_context.depth 获取
+                actual_limit = int(default_limit) # 确保是整数
+            except (AttributeError, ValueError, TypeError):
+                 logger.warning("无法从配置 bot.session.message_context.depth 获取默认 limit，使用 20")
+                 actual_limit = 20 # 回退值
+
         try:
             query = "SELECT id, session_id, timestamp, content, role"
             params = [user_id]
-            
+
             if include_metadata:
                 query += ", metadata"
-            
+
             query += " FROM conversations WHERE user_id = ?"
-            
+
             if session_id:
                 query += " AND session_id = ?"
                 params.append(session_id)
-            
+
             query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
-            params.extend([limit, offset])
-            
+            params.extend([actual_limit, offset]) # 使用 actual_limit
+
             results = await self.db.execute_query(query, params)
             
             conversations = []

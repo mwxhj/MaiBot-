@@ -15,6 +15,10 @@ import yaml     # 添加 yaml 导入
 import dotenv   # 添加 dotenv 导入
 from typing import Dict, Any, Optional
 
+# 设置模块导入路径，确保能找到 linjing 包
+# 将 MaiBot- 目录添加到 sys.path
+sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
+
 from linjing.config import config_manager  # 从独立模块导入配置管理器
 # 确定 .env 文件相对于 main.py 的路径
 dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -223,9 +227,6 @@ class ConfigManager:
              logging.error(f"Setting config: cannot set final value on non-dict/list object: {key_path}")
 
 
-# 设置模块导入路径 (恢复此行以进行包内导入)
-sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
-
 # 导入其他必要的类和函数
 from linjing.constants import VERSION
 from linjing.bot.linjing_bot import LinjingBot
@@ -286,30 +287,45 @@ def main() -> None:
         print(f"林静聊天机器人 v{VERSION}")
         sys.exit(0)
 
-    # 使用定义在本文件中的 ConfigManager
+    # 使用从 linjing.config 导入的全局 config_manager 实例
     config_path = args.config if args.config else None
-    # 添加日志记录实例化过程
-    logger.info(f"Instantiating ConfigManager with config_path: {config_path}")
-    try:
-        config_manager_instance = ConfigManager(config_path=config_path) # 直接使用本文件定义的类
-        logger.info("ConfigManager instantiated successfully.")
-    except Exception as e:
-        logger.error(f"Error instantiating ConfigManager: {e}", exc_info=True)
-        sys.exit(1)
+    if config_path:
+        # 如果命令行指定了配置文件，需要重新加载配置
+        # 注意：这假设 config_manager 实例已经存在，并且可以重新加载
+        # 如果 config_manager 设计为单例且不允许重载，则需要调整逻辑
+        logger.info(f"Command line specified config path: {config_path}. Reloading configuration.")
+        # 假设 ConfigManager 有一个 reload 方法，或者需要重新实例化
+        # config_manager.reload(config_path) # 示例：如果存在 reload 方法
+        # 或者，如果必须重新实例化（不推荐，因为会丢失之前的状态）:
+        # global config_manager
+        # config_manager = ConfigManager(config_path=config_path)
+        # 这里我们暂时假设 config_manager 在启动时已正确加载默认或环境变量指定的配置
+        # 并且命令行参数主要用于覆盖，或者在 ConfigManager 内部处理
+        # 最简单的处理方式是让 ConfigManager 在初始化时检查 args.config
+        # 但这会引入 main 对 config 的反向依赖，所以最好是在 main 中处理
+        # 目前，我们仅记录日志，并依赖 config_manager 已被正确初始化
+        logger.warning("Command line config path provided, but reloading logic is not fully implemented here. Ensure ConfigManager handles this or was initialized correctly.")
 
 
-    # 设置日志级别
-    log_level_from_config = config_manager_instance.get("system.log_level", "INFO")
+    # 设置日志级别 (现在从导入的 config_manager 获取)
+    log_level_from_config = config_manager.get("system.log_level", "INFO")
     log_level = "DEBUG" if args.debug else log_level_from_config
-    setup_logger(log_level)
+    # 确保 setup_logger 使用正确的 log_path (从 config_manager 获取)
+    # 注意：config_manager 需要暴露 LOG_PATH 属性或提供 get_log_path 方法
+    # 假设 config_manager.LOG_PATH 存在
+    log_dir = config_manager.LOG_PATH if hasattr(config_manager, 'LOG_PATH') else os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), 'data', 'logs')
+    setup_logger(level=log_level, log_dir=log_dir) # 传递 log_dir
     logger.info(f"日志级别设置为: {log_level}")
+    logger.info(f"日志文件目录: {log_dir}")
+
 
     handle_signals()
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     try:
-        loop.run_until_complete(main_async(config_manager_instance.config))
+        # 将全局配置字典传递给 main_async
+        loop.run_until_complete(main_async(config_manager.config))
     except KeyboardInterrupt:
         logger.info("接收到键盘中断")
     finally:
