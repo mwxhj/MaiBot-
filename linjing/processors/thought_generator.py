@@ -45,9 +45,13 @@ class ThoughtGenerator(BaseProcessor):
         # 是否保存思考结果到记忆
         self.save_to_memory = self.config.get("save_to_memory", True)
         
-        # 思考模板
-        self.thinking_template = self.config.get("thinking_template", None)
-        
+        # **修改：从配置加载思考模板**
+        # 注意：这里假设 config 字典包含了加载后的 prompts 数据
+        self.thinking_template = config.get("prompts", {}).get("thought_generator", {}).get("thinking_prompt", "")
+        if not self.thinking_template:
+             logger.error("未能从配置中加载 ThoughtGenerator thinking_prompt 模板！将无法生成思考。")
+             self.thinking_template = "错误：缺少 ThoughtGenerator 思考 Prompt 模板。"
+
         # LLM 管理器，用于调用语言模型
         self.llm_manager = None
         
@@ -181,46 +185,36 @@ class ThoughtGenerator(BaseProcessor):
         # 构建思考提示词
         depth_description = ["简单", "一般", "详细", "深入", "非常深入"][min(self.thinking_depth, 4)]
         
-        # 使用配置的模板或默认模板
-        if self.thinking_template:
+        # **修改：始终使用从配置加载的模板**
+        try:
+            # 确保从 self.config 获取最新的 prompts 数据
+            current_prompts = self.config.get("prompts", {})
+            self.thinking_template = current_prompts.get("thought_generator", {}).get("thinking_prompt", self.thinking_template) # 更新模板
+
+            if not self.thinking_template or "错误：" in self.thinking_template:
+                 logger.error("ThoughtGenerator Prompt 模板无效或未加载，无法构建 Prompt。")
+                 return "错误：ThoughtGenerator Prompt 模板无效。"
+
+            # 获取角色名，如果 personality 对象存在且有 name 属性
+            character_name = getattr(self.personality, 'name', '林静') if self.personality else '林静'
+
             prompt = self.thinking_template.format(
-                message=message_text,
-                history=history_text,
-                memories=memories_text,
-                emotion=emotion_text,
+                character_name=character_name, # 添加角色名
+                message_text=message_text,
+                history_text=history_text,
+                memories_text=memories_text,
+                emotion_text=emotion_text,
                 air_analysis=air_analysis,
-                personality=personality_text,
-                depth=depth_description
+                personality_text=personality_text,
+                depth_description=depth_description
             )
-        else:
-            prompt = f"""作为一个名为林静的AI助手，你需要根据用户的消息生成你的内部思考过程。这个思考过程应该反映你如何理解和处理信息，以及你的个性特点如何影响你的思考。
+        except KeyError as e:
+             logger.error(f"构建 ThoughtGenerator Prompt 时缺少占位符: {e}。模板: {self.thinking_template}")
+             prompt = f"错误：构建 Prompt 失败，缺少占位符 {e}。"
+        except Exception as e:
+             logger.error(f"构建 ThoughtGenerator Prompt 时发生未知错误: {e}", exc_info=True)
+             prompt = "错误：构建 Prompt 时发生未知错误。"
 
-### 基本信息
-- 用户消息: "{message_text}"
-- 对话历史:
-{history_text}
-
-### 你的记忆
-{memories_text}
-
-### 你的情绪状态
-{emotion_text}
-
-### 对当前消息的分析
-{air_analysis}
-
-### 你的人格特点
-{personality_text}
-
-现在，请以{depth_description}的思考深度，生成你对这条消息的内部思考过程。思考应该包括:
-1. 你对消息的理解和解读
-2. 与你记忆中的相关信息联系
-3. 考虑用户可能的意图和期望
-4. 你的情感反应和直觉
-5. 可能的回应方向和策略
-
-保持真实自然的思考流程，展现你的个性特点。不需要按固定格式输出，而是模拟真实的思考过程。"""
-        
         return prompt
     
     def _format_history(self, context: MessageContext) -> str:

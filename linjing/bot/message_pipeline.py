@@ -280,6 +280,14 @@ class MessagePipeline:
             
             logger.debug(f"执行处理器: {processor.name}")
             current_context = await processor.process(current_context)
+
+            # **新增：检查 should_reply 状态，如果为 False 则中止管道**
+            should_reply = current_context.get_state("should_reply", True) # 默认为 True
+            if not should_reply:
+                logger.info(f"处理器 {processor.name} 判断不应回复，中止消息处理管道。")
+                # 清除可能已生成的 response，确保最终不回复
+                current_context.response = None
+                break # 退出处理器循环
         
         # 如果所有处理器执行完毕但没有生成响应，且没有错误
         if current_context.response is None and current_context.error is None:

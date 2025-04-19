@@ -54,6 +54,18 @@ class ResponseComposer(BaseProcessor):
         self.use_multimodal = config.get("use_multimodal", True)
         self.llm_manager = None
         self.personality = None
+        # **新增：存储 Prompt 模板**
+        # 注意：这里假设 config 字典包含了加载后的 prompts 数据
+        prompts_config = config.get("prompts", {}).get("response_composer", {})
+        self.response_prompt_template = prompts_config.get("response_prompt", "")
+        self.fallback_prompt_template = prompts_config.get("fallback_prompt", "")
+        if not self.response_prompt_template:
+             logger.error("未能从配置中加载 ResponseComposer response_prompt 模板！")
+             self.response_prompt_template = "错误：缺少 ResponseComposer 回复 Prompt 模板。"
+        if not self.fallback_prompt_template:
+             logger.error("未能从配置中加载 ResponseComposer fallback_prompt 模板！")
+             self.fallback_prompt_template = "错误：缺少 ResponseComposer 备用 Prompt 模板。"
+
 
     def set_llm_manager(self, llm_manager: Any) -> None:
         """
@@ -198,16 +210,30 @@ class ResponseComposer(BaseProcessor):
         # 获取人格特质
         traits = self._format_personality_traits()
 
-        # 构建提示词模板
-        prompt = (
-            f"基于以下信息生成回复:\n\n"
-            f"历史对话:\n{history}\n\n"
-            f"用户消息: {user_message_text}\n\n"
-            f"内部思考: {thought}\n\n"
-            f"人格特质: {traits}\n\n"
-            f"请以{self.character_name}的身份生成自然、得体且符合人格特质的回复。"
-            f"回复应直接面向用户，不要包含思考过程，回复应当是完整、流畅的中文语句。"
-        )
+        # **修改：从配置加载模板并格式化**
+        try:
+            # 确保从 self.config 获取最新的 prompts 数据
+            current_prompts = self.config.get("prompts", {})
+            self.response_prompt_template = current_prompts.get("response_composer", {}).get("response_prompt", self.response_prompt_template) # 更新模板
+
+            if not self.response_prompt_template or "错误：" in self.response_prompt_template:
+                 logger.error("ResponseComposer response_prompt 模板无效或未加载，无法构建 Prompt。")
+                 return "错误：ResponseComposer response_prompt 模板无效。"
+
+            prompt = self.response_prompt_template.format(
+                history=history,
+                user_message_text=user_message_text,
+                thought=thought,
+                traits=traits,
+                character_name=self.character_name
+            )
+        except KeyError as e:
+             logger.error(f"构建 ResponseComposer response_prompt 时缺少占位符: {e}。模板: {self.response_prompt_template}")
+             prompt = f"错误：构建 Prompt 失败，缺少占位符 {e}。"
+        except Exception as e:
+             logger.error(f"构建 ResponseComposer response_prompt 时发生未知错误: {e}", exc_info=True)
+             prompt = "错误：构建 Prompt 时发生未知错误。"
+
         return prompt
 
     def _format_history(self, history: List[Dict[str, Any]]) -> str:
@@ -334,13 +360,31 @@ class ResponseComposer(BaseProcessor):
         if self.llm_manager:
             try:
                 user_message = context.message.extract_plain_text() if hasattr(context, "message") else ""
-                prompt = (
-                    f"用户发送了以下消息，但我无法完全理解其意图:\n"
-                    f"\"{user_message}\"\n\n"
-                    f"请以{self.character_name}的身份生成一个礼貌的回复，询问用户能否更清楚地表达意图。"
-                    f"回复应当是自然、友好的中文，不超过50个字。"
-                )
-                
+                # **修改：从配置加载模板并格式化**
+                try:
+                    # 确保从 self.config 获取最新的 prompts 数据
+                    current_prompts = self.config.get("prompts", {})
+                    self.fallback_prompt_template = current_prompts.get("response_composer", {}).get("fallback_prompt", self.fallback_prompt_template) # 更新模板
+
+                    if not self.fallback_prompt_template or "错误：" in self.fallback_prompt_template:
+                         logger.error("ResponseComposer fallback_prompt 模板无效或未加载，无法构建 Prompt。")
+                         # 如果模板加载失败，直接返回同步生成的备用回复
+                         return self._generate_fallback_response_sync()
+
+                    prompt = self.fallback_prompt_template.format(
+                        user_message=user_message,
+                        character_name=self.character_name
+                    )
+                except KeyError as e:
+                     logger.error(f"构建 ResponseComposer fallback_prompt 时缺少占位符: {e}。模板: {self.fallback_prompt_template}")
+                     return self._generate_fallback_response_sync() # 模板错误时回退
+                except Exception as e:
+                     logger.error(f"构建 ResponseComposer fallback_prompt 时发生未知错误: {e}", exc_info=True)
+                     return self._generate_fallback_response_sync() # 未知错误时回退
+
+                # **新增：记录备用回复的提示词**
+                logger.debug(f"构建的备用回复提示词 (发送给 LLM):\n--- PROMPT START ---\n{prompt}\n--- PROMPT END ---")
+
                 response, metadata = await self.llm_manager.generate_text(
                     prompt,
                     task="chat",  # 备用回复也是对话任务

@@ -1,0 +1,97 @@
+# MaiBot Prompt 配置文件
+
+# ReadAirProcessor Prompts
+read_air:
+  analysis_prompt: |
+    作为一个擅长理解对话语境的AI，请分析以下消息的情感、意图和社交期望。
+
+    历史对话:
+    {history_text}
+    当前消息:
+    用户: {message}
+
+    请分析以下内容并以JSON格式返回:
+    1. 情感(emotion): 识别消息中表达的主要情感(例如: 快乐、悲伤、愤怒、恐惧、惊讶等)，并给出置信度(0-1)
+    2. 意图(intent): 识别用户的主要意图和次要意图，并给出置信度
+    3. 社交期望(social_context): 分析用户的社交期望，例如是否期望同理心、解决问题、信息分享等
+    4. 隐含信息(implicit): 捕捉消息中未明确表达但可能隐含的信息
+    5. 是否回复(should_reply): 根据对话氛围和社交礼仪判断是否应该回复这条消息 (true/false)
+
+    格式示例:
+    ```json
+    {{
+      "emotion": {{
+        "happy": 0.8,
+        "anxious": 0.3
+      }},
+      "intent": {{
+        "primary": "寻求信息",
+        "secondary": "表达担忧",
+        "confidence": 0.85
+      }},
+      "social_context": {{
+        "expectation": "希望得到准确信息并减轻焦虑",
+        "relationship_building": true
+      }},
+      "implicit": {{
+        "concerns": ["担心结果", "缺乏信息"],
+        "confidence": 0.7
+      }},
+      "should_reply": true 
+    }}
+    ```
+
+    请确保返回JSON格式正确，不要包含额外的解释或文本。
+
+# ThoughtGenerator Prompts
+thought_generator:
+  thinking_prompt: |
+    作为一个名为{character_name}的AI助手，你需要根据用户的消息生成你的内部思考过程。这个思考过程应该反映你如何理解和处理信息，以及你的个性特点如何影响你的思考。
+
+    ### 基本信息
+    - 用户消息: "{message_text}"
+    - 对话历史:
+    {history_text}
+
+    ### 你的记忆
+    {memories_text}
+
+    ### 你的情绪状态
+    {emotion_text}
+
+    ### 对当前消息的分析
+    {air_analysis}
+
+    ### 你的人格特点
+    {personality_text}
+
+    现在，请以{depth_description}的思考深度，生成你对这条消息的内部思考过程。思考应该包括:
+    1. 你对消息的理解和解读
+    2. 与你记忆中的相关信息联系
+    3. 考虑用户可能的意图和期望
+    4. 你的情感反应和直觉
+    5. 可能的回应方向和策略
+
+    保持真实自然的思考流程，展现你的个性特点。不需要按固定格式输出，而是模拟真实的思考过程。
+
+# ResponseComposer Prompts
+response_composer:
+  response_prompt: |
+    基于以下信息生成回复:
+
+    历史对话:
+    {history}
+
+    用户消息: {user_message_text}
+
+    内部思考: {thought}
+
+    人格特质: {traits}
+
+    请以{character_name}的身份生成自然、得体且符合人格特质的回复。回复应直接面向用户，不要包含思考过程，回复应当是完整、流畅的中文语句。
+  
+  fallback_prompt: |
+    用户发送了以下消息，但我无法完全理解其意图:
+    "{user_message}"
+
+    请以{character_name}的身份生成一个礼貌的回复，询问用户能否更清楚地表达意图。回复应当是自然、友好的中文，不超过50个字。

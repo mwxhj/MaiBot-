@@ -49,7 +49,15 @@ class ReadAirProcessor(BaseProcessor):
         
         # LLM 管理器，用于调用语言模型
         self.llm_manager = None
-    
+        # **新增：存储 Prompt 模板**
+        # 注意：这里假设 config 字典包含了加载后的 prompts 数据
+        self.prompt_template = config.get("prompts", {}).get("read_air", {}).get("analysis_prompt", "")
+        if not self.prompt_template:
+             logger.error("未能从配置中加载 ReadAir analysis_prompt 模板！将无法生成分析。")
+             # 可以选择抛出异常或设置一个默认的错误提示
+             # raise ValueError("Missing required prompt template: prompts.read_air.analysis_prompt")
+             self.prompt_template = "错误：缺少 ReadAir 分析 Prompt 模板。" # 提供一个错误提示
+
     def set_llm_manager(self, llm_manager: Any) -> None:
         """
         设置LLM管理器
@@ -91,7 +99,11 @@ class ReadAirProcessor(BaseProcessor):
             # 如果分析成功，将结果添加到上下文
             if analysis:
                 context.set_state("read_air_analysis", analysis)
-                
+                # **新增：将 should_reply 存入 context state**
+                should_reply = analysis.get("should_reply", True) # 从解析结果获取，默认为 True
+                context.set_state("should_reply", should_reply)
+                logger.debug(f"读空气分析结果 - 是否应回复: {should_reply}")
+
                 # 记录主要分析结果
                 intent = analysis.get("intent", {})
                 emotion = analysis.get("emotion", {})
@@ -208,45 +220,29 @@ class ReadAirProcessor(BaseProcessor):
             role = "用户" if msg["role"] == "user" else "机器人"
             history_text += f"{role}: {msg['content']}\n"
         
-        # 构建提示词
-        # 转义 f-string 中的大括号
-        prompt = f"""作为一个擅长理解对话语境的AI，请分析以下消息的情感、意图和社交期望。
+        # **修改：从配置加载模板并格式化**
+        try:
+            # 确保从 self.config 获取最新的 prompts 数据
+            # (假设 ConfigManager 更新了传递给处理器的 config 字典)
+            current_prompts = self.config.get("prompts", {})
+            self.prompt_template = current_prompts.get("read_air", {}).get("analysis_prompt", self.prompt_template) # 更新模板以防万一
 
-历史对话:
-{history_text}
-当前消息:
-用户: {message}
+            if not self.prompt_template or "错误：" in self.prompt_template:
+                 logger.error("ReadAir Prompt 模板无效或未加载，无法构建 Prompt。")
+                 return "错误：ReadAir Prompt 模板无效。"
 
-请分析以下内容并以JSON格式返回:
-1. 情感(emotion): 识别消息中表达的主要情感(例如: 快乐、悲伤、愤怒、恐惧、惊讶等)，并给出置信度(0-1)
-2. 意图(intent): 识别用户的主要意图和次要意图，并给出置信度
-3. 社交期望(social_context): 分析用户的社交期望，例如是否期望同理心、解决问题、信息分享等
-4. 隐含信息(implicit): 捕捉消息中未明确表达但可能隐含的信息
-
-格式示例:
-```json
-{{
-  "emotion": {{
-    "happy": 0.8,
-    "anxious": 0.3
-  }},
-  "intent": {{
-    "primary": "寻求信息",
-    "secondary": "表达担忧",
-    "confidence": 0.85
-  }},
-  "social_context": {{
-    "expectation": "希望得到准确信息并减轻焦虑",
-    "relationship_building": true
-  }},
-  "implicit": {{
-    "concerns": ["担心结果", "缺乏信息"],
-    "confidence": 0.7
-  }}
-}}
-```
-
-请确保返回JSON格式正确，不要包含额外的解释或文本。"""
+            prompt = self.prompt_template.format(
+                history_text=history_text,
+                message=message
+            )
+            # YAML 加载时会处理 {{ 和 }}，所以不需要额外转义
+        except KeyError as e:
+             logger.error(f"构建 ReadAir Prompt 时缺少占位符: {e}。模板: {self.prompt_template}")
+             # 返回一个错误提示或默认 Prompt
+             prompt = f"错误：构建 Prompt 失败，缺少占位符 {e}。"
+        except Exception as e:
+             logger.error(f"构建 ReadAir Prompt 时发生未知错误: {e}", exc_info=True)
+             prompt = "错误：构建 Prompt 时发生未知错误。"
 
         return prompt
     
@@ -271,6 +267,10 @@ class ReadAirProcessor(BaseProcessor):
             
             # 解析JSON
             analysis = json.loads(json_content)
+            # **新增：确保 should_reply 字段存在且为布尔值，否则默认为 True**
+            if "should_reply" not in analysis or not isinstance(analysis["should_reply"], bool):
+                logger.warning(f"LLM 分析结果缺少有效的 'should_reply' 字段，默认为 True。原始响应: {response}")
+                analysis["should_reply"] = True
             return analysis
         
         except (json.JSONDecodeError, IndexError) as e:

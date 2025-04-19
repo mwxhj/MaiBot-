@@ -45,23 +45,40 @@ class ConfigManager:
         # logging.basicConfig(level=getattr(logging, log_level))
 
     def _load_config(self) -> None:
-        """加载配置文件"""
-        # 加载 YAML 配置
+        """加载主配置文件和 Prompt 配置文件"""
+        # 加载主 YAML 配置 (config.yaml)
         try:
-            logging.info(f"尝试从以下路径加载配置: {self.config_path}")
+            logging.info(f"尝试从以下路径加载主配置: {self.config_path}")
             with open(self.config_path, "r", encoding="utf-8") as f:
                 loaded_config = yaml.safe_load(f)
                 if not isinstance(loaded_config, dict):
-                     logging.error(f"配置文件顶层必须是字典格式: {self.config_path}")
+                     logging.error(f"主配置文件顶层必须是字典格式: {self.config_path}")
                      self.config = {}
                 else:
                      self.config = loaded_config
         except FileNotFoundError:
-            logging.error(f"配置文件不存在: {self.config_path}")
-            self.config = {}
+            logging.error(f"主配置文件不存在: {self.config_path}")
+            self.config = {} # 即使主配置失败，也尝试加载 prompts
         except yaml.YAMLError as e:
-            logging.error(f"配置文件格式错误: {e}")
+            logging.error(f"主配置文件格式错误: {e}")
             self.config = {}
+
+        # **新增：加载 Prompt 配置文件 (prompts.yaml)**
+        prompts_path = os.path.join(self.PROJECT_ROOT, "MaiBot-", "linjing", "config", "prompts.yaml")
+        try:
+            logging.info(f"尝试从以下路径加载 Prompt 配置: {prompts_path}")
+            with open(prompts_path, "r", encoding="utf-8") as f:
+                prompts_config = yaml.safe_load(f)
+                if isinstance(prompts_config, dict):
+                    # 将 Prompt 配置合并到主配置中，例如放在 'prompts' 键下
+                    self.config["prompts"] = prompts_config
+                    logging.debug("Prompt 配置已成功加载并合并。")
+                else:
+                    logging.error(f"Prompt 配置文件顶层必须是字典格式: {prompts_path}")
+        except FileNotFoundError:
+            logging.warning(f"Prompt 配置文件不存在: {prompts_path}，将使用硬编码的 Prompt (如果存在)。")
+        except yaml.YAMLError as e:
+            logging.error(f"Prompt 配置文件格式错误: {e}")
 
         # 从环境变量覆盖一些敏感配置
         self._override_from_env()
