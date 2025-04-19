@@ -100,12 +100,15 @@ class ResponseComposer(BaseProcessor):
             reply_message = Message()
             reply_message.append(MessageSegment.text(reply))
             
+            logger.debug("准备检查并添加多模态内容...") # 添加日志
             # 如果需要添加多模态内容
             if self.use_multimodal and hasattr(context, "multimodal_content"):
                 await self._add_multimodal_content(reply_message, context)
+            logger.debug("多模态内容处理完毕 (如果需要)。") # 添加日志
             
+            logger.debug(f"准备将回复对象设置到 context state: {reply_message}") # 添加日志
             context.set_state("reply", reply_message)
-            logger.info(f"已生成回复: {reply[:50]}...")
+            logger.info(f"已生成回复并设置到 context state: {reply[:50]}...") # 修改日志文本
             
         except Exception as e:
             logger.error(f"生成回复时出错: {e}", exc_info=True)
