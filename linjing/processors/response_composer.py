@@ -157,17 +157,20 @@ class ResponseComposer(BaseProcessor):
         Returns:
             格式化后的提示词
         """
-        # 获取历史记录
-        history = self._format_history(context.get("history", []))
-        
+        # 获取历史记录 (访问 context.history 属性)
+        history_list = context.history if hasattr(context, 'history') else []
+        history = self._format_history(history_list)
+
+        # 获取用户消息文本 (访问 context.message 属性)
+        user_message_text = context.message.extract_plain_text() if hasattr(context, 'message') else ""
         # 获取人格特质
         traits = self._format_personality_traits()
-        
+
         # 构建提示词模板
         prompt = (
             f"基于以下信息生成回复:\n\n"
             f"历史对话:\n{history}\n\n"
-            f"用户消息: {context.get('message', '')}\n\n"
+            f"用户消息: {user_message_text}\n\n"
             f"内部思考: {thought}\n\n"
             f"人格特质: {traits}\n\n"
             f"请以{self.character_name}的身份生成自然、得体且符合人格特质的回复。"
