@@ -116,7 +116,7 @@ llm:
     task_routing:
       # chat 任务: 优先 OpenAI，失败则回退到 MingWang
       chat:
-        - provider_id: "DEEPSEEK_provider"
+        - provider_id: "mingwang_provider"
           model: "gemini-2.5-pro-exp-03-25"
       # embeddings 任务: 优先 MingWang，失败则回退到 OpenAI
       embeddings:
