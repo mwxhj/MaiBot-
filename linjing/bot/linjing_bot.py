@@ -16,7 +16,6 @@ from typing import Dict, List, Any, Optional, Tuple, Type, Callable
 from linjing.utils.logger import get_logger
 from linjing.constants import EventType, ProcessorName
 from linjing.bot.event_bus import EventBus
-from linjing.bot.personality import Personality
 from linjing.bot.message_pipeline import MessagePipeline
 from linjing.processors.message_context import MessageContext
 from linjing.processors.base_processor import BaseProcessor as Processor
@@ -312,18 +311,9 @@ class LinjingBot:
         return self.message_pipeline.get_processor(name)
     
     async def _init_personality(self) -> None:
-        """初始化人格系统"""
-        logger.info("正在初始化人格系统...")
-        
-        personality_config = self.config.get("personality", {})
-        self.personality = Personality(
-            traits=personality_config.get("traits"),
-            interests=personality_config.get("interests"),
-            values=personality_config.get("values"),
-            preferences=personality_config.get("preferences")
-        )
-        
-        logger.debug(f"人格特质: {self.personality.traits}")
+        """初始化人格系统（已迁移到 personality_principles.md）"""
+        logger.info("人格系统已迁移到配置文件，跳过初始化")
+        self.personality = None  # 保留属性但设为None
     
     async def _init_llm_manager(self) -> None:
         """初始化LLM管理器"""
@@ -443,14 +433,14 @@ class LinjingBot:
                     from linjing.processors.thought_generator import ThoughtGenerator
                     processor = ThoughtGenerator(name=name, config=processor_config) # 传递 name 参数
                     processor.set_llm_manager(self.llm_manager)
-                    processor.set_personality(self.personality)
+                    # 不再需要设置 personality
 
                 # **新增：初始化 WillingnessChecker**
                 elif name == ProcessorName.WILLINGNESS_CHECKER: # 使用常量
                     from linjing.processors.willingness_checker import WillingnessChecker
                     processor = WillingnessChecker(name=name, config=processor_config)
                     processor.set_llm_manager(self.llm_manager)
-                    processor.set_personality(self.personality)
+                    # 不再需要设置 personality
                 
                 elif name == ProcessorName.RESPONSE_COMPOSER:
                     from linjing.processors.response_composer import ResponseComposer

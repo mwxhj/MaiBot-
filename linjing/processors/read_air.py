@@ -259,13 +259,13 @@ class ReadAirProcessor(BaseProcessor):
     
     def _parse_analysis_response(self, response: str) -> Optional[Dict[str, Any]]:
         """
-        解析LLM分析响应
+        解析LLM分析响应，适配新的JSON结构
         
         Args:
             response: LLM响应文本
             
         Returns:
-            解析后的分析结果
+            解析后的分析结果字典，包含完整的分析结构
         """
         try:
             # 尝试提取JSON部分
@@ -278,12 +278,56 @@ class ReadAirProcessor(BaseProcessor):
             
             # 解析JSON
             analysis = json.loads(json_content)
-            # **新增：确保 should_reply 字段存在且为布尔值，否则默认为 True**
-            if "should_reply" not in analysis or not isinstance(analysis["should_reply"], bool):
-                logger.warning(f"LLM 分析结果缺少有效的 'should_reply' 字段，默认为 True。原始响应: {response}")
+            
+            # 验证基本结构
+            if not isinstance(analysis, dict):
+                raise ValueError("分析结果不是有效的JSON对象")
+                
+            # 确保关键字段存在
+            required_sections = [
+                "message_metadata",
+                "linguistic_profile",
+                "cognitive_emotional_state",
+                "communicative_intent",
+                "logical_argument_analysis",
+                "social_context_assessment",
+                "v12_trigger_scan_results"
+            ]
+            
+            for section in required_sections:
+                if section not in analysis:
+                    logger.warning(f"分析结果缺少关键部分: {section}")
+                    analysis[section] = {}  # 提供空字典作为默认值
+                    
+            # 确保触发器扫描结果存在
+            triggers = analysis["v12_trigger_scan_results"]
+            required_triggers = [
+                "triggers_linjing_disrespect_sensitivity",
+                "triggers_linjing_logical_fallacy_sensitivity",
+                "triggers_linjing_provocation_sensitivity",
+                "triggers_linjing_personal_attack_sensitivity",
+                "triggers_linjing_misinformation_sensitivity",
+                "triggers_linjing_fairness_sensitivity",
+                "triggers_linjing_ai_identity_sensitivity"
+            ]
+            
+            for trigger in required_triggers:
+                if trigger not in triggers:
+                    logger.warning(f"分析结果缺少V12触发器: {trigger}")
+                    triggers[trigger] = False  # 默认为未触发
+                    
+            # 添加should_reply字段（从recommended_engagement推断）
+            if "overall_assessment" in analysis:
+                engagement = analysis["overall_assessment"].get("recommended_engagement", "address_directly")
+                analysis["should_reply"] = engagement != "ignore"
+            else:
                 analysis["should_reply"] = True
+                
             return analysis
-        
-        except (json.JSONDecodeError, IndexError) as e:
-            logger.error(f"解析分析响应失败: {str(e)}\nResponse: {response}")
-            return None
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"解析分析响应失败: JSON格式错误\nError: {str(e)}\nResponse: {response}")
+        except Exception as e:
+            logger.error(f"解析分析响应时发生意外错误: {type(e).__name__}\nError: {str(e)}\nResponse: {response}")
+            
+        return None

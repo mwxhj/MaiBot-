@@ -63,14 +63,13 @@ class ConfigManager:
             logging.error(f"主配置文件格式错误: {e}")
             self.config = {}
 
-        # **新增：加载 Prompt 配置文件 (prompts.yaml)**
+        # 加载 Prompt 配置文件 (prompts.yaml)
         prompts_path = os.path.join(self.PROJECT_ROOT, "MaiBot-", "linjing", "config", "prompts.yaml")
         try:
             logging.info(f"尝试从以下路径加载 Prompt 配置: {prompts_path}")
             with open(prompts_path, "r", encoding="utf-8") as f:
                 prompts_config = yaml.safe_load(f)
                 if isinstance(prompts_config, dict):
-                    # 将 Prompt 配置合并到主配置中，例如放在 'prompts' 键下
                     self.config["prompts"] = prompts_config
                     logging.debug("Prompt 配置已成功加载并合并。")
                 else:
@@ -79,6 +78,28 @@ class ConfigManager:
             logging.warning(f"Prompt 配置文件不存在: {prompts_path}，将使用硬编码的 Prompt (如果存在)。")
         except yaml.YAMLError as e:
             logging.error(f"Prompt 配置文件格式错误: {e}")
+
+        # 加载人格原则文件 (personality_principles.md)
+        personality_path = os.path.join(self.PROJECT_ROOT, "MaiBot-", "linjing", "config", "personality_principles.md")
+        try:
+            logging.info(f"尝试从以下路径加载人格原则: {personality_path}")
+            with open(personality_path, "r", encoding="utf-8") as f:
+                self.config["personality_text"] = f.read()
+                logging.debug("人格原则已成功加载。")
+        except FileNotFoundError:
+            logging.error(f"人格原则文件不存在: {personality_path}")
+            self.config["personality_text"] = "错误：缺少人格原则文件"
+
+        # 加载风格指南文件 (style_guide.md)
+        style_guide_path = os.path.join(self.PROJECT_ROOT, "MaiBot-", "linjing", "config", "style_guide.md")
+        try:
+            logging.info(f"尝试从以下路径加载风格指南: {style_guide_path}")
+            with open(style_guide_path, "r", encoding="utf-8") as f:
+                self.config["v12_style_guide"] = f.read()
+                logging.debug("风格指南已成功加载。")
+        except FileNotFoundError:
+            logging.error(f"风格指南文件不存在: {style_guide_path}")
+            self.config["v12_style_guide"] = "错误：缺少风格指南文件"
 
         # 从环境变量覆盖一些敏感配置
         self._override_from_env()

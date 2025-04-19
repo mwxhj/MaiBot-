@@ -1,20 +1,16 @@
 """
-情绪模型
+情绪模型 (V12 适配版)
 
-该模块定义了情绪模型，负责计算情绪变化。
+该模块定义了新的情绪模型，负责计算背景情绪变化。
 """
 
-import re
-import math
-import random
-from typing import Dict, Any, List, Optional
-
+from typing import Dict, Any
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 class MoodModel:
-    """情绪模型，负责计算情绪变化"""
+    """情绪模型，负责计算背景情绪变化"""
     
     def __init__(self, config):
         """初始化情绪模型
@@ -22,28 +18,15 @@ class MoodModel:
         Args:
             config: 配置字典，包含 emotion 相关配置
         """
-        self.config = config
+        self.config = config.get("emotion", {})
         
         # 从配置中获取情绪参数
-        emotion_config = config.get("emotion", {})
+        self.event_impact = self.config.get("event_impact", {})
+        self.mood_model = self.config.get("mood_model", {})
         
-        # 情绪变化基准系数
-        self.base_change_rate = emotion_config.get("base_change_rate", 0.05)
-        
-        # 情绪惯性系数（之前的情绪状态对当前的影响程度）
-        self.inertia_factor = emotion_config.get("inertia_factor", 0.7)
-        
-        # 情绪关联矩阵（情绪维度之间的关联关系）
-        self.dimension_correlations = emotion_config.get("dimension_correlations", {
-            # 默认关联矩阵
-            "happiness": {"excitement": 0.3, "friendliness": 0.4, "confidence": 0.2},
-            "excitement": {"happiness": 0.3, "curiosity": 0.3},
-            "confidence": {"happiness": 0.2, "patience": 0.2},
-            "friendliness": {"happiness": 0.4, "trust": 0.4},
-            "curiosity": {"excitement": 0.3},
-            "patience": {"trust": 0.3},
-            "trust": {"friendliness": 0.4, "patience": 0.3},
-        })
+        # 基础参数
+        self.decay_rate = self.mood_model.get("decay_rate", 0.05)
+        self.baseline_mood = self.mood_model.get("baseline_mood", "平静")
     
     def compute_changes(self, current_emotion, factors: Dict[str, Any], message_text: str = "") -> Dict[str, float]:
         """
@@ -176,64 +159,29 @@ class MoodModel:
         
         return changes
     
-    def _compute_text_changes(self, message_text: str) -> Dict[str, float]:
-        """
-        计算基于消息文本的情绪变化
-        
-        Args:
-            message_text: 消息文本
-            
-        Returns:
-            情绪变化字典
-        """
-        changes = {}
-        
-        if not message_text:
-            return changes
-            
-        # 从配置中获取关键词规则
-        rules = self.config.get("emotion", {}).get("rules", {})
-        positive_keywords = rules.get("positive_keywords", [])
-        negative_keywords = rules.get("negative_keywords", [])
-        intensity_multiplier = rules.get("intensity_multiplier", 1.5)
-        
-        # 构建关键词匹配模式
-        keyword_patterns = {
-            # 积极关键词
-            r'\b(' + '|'.join(positive_keywords) + r')\b': {
-                "happiness": 0.8 * intensity_multiplier,
-                "friendliness": 0.6 * intensity_multiplier
-            },
-            
-            # 消极关键词
-            r'\b(' + '|'.join(negative_keywords) + r')\b': {
-                "happiness": -0.6 * intensity_multiplier,
-                "friendliness": -0.4 * intensity_multiplier
-            },
-            
-            # 问题关键词
-            r'\?|\？|为什么|what|how|怎么|如何|who|where|which': {
-                "curiosity": 0.3 * intensity_multiplier
-            }
+    def _get_base_impact(self, event_type: str) -> float:
+        """获取事件的基础影响值"""
+        # 从配置中获取事件影响因子
+        impact_mapping = {
+            "positive_interaction": self.event_impact.get("positive_interaction_base_impact", 0.1),
+            "negative_interaction": self.event_impact.get("negative_interaction_base_impact", -0.2),
+            "v12_trigger": self.event_impact.get("v12_trigger_impact_multiplier", {}).get("disrespect", 1.5) *
+                          self.event_impact.get("negative_interaction_base_impact", -0.2)
         }
         
-        # 应用关键词匹配
-        for pattern, effects in keyword_patterns.items():
-            if re.search(pattern, message_text, re.IGNORECASE):
-                for dim, effect in effects.items():
-                    changes[dim] = changes.get(dim, 0) + self.base_change_rate * effect
-                    
-        # 文本长度对耐心的影响（从配置获取影响因子）
-        influence_factors = self.config.get("emotion", {}).get("influence_factors", {})
-        text_length_factor = influence_factors.get("message_length", 0.1)
-        
-        text_length = len(message_text)
-        if text_length > 200:  # 较长文本
-            changes["patience"] = changes.get("patience", 0) - self.base_change_rate * text_length_factor
-        elif text_length < 10:  # 非常短的文本
-            changes["patience"] = changes.get("patience", 0) + self.base_change_rate * text_length_factor * 0.5
-            
-        return changes
+        return impact_mapping.get(event_type, 0.0)
+    
+    def _get_positive_mood(self) -> str:
+        """获取积极的情绪类型"""
+        # 从配置的情绪词汇中选择一个积极的情绪
+        positive_moods = ["愉悦", "好奇", "兴奋"]
+        return positive_moods[0]  # 简单实现，可扩展
+    
+    def _get_negative_mood(self) -> str:
+        """获取消极的情绪类型"""
+        # 从配置的情绪词汇中选择一个消极的情绪
+        negative_moods = ["烦躁", "愤怒", "轻蔑"]
+        return negative_moods[0]  # 简单实现，可扩展
     
     def _compute_random_changes(self) -> Dict[str, float]:
         """

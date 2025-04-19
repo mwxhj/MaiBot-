@@ -17,103 +17,87 @@ from .emotion_rules import EmotionRules
 
 logger = get_logger(__name__)
 
-class EmotionState:
-    """情绪状态类，表示机器人在某一时刻的情绪状态"""
+class MoodState:
+    """背景情绪状态类，表示机器人的当前背景情绪"""
     
-    # 默认情绪维度及其初始值
-    DEFAULT_DIMENSIONS = {
-        "happiness": 0.5,      # 快乐-悲伤
-        "excitement": 0.3,     # 兴奋-平静
-        "confidence": 0.6,     # 自信-怯懦
-        "friendliness": 0.7,   # 友好-疏远
-        "curiosity": 0.8,      # 好奇-冷漠
-        "patience": 0.6,       # 耐心-急躁
-        "trust": 0.5,          # 信任-怀疑
-    }
-    
-    def __init__(self, dimensions: Optional[Dict[str, float]] = None, timestamp: Optional[float] = None):
+    def __init__(self, mood_type: str = "平静", intensity: float = 0.5, timestamp: Optional[float] = None):
         """
-        初始化情绪状态
+        初始化背景情绪状态
         
         Args:
-            dimensions: 情绪维度字典，键为维度名称，值为维度值（0-1）
-            timestamp: 情绪状态的时间戳
+            mood_type: 情绪类型，必须来自 config.yaml 中的 emotion_vocabulary
+            intensity: 情绪强度 (0-1)
+            timestamp: 时间戳
         """
-        self.dimensions = dimensions or self.DEFAULT_DIMENSIONS.copy()
+        self.mood_type = mood_type
+        self.intensity = max(0, min(1, intensity))  # 确保在0-1范围内
         self.timestamp = timestamp or time.time()
-        
-        # 验证情绪值范围
-        for dim, value in self.dimensions.items():
-            if value < 0 or value > 1:
-                logger.warning(f"情绪维度 {dim} 的值 {value} 超出范围 [0,1]，已调整")
-                self.dimensions[dim] = max(0, min(1, value))
     
-    def update(self, changes: Dict[str, float]) -> 'EmotionState':
+    def apply_decay(self, decay_rate: float, baseline_mood: str) -> 'MoodState':
         """
-        根据变化量更新情绪状态
+        应用情绪衰减
         
         Args:
-            changes: 情绪变化字典，键为维度名称，值为变化量
+            decay_rate: 衰减速率
+            baseline_mood: 基线情绪类型
             
         Returns:
-            更新后的情绪状态对象
+            更新后的情绪状态
         """
-        new_dimensions = self.dimensions.copy()
+        # 强度向0.5衰减
+        if self.intensity > 0.5:
+            new_intensity = self.intensity - decay_rate
+        elif self.intensity < 0.5:
+            new_intensity = self.intensity + decay_rate
+        else:
+            new_intensity = 0.5
+            
+        # 如果强度接近中性且当前情绪不是基线情绪，则切换情绪类型
+        if abs(new_intensity - 0.5) < 0.1 and self.mood_type != baseline_mood:
+            return MoodState(baseline_mood, 0.5)
+            
+        return MoodState(self.mood_type, new_intensity)
+    
+    def apply_impact(self, impact: float) -> 'MoodState':
+        """
+        应用情绪影响
         
-        for dim, delta in changes.items():
-            if dim in new_dimensions:
-                new_value = new_dimensions[dim] + delta
-                # 确保情绪值在 [0,1] 范围内
-                new_dimensions[dim] = max(0, min(1, new_value))
-                
-        return EmotionState(new_dimensions)
+        Args:
+            impact: 影响值 (正值为提升，负值为降低)
+            
+        Returns:
+            更新后的情绪状态
+        """
+        new_intensity = max(0, min(1, self.intensity + impact))
+        return MoodState(self.mood_type, new_intensity)
     
     def to_dict(self) -> Dict[str, Any]:
-        """
-        将情绪状态转换为字典
-        
-        Returns:
-            包含情绪状态信息的字典
-        """
+        """转换为字典"""
         return {
-            "dimensions": self.dimensions,
+            "mood_type": self.mood_type,
+            "intensity": self.intensity,
             "timestamp": self.timestamp
         }
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'EmotionState':
-        """
-        从字典创建情绪状态对象
-        
-        Args:
-            data: 包含情绪状态信息的字典
-            
-        Returns:
-            情绪状态对象
-        """
+    def from_dict(cls, data: Dict[str, Any]) -> 'MoodState':
+        """从字典创建"""
         return cls(
-            dimensions=data.get("dimensions"),
+            mood_type=data.get("mood_type", "平静"),
+            intensity=data.get("intensity", 0.5),
             timestamp=data.get("timestamp")
         )
     
-    def get_dominant_emotion(self) -> Tuple[str, float]:
-        """
-        获取当前最显著的情绪
-        
-        Returns:
-            (情绪名称, 情绪强度)的元组
-        """
-        if not self.dimensions:
-            return ("neutral", 0.5)
-        
-        # 获取值最高的情绪维度
-        dominant_dim = max(self.dimensions.items(), key=lambda x: x[1])
-        return dominant_dim
-    
     def __str__(self) -> str:
         """字符串表示"""
-        dominant = self.get_dominant_emotion()
-        return f"EmotionState(dominant={dominant[0]}:{dominant[1]:.2f}, dims={len(self.dimensions)})"
+        intensity_level = "中等"
+        if self.intensity > 0.7:
+            intensity_level = "强烈"
+        elif self.intensity > 0.5:
+            intensity_level = "明显"
+        elif self.intensity < 0.3:
+            intensity_level = "轻微"
+        return f"MoodState({self.mood_type}, {intensity_level})"
 
 
 class EmotionManager:
@@ -158,22 +142,13 @@ class EmotionManager:
     
     async def _apply_emotion_decay(self):
         """应用情绪衰减"""
-        for user_id, emotion in list(self.emotion_cache.items()):
-            # 计算情绪衰减
-            decay_changes = {}
-            for dim, value in emotion.dimensions.items():
-                # 情绪向中性值(0.5)衰减
-                if value > 0.5:
-                    decay_changes[dim] = -self.decay_rate
-                elif value < 0.5:
-                    decay_changes[dim] = self.decay_rate
-                
+        for user_id, mood in list(self.mood_cache.items()):
             # 应用衰减
-            updated_emotion = emotion.update(decay_changes)
-            self.emotion_cache[user_id] = updated_emotion
+            updated_mood = mood.apply_decay(self.decay_rate, self.baseline_mood)
+            self.mood_cache[user_id] = updated_mood
             
             # 保存到数据库
-            await self.save_emotion(user_id, updated_emotion)
+            await self.save_mood(user_id, updated_mood)
     
     async def get_emotion(self, user_id: str) -> EmotionState:
         """
@@ -249,81 +224,57 @@ class EmotionManager:
         
         return updated_emotion
     
-    async def save_emotion(self, user_id: str, emotion: EmotionState) -> None:
+    async def save_mood(self, user_id: str, mood: MoodState) -> None:
         """
-        保存情绪状态到数据库
+        保存背景情绪状态到数据库
         
         Args:
             user_id: 用户ID
-            emotion: 情绪状态对象
+            mood: 背景情绪状态对象
         """
         try:
-            emotion_data = json.dumps(emotion.to_dict())
-            timestamp = emotion.timestamp
+            mood_data = json.dumps(mood.to_dict())
+            timestamp = mood.timestamp
             
             query = """
-            INSERT INTO user_emotions (user_id, emotion_data, timestamp) 
+            INSERT INTO user_moods (user_id, mood_data, timestamp)
             VALUES (?, ?, ?)
             """
-            await self.db_manager.execute_insert(query, (user_id, emotion_data, timestamp))
+            await self.db_manager.execute_insert(query, (user_id, mood_data, timestamp))
             
         except Exception as e:
-            logger.error(f"保存用户情绪失败: {e}")
+            logger.error(f"保存用户背景情绪失败: {e}")
     
-    def emotion_to_text(self, emotion: EmotionState) -> str:
+    def mood_to_text(self, mood: MoodState) -> str:
         """
-        将情绪状态转换为文本描述
+        将背景情绪状态转换为文本描述
         
         Args:
-            emotion: 情绪状态对象
+            mood: 背景情绪状态对象
             
         Returns:
             情绪的文本描述
         """
-        # 获取主导情绪
-        dominant_dim, dominant_value = emotion.get_dominant_emotion()
-        
-        # 根据情绪值生成描述
-        intensity = ""
-        if dominant_value > 0.8:
-            intensity = "非常"
-        elif dominant_value > 0.65:
-            intensity = "相当"
-        elif dominant_value > 0.5:
-            intensity = "有些"
-        
-        # 情绪名称映射
-        emotion_names = {
-            "happiness": "开心",
-            "excitement": "兴奋",
-            "confidence": "自信",
-            "friendliness": "友好",
-            "curiosity": "好奇",
-            "patience": "耐心",
-            "trust": "信任",
+        intensity_map = {
+            "extreme": "极其",
+            "high": "非常",
+            "medium": "相当",
+            "low": "有些"
         }
         
-        # 生成描述
-        if dominant_value > 0.5:
-            emotion_name = emotion_names.get(dominant_dim, dominant_dim)
-            description = f"{intensity}{emotion_name}"
-        elif dominant_value < 0.35:
-            # 反向情绪
-            reverse_emotions = {
-                "happiness": "忧郁",
-                "excitement": "平静",
-                "confidence": "不自信",
-                "friendliness": "疏远",
-                "curiosity": "冷漠",
-                "patience": "急躁",
-                "trust": "怀疑",
-            }
-            emotion_name = reverse_emotions.get(dominant_dim, f"不{emotion_names.get(dominant_dim, dominant_dim)}")
-            description = f"{intensity}{emotion_name}"
+        # 根据强度值确定描述词
+        if mood.intensity > 0.8:
+            intensity = intensity_map.get("extreme", "极其")
+        elif mood.intensity > 0.65:
+            intensity = intensity_map.get("high", "非常")
+        elif mood.intensity > 0.5:
+            intensity = intensity_map.get("medium", "相当")
+        elif mood.intensity > 0.35:
+            intensity = intensity_map.get("low", "有些")
         else:
-            description = "平静"
-        
-        return description
+            intensity = ""
+            
+        return f"{intensity}{mood.mood_type}" if intensity else mood.mood_type
     
     async def initialize_tables(self) -> None:
         """初始化数据库表"""

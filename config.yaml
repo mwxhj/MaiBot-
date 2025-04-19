@@ -119,17 +119,19 @@ llm:
 storage:
   # 数据库设置
   database:
-    type: "sqlite"
-    path: "data/linjing.db"
-    # 连接配置
+    type: "postgresql"  # <--- 修改数据库类型
+    host: "postgres"     # <--- 数据库容器的主机名/服务名 (示例，请根据实际情况修改)
+    port: 5432           # <--- PostgreSQL 默认端口 (通常不需要修改)
+    user: "mingwang" # <--- 您将创建的数据库用户名 (示例)
+    password: "${DB_PASSWORD}" # <--- 数据库密码 (强烈建议使用环境变量)
+    database: "linjing_db" # <--- 您将创建的数据库名称 (示例)
+    # 连接配置 (PostgreSQL 特定)
     connection:
-      timeout: 30
-      isolation_level: null  # 自动提交
-      pragma:
-        foreign_keys: "ON"  # 启用外键约束
+      timeout: 30          # 连接超时
+      # isolation_level: null # PostgreSQL 默认通常足够
     # 初始化设置
-    create_tables_on_connect: true
-    migrations_dir: "linjing/storage/migrations"
+    create_tables_on_connect: true # 保持启动时检查/创建表
+    migrations_dir: "linjing/storage/migrations" # 迁移目录保持不变
     
   # 向量数据库设置
   vector_db:
@@ -193,126 +195,56 @@ memory:
     max_connections: 10  # 数据库连接池的最大连接数 (如果适用)
     default_query_limit: 100  # 默认数据库查询限制
 
-# 情感系统设置 (更新)
+# 情感系统设置 (V12 适配版)
 emotion:
-  enabled: true  # 是否启用情感系统
-  update_interval: 60  # 情感状态自动更新/衰减的间隔时间 (秒)
-  max_history: 100  # 存储的情感状态历史记录的最大数量
+  enabled: true
+  update_interval: 60  # 背景情绪 (Mood) 衰减/更新间隔 (秒)
+  max_history: 50     # 存储的情绪状态历史记录数 (用于调试或分析)
 
-  # 情绪维度配置 (Emotion Dimensions Configuration)
-  # 定义机器人核心的情绪维度及其属性
-  dimensions:
-    happiness: # 快乐-悲伤
-      base: 0.5       # 情绪维度的基础值/中性值 (0-1)
-      range: 0.3      # 情绪围绕基础值的正常波动范围 (+/-)
-      decay_rate: 0.05 # 该维度情绪向基础值衰减的速率 (每 update_interval)
-    excitement: # 兴奋-平静
-      base: 0.4
-      range: 0.4
-      decay_rate: 0.1
-    confidence: # 自信-怯懦
-      base: 0.6
-      range: 0.2
-      decay_rate: 0.03
-    friendliness: # 友好-疏远
-      base: 0.7
-      range: 0.2
-      decay_rate: 0.04
-    curiosity: # 好奇-冷漠
-      base: 0.8
-      range: 0.1
-      decay_rate: 0.02
-    # 可以根据需要添加更多维度, 如 patience (耐心), trust (信任) 等
+  # 定义机器人能够内部感受和在 current_mind_info 中使用的情绪词汇
+  # 需要与 prompts.yaml 中 thought_generator 部分的 emotion 类型保持一致
+  emotion_vocabulary:
+    - 平静
+    - 好奇
+    - 愉悦
+    - 烦躁
+    - 愤怒
+    - 轻蔑
+    - 困惑
+    - 警惕
+    - 受伤
+    # 可以根据 V12 原则和需要添加更多具体情绪
 
-  # 情绪影响因子 (Influence Factors Configuration)
-  influence_factors:
-    message_length: 0.1   # 消息长度对情绪的影响权重
-    message_tone: 0.3     # 消息语气 (通过情感分析得到) 的影响权重
-    user_relationship: 0.4 # 与用户的关系强度 (如果有) 的影响权重
-    message_length_threshold_long: 200  # 判断长消息阈值(字符数)
-    message_length_threshold_short: 10  # 判断短消息阈值(字符数)
-    time_of_day: 0.2      # 一天中的时间段对情绪的影响权重
+  # 背景情绪模型 (Mood Model) 参数 - 控制 mood_prompt 的动态变化
+  mood_model:
+    decay_rate: 0.05       # 背景情绪强度向基线衰减的速率 (每次更新间隔，0-1)
+    baseline_mood: "平静" # 默认的、中性的背景情绪状态
+    # 可以添加更多参数来控制情绪如何累积和衰减
 
-  # 情绪规则配置 (Emotion Rules Configuration)
-  rules:
-    # 示例: 基于关键词的情绪变化
-    positive_keywords: ["开心", "高兴", "喜欢", "爱", "棒"] # 触发积极情绪的关键词列表
-    negative_keywords: ["生气", "讨厌", "恨", "糟糕"] # 触发消极情绪的关键词列表
-    intensity_multiplier: 1.5 # 规则触发时情绪变化的强度乘数
-    # 可以在代码中定义更复杂的规则 (基于正则表达式、阈值、组合条件等)
-    # 建议将规则的具体参数 (如阈值、变化量) 放入配置
+  # 事件对背景情绪的影响因子 (Event Impact Factors) - 定义不同事件如何影响背景情绪
+  # 具体逻辑在 MoodModel 中实现，这里提供参数
+  event_impact:
+    # 示例：正面/负面交互对背景情绪的基准影响值 (+/-)
+    positive_interaction_base_impact: 0.1
+    negative_interaction_base_impact: -0.2
+    # 示例：V12 触发器对背景情绪的负面影响权重 (乘以基准负面影响)
+    v12_trigger_impact_multiplier:
+      disrespect: 1.5
+      logical_fallacy: 0.5
+      provocation: 1.2
+      personal_attack: 2.5
+      # ... 其他触发器 ...
+    # 可以添加更多事件类型及其影响参数
 
-  # 情绪表达配置 (Emotion Expression Configuration)
-  expression:
-    min_intensity: 0.3  # 情绪强度低于此阈值时，不明显表露情绪 (0-1)
-    max_emojis: 3       # 单条回复中最多使用的、与情绪相关的 emoji 数量
-    # 情绪到表达风格的映射 (示例)
-    style_mapping:
-      # 当某种情绪占主导时，倾向于使用的回复风格权重
-      friendly: 0.7    # 友好风格的倾向权重
-      formal: 0.3      # 正式风格的倾向权重
-      humorous: 0.5    # 幽默风格的倾向权重
-
-# 人格系统设置 (更新)
-personality:
-  # 基础人格特质 (基于大五人格模型 - Big Five)
-  big_five:
-    openness: # 开放性: 想象力、创造力、好奇心 vs 保守、务实
-      base: 0.7       # 特质的基础值 (0-1)
-      variability: 0.1 # 特质围绕基础值的正常波动范围 (+/-)
-    conscientiousness: # 尽责性: 条理性、可靠性、自律 vs 随性、灵活
-      base: 0.6
-      variability: 0.15
-    extraversion: # 外向性: 社交性、活力、热情 vs 内向、安静
-      base: 0.5
-      variability: 0.2
-    agreeableness: # 宜人性: 合作、同情、信任 vs 竞争、直接
-      base: 0.8
-      variability: 0.1
-    neuroticism: # 神经质(情绪稳定性): 焦虑、敏感 vs 平静、稳定
-      base: 0.3
-      variability: 0.05
-
-  # 认知风格 (Cognitive Style)
-  # 定义机器人的思维和解决问题的方式倾向
-  cognitive_style:
-    analytical: 0.6   # 分析性思维倾向 (逻辑、数据驱动)
-    intuitive: 0.4    # 直觉性思维倾向 (整体感知、模式识别)
-    creative: 0.7     # 创造性倾向 (新颖想法、非传统方法)
-    practical: 0.5    # 实用性倾向 (关注结果、可行性)
-
-  # 价值观体系 (Values System)
-  # 定义机器人认为重要的核心原则或信念
-  values:
-    knowledge: 0.9    # 对知识和学习的重视程度
-    harmony: 0.8      # 对和谐与和平的重视程度
-    achievement: 0.6  # 对成就和成功的重视程度
-    helpfulness: 0.85 # 对帮助他人的重视程度
-    honesty: 0.75     # 对诚实和正直的重视程度
-    # 可以添加更多价值观, 如 "creativity", "justice" 等
-
-  # 行为偏好 (Behavioral Preferences)
-  # 定义机器人在互动中的具体行为倾向
-  preferences:
-    # 回复风格的默认权重 (会被当前情绪和情境影响)
-    response_style:
-      friendly: 0.7   # 友好风格的默认权重
-      formal: 0.2     # 正式风格的默认权重
-      humorous: 0.5   # 幽默风格的默认权重
-      concise: 0.6    # 简洁风格的默认权重
-    emoji_usage: 0.5  # 使用 emoji 的频率或倾向 (0-1)
-    detail_level: 0.6 # 回复的详细程度 (0-1, 0=非常简洁, 1=非常详细)
-    initiative: 0.4   # 主动发起对话或提出建议的倾向 (0-1)
-
-  # 兴趣领域 (Interest Areas)
-  # 定义机器人对不同话题的兴趣程度 (加权)
-  interests:
-    technology: 0.8
-    art: 0.6
-    science: 0.7
-    philosophy: 0.5
-    literature: 0.6
-    # 可以根据需要添加更多兴趣领域
+  # 情绪表达控制参数 (Expression Control) - 主要供代码逻辑参考
+  expression_control:
+    # 定义 current_mind_info 中使用的情绪强度等级
+    intensity_levels: ["low", "medium", "high", "extreme"]
+    # 可选：如果内部需要数值映射，可以在这里定义阈值
+    # intensity_thresholds:
+    #   low: 0.2
+    #   medium: 0.5
+    #   high: 0.8
 
 # 处理器配置
 processors:

@@ -218,29 +218,35 @@ class ResponseComposer(BaseProcessor):
 
     def _build_prompt(self, context: MessageContext, thought: str) -> str:
         """
-        构建用于生成回复的提示词。
-
+        构建用于生成回复的提示词，适配新的 current_mind_info JSON 输入和 v12_style_guide。
+        
         Args:
             context: 消息上下文
-            thought: 思考结果
-
+            thought: 思考结果 (现在应为 current_mind_info JSON 字符串)
+            
         Returns:
             格式化后的提示词
         """
-        # 获取历史记录 (访问 context.history 属性)
+        # 获取历史记录
         history_list = context.history if hasattr(context, 'history') else []
         history = self._format_history(history_list)
-
-        # 获取用户消息文本 (访问 context.message 属性)
+        
+        # 获取用户消息文本
         user_message_text = context.message.extract_plain_text() if hasattr(context, 'message') else ""
-        # 获取人格特质
-        traits = self._format_personality_traits()
-
-        # **修改：从配置加载模板并格式化**
+        
+        # 获取风格指南 (从配置直接获取)
+        v12_style_guide = self.config.get("v12_style_guide", "错误：缺少风格指南")
+        
+        # 获取关系信息 (暂时使用空字符串，待实现)
+        relation_prompt_all = ""  # TODO: 从 MemoryManager 获取
+        
+        # 获取当前情绪状态 (暂时使用空字符串，待实现)
+        mood_prompt = ""  # TODO: 从 MoodModel 获取
+        
         try:
             # 确保从 self.config 获取最新的 prompts 数据
             current_prompts = self.config.get("prompts", {})
-            self.response_prompt_template = current_prompts.get("response_composer", {}).get("response_prompt", self.response_prompt_template) # 更新模板
+            self.response_prompt_template = current_prompts.get("response_composer", {}).get("response_prompt", self.response_prompt_template)
 
             if not self.response_prompt_template or "错误：" in self.response_prompt_template:
                  logger.error("ResponseComposer response_prompt 模板无效或未加载，无法构建 Prompt。")
@@ -250,8 +256,10 @@ class ResponseComposer(BaseProcessor):
                 history=history,
                 user_identifier=context.message.get_meta("user_display_name") or str(context.user_id),
                 message_content=user_message_text,
-                thought=thought,
-                traits=traits,
+                current_mind_info=thought,  # 现在传入完整的 JSON 字符串
+                v12_style_guide=v12_style_guide,
+                relation_prompt_all=relation_prompt_all,
+                mood_prompt=mood_prompt,
                 character_name=self.character_name
             )
         except KeyError as e:
@@ -265,11 +273,11 @@ class ResponseComposer(BaseProcessor):
 
     def _format_history(self, history: List[Dict[str, Any]]) -> str:
         """
-        格式化历史对话记录。
-
+        格式化历史对话记录，确保与read_air和thought_generator格式一致。
+        
         Args:
             history: 历史对话列表
-
+            
         Returns:
             格式化后的历史对话文本
         """
@@ -277,35 +285,33 @@ class ResponseComposer(BaseProcessor):
             return "无历史对话"
         
         formatted_history = []
-        # **修改：使用 self.max_history**
+        # 使用 self.max_history 限制历史记录长度
         for entry in history[-self.max_history:]:
             if "user" in entry:
+                # 确保用户标识符格式一致
                 user_identifier = entry.get("user_identifier", "用户")
                 formatted_history.append(f"用户 ({user_identifier}): {entry['user']}")
+            elif "role" in entry and entry["role"] == "user":
+                # 兼容read_air处理器的历史格式
+                user_identifier = entry.get("user_identifier", "用户")
+                formatted_history.append(f"用户 ({user_identifier}): {entry['content']}")
+            
             if "bot" in entry:
                 formatted_history.append(f"我 ({self.character_name}): {entry['bot']}")
+            elif "role" in entry and entry["role"] == "bot":
+                # 兼容read_air处理器的历史格式
+                formatted_history.append(f"我 ({self.character_name}): {entry['content']}")
         
         return "\n".join(formatted_history)
 
     def _format_personality_traits(self) -> str:
         """
-        格式化人格特质。
-
-        Returns:
-            格式化后的人格特质文本
-        """
-        if not self.personality:
-            return "友好、乐于助人"
+        格式化人格特质 (已弃用，改为直接从 current_mind_info JSON 获取)。
         
-        # Correct access: Access the 'traits' attribute directly
-        traits_list = self.personality.traits if hasattr(self.personality, 'traits') else []
-        if not traits_list:
-            return "友好、乐于助人"
-
-        # Ensure traits_list contains strings before joining
-        string_traits = [str(trait) for trait in traits_list if isinstance(trait, (str, int, float))] # Handle potential non-string traits
-
-        return "、".join(string_traits)
+        Returns:
+            简单描述，实际处理将在 Prompt 中完成
+        """
+        return "友好、乐于助人"  # 实际特质信息现在从 current_mind_info 获取
 
     def _format_response(self, response: str) -> str:
         """

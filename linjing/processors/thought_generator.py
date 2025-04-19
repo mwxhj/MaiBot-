@@ -190,32 +190,38 @@ class ThoughtGenerator(BaseProcessor):
         # 获取"读空气"分析结果
         air_analysis = self._format_air_analysis(context)
         
-        # 获取人格描述
-        personality_text = self._format_personality()
+        # 获取人格原则文本 (从配置直接获取)
+        personality_text = self.config.get("personality_text", "错误：缺少人格原则文本")
+        
+        # 获取当前情绪状态
+        mood_prompt = self._format_emotion(context)
+        
+        # 获取关系信息 (暂时使用空字符串，待实现)
+        relation_prompt_all = ""  # TODO: 从 MemoryManager 获取
         
         # 构建思考提示词
         depth_description = ["简单", "一般", "详细", "深入", "非常深入"][min(self.thinking_depth, 4)]
         
-        # **修改：始终使用从配置加载的模板**
         try:
             # 确保从 self.config 获取最新的 prompts 数据
             current_prompts = self.config.get("prompts", {})
-            self.thinking_template = current_prompts.get("thought_generator", {}).get("thinking_prompt", self.thinking_template) # 更新模板
+            self.thinking_template = current_prompts.get("thought_generator", {}).get("thinking_prompt", self.thinking_template)
 
             if not self.thinking_template or "错误：" in self.thinking_template:
                  logger.error("ThoughtGenerator Prompt 模板无效或未加载，无法构建 Prompt。")
                  return "错误：ThoughtGenerator Prompt 模板无效。"
 
-            # 获取角色名，如果 personality 对象存在且有 name 属性
+            # 获取角色名
             character_name = getattr(self.personality, 'name', '林静') if self.personality else '林静'
 
             prompt = self.thinking_template.format(
-                character_name=character_name, # 添加角色名
+                character_name=character_name,
                 user_identifier=context.message.get_meta("user_display_name") or str(context.user_id),
                 message_content=message_text,
                 history_text=history_text,
                 memories_text=memories_text,
-                emotion_text=emotion_text,
+                mood_prompt=mood_prompt,
+                relation_prompt_all=relation_prompt_all,
                 air_analysis=air_analysis,
                 personality_text=personality_text,
                 depth_description=depth_description
@@ -314,7 +320,7 @@ class ThoughtGenerator(BaseProcessor):
     
     def _format_air_analysis(self, context: MessageContext) -> str:
         """
-        格式化"读空气"分析结果
+        格式化"读空气"分析结果，适配新的JSON结构
         
         Args:
             context: 消息上下文
@@ -323,102 +329,103 @@ class ThoughtGenerator(BaseProcessor):
             格式化的分析结果文本
         """
         analysis = context.get_state("read_air_analysis")
-        logger.debug(f"格式化'读空气'分析结果: {analysis}") # 添加日志
-        # 定义一个特殊的标记表示无法分析
+        logger.debug(f"格式化'读空气'分析结果: {analysis}")
+        
+        # 定义无法分析的标记
         UNANALYZABLE_CONTENT_MARKER = "内容无法分析（可能是图片等非文本内容）"
-        if not analysis or not isinstance(analysis, dict): # 检查 analysis 是否为字典
+        
+        if not analysis or not isinstance(analysis, dict):
             logger.warning(f"无效的'读空气'分析结果类型: {type(analysis)}，使用占位符")
-            # 返回特定标记而不是通用文本
             return UNANALYZABLE_CONTENT_MARKER
 
         result = ""
 
-        # 格式化意图
-        intent = analysis.get("intent", {})
-        if isinstance(intent, dict): # 确保 intent 是字典
-            primary = intent.get("primary", "未知")
-            secondary = intent.get("secondary", "无")
-            confidence = intent.get("confidence", 0)
-            # 检查 confidence 类型
-            if isinstance(confidence, (int, float)):
-                 result += f"用户意图: 主要-{primary}, 次要-{secondary} (置信度: {confidence:.2f})\n"
-            else:
-                 logger.warning(f"意图置信度不是数字类型: type={type(confidence)}, value={confidence}")
-                 result += f"用户意图: 主要-{primary}, 次要-{secondary} (置信度: N/A)\n"
-        else:
-             logger.warning(f"无效的意图类型: {type(intent)}")
+        try:
+            # 语言学特征
+            ling = analysis.get("linguistic_profile", {})
+            if ling:
+                result += f"语言风格: {', '.join(ling.get('style_assessment', []))}\n"
+                result += f"语域: {ling.get('register_assessment', '未知')}\n"
+                result += f"关键主题: {', '.join(ling.get('key_topics', []))}\n"
 
-        # 格式化情感
-        emotion = analysis.get("emotion", {})
-        if isinstance(emotion, dict): # 确保 emotion 是字典
-            emotions_list = []
-            for k, v in emotion.items():
-                 # 检查情感值类型
-                 if isinstance(v, (int, float)):
-                     if v > 0.3:
-                         emotions_list.append(f"{k}: {v:.2f}")
-                 else:
-                     logger.warning(f"分析中的情感值不是数字类型: key={k}, type={type(v)}, value={v}")
-            emotions_str = ", ".join(emotions_list)
-            result += f"用户情感: {emotions_str or '中性'}\n"
-        else:
-            logger.warning(f"无效的情感类型: {type(emotion)}")
+            # 认知情绪状态
+            ces = analysis.get("cognitive_emotional_state", {})
+            if ces:
+                dom_emo = ces.get("dominant_emotion", {})
+                if dom_emo:
+                    result += f"主要情绪: {dom_emo.get('type', '未知')} "
+                    result += f"(效价: {dom_emo.get('valence', 0):.1f}, "
+                    result += f"唤醒度: {dom_emo.get('arousal', 0):.1f})\n"
+                
+                sec_emos = ces.get("secondary_emotions", [])
+                if sec_emos:
+                    result += "次要情绪: " + ", ".join(
+                        [f"{e.get('type', '?')}({e.get('confidence', 0):.1f})"
+                         for e in sec_emos]) + "\n"
+                
+                result += f"认知意图: {', '.join(ces.get('cognitive_intent', []))}\n"
 
+            # 沟通意图
+            comm = analysis.get("communicative_intent", {})
+            if comm:
+                result += f"主要言语行为: {comm.get('primary_speech_act', '未知')}\n"
+                result += f"期望回应: {', '.join(comm.get('expected_response_type', []))}\n"
 
-        # 格式化社交期望
-        social = analysis.get("social_context", {})
-        if social:
-            expectation = social.get("expectation", "无明确期望")
-            result += f"社交期望: {expectation}\n"
-        
-        # 格式化隐含信息
-        implicit = analysis.get("implicit", {})
-        if implicit:
-            concerns = implicit.get("concerns", [])
-            concerns_str = ", ".join(concerns) if concerns else "无"
-            result += f"隐含信息: {concerns_str}\n"
-        
-        return result.strip() or "无对话分析"
+            # 逻辑分析
+            logic = analysis.get("logical_argument_analysis", {})
+            if logic:
+                if logic.get("contains_argument", False):
+                    result += f"论证清晰度: {logic.get('argument_clarity', '未知')}\n"
+                
+                fallacies = logic.get("identified_fallacies", [])
+                if fallacies:
+                    result += "逻辑谬误: " + ", ".join(
+                        [f"{f.get('type', '?')}({f.get('target', '')})"
+                         for f in fallacies]) + "\n"
+                
+                result += f"隐含假设: {', '.join(logic.get('implicit_assumptions', []))}\n"
+
+            # 社交语境
+            social = analysis.get("social_context_assessment", {})
+            if social:
+                fta = social.get("face_threatening_act", {})
+                if fta:
+                    result += f"面子威胁: {'是' if fta.get('threatens_receiver_positive_face', False) else '否'}\n"
+                    result += f"严重程度: {fta.get('severity', '未知')}\n"
+                
+                result += f"群体规范: {social.get('alignment_with_group_norms', '未知')}\n"
+                result += f"关系影响: {social.get('potential_relationship_impact', '未知')}\n"
+
+            # V12触发器
+            triggers = analysis.get("v12_trigger_scan_results", {})
+            if triggers:
+                active_triggers = [k for k, v in triggers.items() if v is True]
+                if active_triggers:
+                    result += f"触发的V12敏感点: {', '.join(active_triggers)}\n"
+                else:
+                    result += "未触发V12敏感点\n"
+
+            # 综合评估
+            overall = analysis.get("overall_assessment", {})
+            if overall:
+                result += f"消息复杂度: {overall.get('message_complexity', '未知')}\n"
+                result += f"潜在冲突等级: {overall.get('potential_conflict_level', '未知')}\n"
+                result += f"建议互动方式: {overall.get('recommended_engagement', '未知')}\n"
+
+        except Exception as e:
+            logger.error(f"格式化分析结果时出错: {str(e)}", exc_info=True)
+            return UNANALYZABLE_CONTENT_MARKER
+
+        return result.strip() or "无详细分析结果"
     
     def _format_personality(self) -> str:
         """
-        格式化人格特点
+        格式化人格特点 (已弃用，改为直接从配置获取完整文本)
         
         Returns:
             格式化的人格特点文本
         """
-        if not self.personality:
-            return "性格平和，乐于助人"
-        
-        try:
-            # 如果人格系统实现了to_prompt_format方法，则使用该方法
-            if hasattr(self.personality, "to_prompt_format"):
-                return self.personality.to_prompt_format()
-            
-            # 否则尝试获取特质
-            traits_text = ""
-            if hasattr(self.personality, "traits") and isinstance(self.personality.traits, dict): # 确保 traits 是字典
-                logger.debug(f"格式化人格特质: {self.personality.traits}") # 添加日志
-                for trait, value in self.personality.traits.items():
-                    # 检查特质值类型
-                    if isinstance(value, (int, float)):
-                        traits_text += f"{trait}: {value:.2f}, "
-                    else:
-                        logger.warning(f"人格特质值不是数字类型: trait={trait}, type={type(value)}, value={value}")
-            elif hasattr(self.personality, "traits"):
-                 logger.warning(f"无效的人格特质类型: {type(self.personality.traits)}")
-
-
-            # 获取兴趣
-            interests_text = ""
-            if hasattr(self.personality, "interests") and self.personality.interests:
-                interests_text = "兴趣: " + ", ".join(self.personality.interests)
-            
-            return (traits_text.strip(", ") + "\n" + interests_text).strip() or "性格平和，乐于助人"
-            
-        except Exception as e:
-            logger.error(f"格式化人格特点失败: {str(e)}", exc_info=True)
-            return "性格平和，乐于助人"
+        return self.config.get("personality_text", "性格平和，乐于助人")
     
     async def _save_thought_to_memory(self, context: MessageContext, thought: str) -> None:
         """
