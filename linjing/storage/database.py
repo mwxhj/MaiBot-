@@ -83,18 +83,19 @@ class DatabaseManager:
                          logger.warning(f"数据库密码环境变量 {self.config.get('password', 'DB_PASSWORD').strip('${}')} 未设置!")
 
                     # --- DEBUG LOGGING START ---
-                    # 打印将要传递给 create_pool 的 host 值
-                    # 恢复打印 self.db_host
-                    logger.debug(f"DatabaseManager.connect attempting to create pool with host: {self.db_host}")
+                    # 打印将要传递给 create_pool 的 host 和 port 值
+                    host_to_use = self.db_host
+                    port_to_use = self.db_port
+                    logger.debug(f"DatabaseManager.connect attempting to create pool with host: {host_to_use}, port: {port_to_use}")
                     # --- DEBUG LOGGING END ---
                     self.pool = await asyncpg.create_pool(
                         user=self.db_user,
                         password=self.db_password,
                         database=self.db_name,
-                        # 直接从 self.config 获取 host，而不是依赖 self.db_host
-                        # 恢复使用 self.db_host，因为理论上它应该包含正确的值
-                        host=self.db_host,
-                        port=self.db_port,
+                        # 尝试使用 addresses 参数代替 host 和 port
+                        # host=self.db_host,
+                        # port=self.db_port,
+                        addresses=[(host_to_use, port_to_use)],
                         timeout=self.connection_config.get("timeout", 30),
                         # 可以添加 min_size, max_size 等连接池参数
                     )
