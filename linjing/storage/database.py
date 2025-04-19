@@ -84,15 +84,18 @@ class DatabaseManager:
 
                     # --- DEBUG LOGGING START ---
                     # 打印将要传递给 create_pool 的 host 值
-                    host_to_use = self.config.get("host", "localhost")
-                    logger.debug(f"DatabaseManager.connect attempting to create pool with host: {host_to_use}")
+                    # host_to_use = self.config.get("host", "localhost")
+                    host_to_use = "1Panel-postgresql-wHk9" # !!! 仅用于测试 !!!
+                    logger.debug(f"DatabaseManager.connect attempting to create pool with host (TESTING HARDCODED): {host_to_use}")
                     # --- DEBUG LOGGING END ---
                     self.pool = await asyncpg.create_pool(
                         user=self.db_user,
                         password=self.db_password,
                         database=self.db_name,
                         # 直接从 self.config 获取 host，而不是依赖 self.db_host
-                        host=self.config.get("host", "localhost"),
+                        # host=self.config.get("host", "localhost"),
+                        # !!! 仅用于测试：强制硬编码主机名 !!!
+                        host="1Panel-postgresql-wHk9",
                         port=self.db_port,
                         timeout=self.connection_config.get("timeout", 30),
                         # 可以添加 min_size, max_size 等连接池参数
