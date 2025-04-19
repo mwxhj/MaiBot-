@@ -161,6 +161,8 @@ class LLMManager:
             elif result is True:
                 self.providers[provider_id] = provider_instance
                 self.provider_configs[provider_id] = provider_config # Store expanded config
+                # 从配置中提取并存储模型列表
+                self.provider_models[provider_id] = provider_config.get("models", [])
                 logger.info(f"已成功初始化提供商: {provider_id} (类型: {provider_type})")
                 successful_providers += 1
             else: # result is False

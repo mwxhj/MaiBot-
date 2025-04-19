@@ -254,7 +254,8 @@ class LinjingBot:
         # 导入LLM管理器
         try:
             from linjing.llm.llm_manager import LLMManager
-            self.llm_manager = LLMManager(self.config.get("llm", {}))
+            # 传递完整的配置字典，而不是仅仅 llm 部分
+            self.llm_manager = LLMManager(self.config)
             await self.llm_manager.initialize()
         except ImportError as e:
             logger.error(f"LLM管理器导入失败: {str(e)}")
