@@ -338,9 +338,13 @@ class LinjingBot:
             from linjing.storage.database import DatabaseManager
             
             # 数据库管理器
-            self.storage_manager = DatabaseManager(
-                self.config.get("storage", {}).get("database", {})
-            )
+            # 准备传递给 DatabaseManager 的配置，只包含它明确使用的键
+            db_config_raw = self.config.get("storage", {}).get("database", {})
+            db_config_filtered = {
+                k: v for k, v in db_config_raw.items()
+                if k in ["type", "host", "port", "user", "password", "database", "path", "connection", "create_tables_on_connect"]
+            }
+            self.storage_manager = DatabaseManager(config=db_config_filtered)
             await self.storage_manager.connect()
             
             # 向量数据库管理器
