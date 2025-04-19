@@ -478,7 +478,9 @@ class LinjingBot:
                 logger.debug(f"已添加处理器: {name}")
                 
             except Exception as e:
-                logger.error(f"初始化处理器 {name} 失败: {str(e)}", exc_info=True)
+                # 添加更详细的错误日志
+                logger.critical(f"!!! 初始化处理器 '{name}' 失败，该处理器将不会被添加到管道中 !!!", exc_info=True)
+                # logger.error(f"初始化处理器 {name} 失败: {str(e)}", exc_info=True) # 保留原始错误日志（可选）
     
     async def _init_adapters(self) -> None:
         """初始化适配器"""
