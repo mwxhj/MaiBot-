@@ -98,6 +98,18 @@ llm:
         - "gemini-2.5-pro-exp-03-25"
 
 
+    - id: "DEEPSEEK_provider"
+      type: "openai_compatible"
+      name: "DEEPSEEK LLM"
+      enabled: true
+      api_key: "${DEEPSEEK_API_KEY}"
+      api_base: "${DEEPSEEK_BASE_URL}"
+      timeout: 60
+      models:
+        - "deepseek-chat"
+
+
+
   # 任务路由策略
   usage_strategy:
     # 任务到供应商和模型的路由映射
@@ -113,20 +125,20 @@ llm:
       # 其他任务暂时保持单个提供商
       summarization:
         - provider_id: "DEEPDUCK_provider"
-          model: "deepseek-v3-0324"
+          model: "deepseek-chat"
       creative:
         - provider_id: "DEEPDUCK_provider"
-          model: "deepseek-v3-0324"
+          model: "deepseek-chat"
       read_air:
         - provider_id: "DEEPDUCK_provider"
-          model: "deepseek-v3-0324"
+          model: "deepseek-chat"
       thought_generation:
         - provider_id: "DEEPDUCK_provider"
-          model: "deepseek-v3-0324"
+          model: "deepseek-chat"
       # **新增：意愿检查任务路由**
       willingness_check:
         - provider_id: "DEEPDUCK_provider" # 或者选择其他合适的模型
-          model: "deepseek-v3-0324"
+          model: "deepseek-chat"
 
 # 存储设置
 storage:
