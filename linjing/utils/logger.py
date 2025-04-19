@@ -13,7 +13,7 @@ from logging.handlers import RotatingFileHandler
 from typing import Optional
 
 from loguru import logger
-from linjing.main import config_manager  # 从 main.py 导入全局配置实例
+from linjing.config import config_manager # 从 config.py 导入全局配置实例
 
 def setup_logger(level: str = "INFO", log_dir: str = "logs") -> None:
     """
