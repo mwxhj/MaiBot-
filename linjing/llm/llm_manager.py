@@ -183,18 +183,27 @@ class LLMManager:
 
 
         # 验证任务路由配置
-        for task, routing_info in self.task_routing.items():
-            if not isinstance(routing_info, dict) or "provider_id" not in routing_info or "model" not in routing_info:
-                logger.error(f"任务 '{task}' 的路由配置无效，必须包含 provider_id 和 model 字段")
+        for task, routing_list in self.task_routing.items():
+            if not isinstance(routing_list, list):
+                logger.error(f"任务 '{task}' 的路由配置必须是一个列表，但得到的是: {type(routing_list)}")
                 continue
-            
-            provider_id = routing_info["provider_id"]
-            model = routing_info["model"]
-            
-            if provider_id not in self.providers:
-                logger.error(f"任务 '{task}' 配置的提供商 '{provider_id}' 不可用或未初始化")
-            elif model not in self.provider_models.get(provider_id, []):
-                logger.warning(f"任务 '{task}' 配置的模型 '{model}' 不在提供商 '{provider_id}' 的支持列表中")
+
+            if not routing_list:
+                logger.warning(f"任务 '{task}' 的路由列表为空")
+                continue
+
+            for i, routing_info in enumerate(routing_list):
+                if not isinstance(routing_info, dict) or "provider_id" not in routing_info or "model" not in routing_info:
+                    logger.error(f"任务 '{task}' 的路由选项 {i} 无效，必须是包含 provider_id 和 model 的字典: {routing_info}")
+                    continue
+
+                provider_id = routing_info["provider_id"]
+                model = routing_info["model"]
+
+                if provider_id not in self.providers:
+                    logger.error(f"任务 '{task}' 的路由选项 {i} 配置的提供商 '{provider_id}' 不可用或未初始化")
+                elif model not in self.provider_models.get(provider_id, []):
+                    logger.warning(f"任务 '{task}' 的路由选项 {i} 配置的模型 '{model}' 不在提供商 '{provider_id}' 的支持列表中")
 
         if not self.providers:
             logger.error("没有可用的 LLM 提供商！管理器初始化失败。")
