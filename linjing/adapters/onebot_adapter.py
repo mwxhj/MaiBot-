@@ -278,134 +278,123 @@ class OneBotAdapter(Bot):
             return
 
         # 只对消息事件打印详细的 INFO 日志
-        # === 添加顶层 try...except KeyError 来捕获并打印堆栈跟踪 ===
-        try:
-            if event_type == "message":
-                logger.debug("进入 message 事件处理分支") # 确认进入分支
-                # 提取发送者信息
-                user_id = event.get('user_id', '未知')
-                nickname = event.get('sender', {}).get('nickname', '未知')
+        # === 移除之前错误添加的顶层 try ===
+        if event_type == "message":
+            logger.debug("进入 message 事件处理分支") # 确认进入分支
+            # 提取发送者信息
+            user_id = event.get('user_id', '未知') # 修正缩进
+            nickname = event.get('sender', {}).get('nickname', '未知') # 修正缩进
 
-                # 格式化消息内容以供日志记录 (添加 try-except)
-                message_content_str = ""
-                try:
-                    if 'message' in event and isinstance(event['message'], list):
-                        logger.debug("开始格式化消息段列表")
-                        segments_str = []
-                        for i, seg in enumerate(event['message']):
-                            logger.debug(f"处理段 {i}: {seg}")
-                            seg_type = seg.get('type')
-                            seg_data = seg.get('data', {})
-                            if seg_type == 'text':
-                                segments_str.append(seg_data.get('text', ''))
-                            elif seg_type == 'image':
-                                file = seg_data.get('file', '未知图片')
-                                url = seg_data.get('url', '') # 尝试获取 URL
-                                display_name = file if file != '未知图片' else url
-                                segments_str.append(f"[图片: {display_name}]")
-                            elif seg_type == 'at':
-                                qq = seg_data.get('qq', '未知用户')
-                                segments_str.append(f"[@{qq}]")
-                            elif seg_type == 'reply':
-                                msg_id = seg_data.get('id', '未知消息')
-                                segments_str.append(f"[回复: {msg_id}]")
-                            elif seg_type == 'face':
-                                face_id = seg_data.get('id', '?')
-                                segments_str.append(f"[表情: {face_id}]")
-                            elif seg_type == 'record':
-                                 segments_str.append(f"[语音]") # 简单表示
-                            elif seg_type == 'video':
-                                 segments_str.append(f"[视频]") # 简单表示
-                            # 可以根据需要添加更多类型的格式化
-                            else:
-                                # 对于其他未显式处理的类型，打印类型和数据摘要
-                                data_summary = str(seg_data)[:30] + ('...' if len(str(seg_data)) > 30 else '')
-                                segments_str.append(f"[{seg_type}: {data_summary}]")
-                        message_content_str = "".join(segments_str)
-                        logger.debug(f"格式化后的消息字符串: {message_content_str}")
-                    else:
-                        logger.debug("消息内容不是列表，回退到 raw_message")
-                        # 如果没有 message 列表，回退到 raw_message
-                        message_content_str = event.get('raw_message', '无消息内容')
-                except Exception as e_format:
-                     logger.error(f"格式化消息内容时出错: {e_format}", exc_info=True)
-                     message_content_str = event.get('raw_message', '[格式化失败]') # 发生错误时提供明确提示
+            # 格式化消息内容以供日志记录 (添加 try-except)
+            message_content_str = "" # 修正缩进
+            try: # 修正缩进
+                if 'message' in event and isinstance(event['message'], list):
+                    logger.debug("开始格式化消息段列表")
+                    segments_str = []
+                    for i, seg in enumerate(event['message']):
+                        logger.debug(f"处理段 {i}: {seg}")
+                        seg_type = seg.get('type')
+                        seg_data = seg.get('data', {})
+                        if seg_type == 'text':
+                            segments_str.append(seg_data.get('text', ''))
+                        elif seg_type == 'image':
+                            file = seg_data.get('file', '未知图片')
+                            url = seg_data.get('url', '') # 尝试获取 URL
+                            display_name = file if file != '未知图片' else url
+                            segments_str.append(f"[图片: {display_name}]")
+                        elif seg_type == 'at':
+                            qq = seg_data.get('qq', '未知用户')
+                            segments_str.append(f"[@{qq}]")
+                        elif seg_type == 'reply':
+                            msg_id = seg_data.get('id', '未知消息')
+                            segments_str.append(f"[回复: {msg_id}]")
+                        elif seg_type == 'face':
+                            face_id = seg_data.get('id', '?')
+                            segments_str.append(f"[表情: {face_id}]")
+                        elif seg_type == 'record':
+                             segments_str.append(f"[语音]") # 简单表示
+                        elif seg_type == 'video':
+                             segments_str.append(f"[视频]") # 简单表示
+                        # 可以根据需要添加更多类型的格式化
+                        else:
+                            # 对于其他未显式处理的类型，打印类型和数据摘要
+                            data_summary = str(seg_data)[:30] + ('...' if len(str(seg_data)) > 30 else '')
+                            segments_str.append(f"[{seg_type}: {data_summary}]")
+                    message_content_str = "".join(segments_str)
+                    logger.debug(f"格式化后的消息字符串: {message_content_str}")
+                else:
+                    logger.debug("消息内容不是列表，回退到 raw_message")
+                    # 如果没有 message 列表，回退到 raw_message
+                    message_content_str = event.get('raw_message', '无消息内容')
+            except Exception as e_format: # 修正缩进
+                 logger.error(f"格式化消息内容时出错: {e_format}", exc_info=True)
+                 message_content_str = event.get('raw_message', '[格式化失败]') # 发生错误时提供明确提示
 
-                # 添加群号信息（如果存在）
-                group_id = event.get('group_id')
-                log_prefix = f"[群聊：{group_id}]" if group_id else ""
+            # 添加群号信息（如果存在）
+            group_id = event.get('group_id') # 修正缩进
+            log_prefix = f"[群聊：{group_id}]" if group_id else "" # 修正缩进
 
-                logger.debug("准备记录 INFO 日志") # 确认即将记录 INFO
-                # 使用 INFO 级别记录格式化后的消息日志
-                logger.info(f"{log_prefix}[QQ号：{user_id}][QQ名称：{nickname}]：发送了 {message_content_str}")
-            else:
-                 # 对于非消息事件，可以记录一个简单的 DEBUG 日志（可选）
-                 logger.debug(f"处理事件: {event_type} - {event.get('sub_type', '')}")
+            logger.debug("准备记录 INFO 日志") # 修正缩进
+            # 使用 INFO 级别记录格式化后的消息日志
+            logger.info(f"{log_prefix}[QQ号：{user_id}][QQ名称：{nickname}]：发送了 {message_content_str}") # 修正缩进
+        else: # 修正缩进，与 if 对齐
+             # 对于非消息事件，可以记录一个简单的 DEBUG 日志（可选）
+             logger.debug(f"处理事件: {event_type} - {event.get('sub_type', '')}") # 修正缩进
 
 
-            # 转换消息格式
-            # 注意：这里需要处理原始的 event['message']，而不是转换后的 Message 对象
-            original_message_list = event.get("message") # 先保存原始列表
-            if "message" in event and isinstance(original_message_list, list):
-                try:
-                    # 注意：这里修改了原始 event 字典中的 'message' 键
-                    event["message"] = Message.from_onebot_event(event)
-                    logger.debug(f"消息转换后的事件对象: {event['message']}") # 记录转换后的对象
-                except Exception as e:
-                    logger.error(f"消息转换失败: {e}", exc_info=True)
-                    # 即使转换失败，也可能需要处理事件本身（例如通知事件）
-                    # 如果转换失败，将 message 恢复为原始列表，以便后续处理（如果需要）
-                    event["message"] = original_message_list
-                    # return # 决定是否在转换失败时中止
-
-            # 调用通过 bot.on() 注册的事件处理器 (位于 adapter_utils.py 的 Bot 基类中)
-            # 传递完整的 event 字典
-            await self.handle_event(event_type, event)
-
-            # 如果是消息事件并且已注册主消息处理器，则调用它
-            # 注意：我们传递转换后的 Message 对象给 LinjingBot.handle_message
-            if event_type == "message" and self._message_handler and isinstance(event.get("message"), Message): # 使用内部变量名
-                try:
-                    logger.debug(f"调用主消息处理函数: {self._message_handler.__name__}")
-                    # LinjingBot.handle_message 期望接收转换后的 Message 对象
-                    await self._message_handler(event["message"]) # 使用内部变量名
-                except Exception as e:
-                    # 添加详细调试日志
-                    logger.critical(f"捕获到异常(内层): 类型={type(e)}, 错误={e!r}") # 使用 !r 获取 repr
-                    try:
-                        # 尝试打印原始事件数据，注意可能很大
-                        import json
-                        event_str = json.dumps(event, indent=2, ensure_ascii=False, default=str) # 处理无法序列化的对象
-                        logger.critical(f"异常发生时的 event 数据 (内层)(部分): {event_str[:1000]}{'...' if len(event_str) > 1000 else ''}")
-                    except Exception as log_e:
-                        logger.critical(f"记录 event 数据时出错(内层): {log_e!r}")
-                    # 保留原始错误日志
-                    logger.error(f"调用主消息处理函数时出错(内层): {e}", exc_info=True) # exc_info=True 会记录堆栈跟踪
-            elif event_type == "message" and not self._message_handler: # 使用内部变量名
-                 logger.warning("收到消息事件，但没有注册主消息处理函数")
-
-        except KeyError as ke:
-            # === 手动打印 KeyError 的堆栈跟踪 ===
-            import traceback
-            logger.critical(f"捕获到顶层 KeyError: {ke!r}")
-            logger.critical("--- KeyError Traceback START ---")
-            traceback.print_exc() # 打印到 stderr，通常会显示在控制台/日志中
-            logger.critical("--- KeyError Traceback END ---")
-            # 记录事件数据
+        # 转换消息格式 (修正缩进)
+        # 注意：这里需要处理原始的 event['message']，而不是转换后的 Message 对象
+        original_message_list = event.get("message") # 先保存原始列表
+        if "message" in event and isinstance(original_message_list, list):
             try:
-                import json
-                event_str = json.dumps(event, indent=2, ensure_ascii=False, default=str)
-                logger.critical(f"发生 KeyError 时的 event 数据 (部分): {event_str[:1000]}{'...' if len(event_str) > 1000 else ''}")
-            except Exception as log_e:
-                logger.critical(f"记录 event 数据时出错 (KeyError): {log_e!r}")
-            # 可以选择重新抛出或记录为错误
-            # raise # 如果需要让外层知道
-            logger.error(f"处理事件时发生 KeyError: {ke}", exc_info=False) # 记录错误，但不重复打印堆栈
+                # 注意：这里修改了原始 event 字典中的 'message' 键
+                event["message"] = Message.from_onebot_event(event)
+                logger.debug(f"消息转换后的事件对象: {event['message']}") # 记录转换后的对象
+            except Exception as e:
+                logger.error(f"消息转换失败: {e}", exc_info=True)
+                # 即使转换失败，也可能需要处理事件本身（例如通知事件）
+                # 如果转换失败，将 message 恢复为原始列表，以便后续处理（如果需要）
+                event["message"] = original_message_list
+                # return # 决定是否在转换失败时中止
 
-        except Exception as e_outer:
-             # === 捕获其他所有顶层异常 ===
-             logger.critical(f"捕获到顶层异常: 类型={type(e_outer)}, 错误={e_outer!r}")
-             logger.error(f"处理事件时发生未知顶层异常: {e_outer}", exc_info=True) # 记录堆栈跟踪
+        # 调用通过 bot.on() 注册的事件处理器 (位于 adapter_utils.py 的 Bot 基类中) (修正缩进)
+        # 传递完整的 event 字典
+        await self.handle_event(event_type, event)
+
+        # 如果是消息事件并且已注册主消息处理器，则调用它 (修正缩进)
+        # 注意：我们传递转换后的 Message 对象给 LinjingBot.handle_message
+        if event_type == "message" and self._message_handler and isinstance(event.get("message"), Message): # 使用内部变量名
+            try:
+                logger.debug(f"调用主消息处理函数: {self._message_handler.__name__}")
+                # LinjingBot.handle_message 期望接收转换后的 Message 对象
+                await self._message_handler(event["message"]) # 使用内部变量名
+            except Exception as e:
+                # === 手动格式化并记录堆栈跟踪 ===
+                import traceback
+                import io
+                tb_str = io.StringIO()
+                traceback.print_exc(file=tb_str)
+                tb_str.seek(0)
+                stack_trace = tb_str.read()
+                logger.critical(f"捕获到异常: 类型={type(e)}, 错误={e!r}")
+                logger.critical(f"--- Stack Trace START ---\n{stack_trace}--- Stack Trace END ---")
+                # 记录事件数据
+                try:
+                    import json
+                    # 注意：此时 event['message'] 可能是 Message 对象，需要特殊处理
+                    event_copy = event.copy() # 复制字典以避免修改原始事件
+                    if isinstance(event_copy.get("message"), Message):
+                         event_copy["message"] = str(event_copy["message"]) # 或使用 to_dict()
+                    event_str = json.dumps(event_copy, indent=2, ensure_ascii=False, default=str)
+                    logger.critical(f"异常发生时的 event 数据 (部分): {event_str[:1000]}{'...' if len(event_str) > 1000 else ''}")
+                except Exception as log_e:
+                    logger.critical(f"记录 event 数据时出错: {log_e!r}")
+                # 记录原始错误，但不再依赖 exc_info=True
+                logger.error(f"调用主消息处理函数时出错: {e}", exc_info=False)
+        elif event_type == "message" and not self._message_handler: # 使用内部变量名 (修正缩进)
+             logger.warning("收到消息事件，但没有注册主消息处理函数")
+    
+        # 移除了外层的 try...except KeyError 和 try...except Exception
 
 
     async def send(self, target: str, message: Union[str, Message, MessageSegment]) -> str:
