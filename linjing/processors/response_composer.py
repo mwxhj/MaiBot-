@@ -95,10 +95,19 @@ class ResponseComposer(BaseProcessor):
             else:
                 # 基于思考结果生成回复
                 reply = await self._generate_response(context, thought)
-            
+
+            # 在使用 reply 创建 MessageSegment 之前，记录它的原始值和类型
+            logger.debug(f"原始回复内容 (来自 _generate_response): {repr(reply)}")
+            logger.debug(f"原始回复内容的类型: {type(reply)}")
+
             # 将生成的回复添加到上下文
             reply_message = Message()
-            reply_message.append(MessageSegment.text(reply))
+            # 确保 reply 是字符串类型再创建 Text Segment，否则记录错误并使用空字符串
+            if isinstance(reply, str):
+                reply_message.append(MessageSegment.text(reply))
+            else:
+                logger.error(f"_generate_response 返回了非字符串类型: {type(reply)}，内容: {repr(reply)}。将使用空文本。")
+                reply_message.append(MessageSegment.text("")) # 使用空字符串避免后续错误
             
             logger.debug("准备检查并添加多模态内容...") # 添加日志
             # 如果需要添加多模态内容
