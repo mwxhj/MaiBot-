@@ -10,7 +10,7 @@ import time
 import copy
 from collections import defaultdict, deque
 from typing import Any, Dict, List, Optional, Union, Set
-from linjing.config import ConfigManager
+from linjing import ConfigManager # ConfigManager 现在位于顶层 linjing 包
 
 from linjing.adapters import Message
 
@@ -25,15 +25,17 @@ class MessageContext:
         self,
         message: Message,
         user_id: str,
+        config_manager: ConfigManager, # 添加 config_manager 参数
         session_id: Optional[str] = None,
         platform: str = "unknown"
     ):
         """
         初始化消息上下文
-        
+
         Args:
             message: 原始消息对象
             user_id: 发送者用户ID
+            config_manager: ConfigManager 的实例
             session_id: 会话ID，如果为None则自动生成
             platform: 消息来源平台
         """
@@ -52,9 +54,9 @@ class MessageContext:
         # 历史消息记录
         self.history: List[Message] = []
         # 群组历史记录 {group_id: deque}
-        config = ConfigManager.get_config()
-        group_max_history = config.get("processors", {}).get("read_air", {}).get("group_max_history", 30)
-        group_user_max_history = config.get("processors", {}).get("read_air", {}).get("group_user_max_history", 10)
+        # 直接使用传入的 config_manager 实例获取配置
+        group_max_history = config_manager.get("processors.read_air.group_max_history", 30)
+        group_user_max_history = config_manager.get("processors.read_air.group_user_max_history", 10)
         
         self.group_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=group_max_history))
         # 用户群组历史记录 {(group_id, user_id): deque}

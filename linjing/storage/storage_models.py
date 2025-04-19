@@ -11,7 +11,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple, Union, TypeVar, Type, ClassVar
 
 from ..utils.logger import get_logger
-from linjing.config import ConfigManager
+from linjing import ConfigManager # ConfigManager 现在位于顶层 linjing 包
 
 logger = get_logger(__name__)
 

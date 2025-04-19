@@ -13,7 +13,7 @@ from linjing.processors.base_processor import BaseProcessor
 from linjing.processors.message_context import MessageContext
 from linjing.processors.processor_registry import ProcessorRegistry
 from linjing.utils.logger import get_logger
-from linjing.config import ConfigManager
+from linjing import ConfigManager # ConfigManager 现在位于顶层 linjing 包
 from linjing.adapters.message_types import MessageSegment # 导入 MessageSegment 用于检查 @
 
 # 获取日志记录器

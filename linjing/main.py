@@ -5,8 +5,18 @@
 林静聊天机器人主程序入口。
 """
 
+import sys
+
+# 尝试显式移除旧的 config 模块缓存，以防万一
+if 'linjing.config' in sys.modules:
+    print("DEBUG: Removing 'linjing.config' from sys.modules") # 添加调试打印
+    del sys.modules['linjing.config']
+if 'linjing.config.config' in sys.modules: # 也移除可能的子模块缓存
+     print("DEBUG: Removing 'linjing.config.config' from sys.modules") # 添加调试打印
+     del sys.modules['linjing.config.config']
+
 import os
-import sys # Import sys
+# sys 已经导入过了
 import signal
 import asyncio
 import argparse
