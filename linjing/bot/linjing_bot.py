@@ -164,6 +164,21 @@ class LinjingBot:
             session_id=message.get_session_id() if hasattr(message, 'get_session_id') else "default"
         )
         
+        # 确保用户记录存在
+        if self.memory_manager:
+            try:
+                # 尝试从消息中获取平台和昵称信息 (需要适配器支持)
+                platform = message.get_platform() if hasattr(message, 'get_platform') else "unknown"
+                name = message.get_user_name() if hasattr(message, 'get_user_name') else None
+                await self.memory_manager.ensure_user_exists(
+                    user_id=context.user_id,
+                    platform=platform,
+                    name=name
+                )
+            except Exception as e:
+                logger.error(f"处理用户存在性检查时出错 (用户ID: {context.user_id}): {e}", exc_info=True)
+                # 即使检查失败，也可能继续处理，但后续保存可能会失败
+
         # 获取对话历史
         if self.memory_manager:
             history = await self.memory_manager.get_conversation_history(

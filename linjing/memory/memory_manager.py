@@ -832,4 +832,66 @@ class MemoryManager:
             return True
         except Exception as e:
             logger.error(f"更新记忆向量失败: {e}", exc_info=True)
-            return False 
+            return False
+
+    async def ensure_user_exists(
+        self,
+        user_id: str,
+        platform: str = "unknown", # Default platform if not provided
+        name: str = None # Optional user name
+    ) -> bool:
+        """
+        确保用户记录存在于 users 表中，如果不存在则创建。
+
+        Args:
+            user_id: 用户ID (主键)
+            platform: 用户来源平台 (e.g., 'qq', 'discord')
+            name: 用户昵称 (可选)
+
+        Returns:
+            操作是否成功 (True 表示用户已存在或已成功创建)
+        """
+        if not self._initialized:
+            await self.initialize()
+
+        try:
+            # 1. 检查用户是否存在
+            check_query = "SELECT id FROM users WHERE id = ?"
+            existing_user = await self.db.execute_query(check_query, (user_id,))
+
+            if existing_user:
+                # 用户已存在，可以选择更新 last_active_at (如果需要)
+                # update_query = "UPDATE users SET last_active_at = ? WHERE id = ?"
+                # await self.db.execute_update(update_query, (int(time.time()), user_id))
+                return True # 用户已存在
+
+            # 2. 用户不存在，创建新记录
+            insert_query = """
+            INSERT INTO users (id, platform, name, created_at, last_active_at, metadata)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """
+            current_time = int(time.time())
+            # 基础元数据，可以根据需要扩展
+            metadata_json = json.dumps({"platform_id": user_id}) # Store original ID in metadata too
+
+            params = (
+                user_id,
+                platform,
+                name, # Might be None
+                current_time,
+                current_time,
+                metadata_json
+            )
+
+            insert_result = await self.db.execute_insert(insert_query, params)
+
+            if insert_result != -1:
+                logger.info(f"已为用户 {user_id} (平台: {platform}) 创建新的用户记录")
+                return True
+            else:
+                logger.error(f"为用户 {user_id} 创建记录失败")
+                return False
+
+        except Exception as e:
+            logger.error(f"检查或创建用户 {user_id} 时出错: {e}", exc_info=True)
+            return False
