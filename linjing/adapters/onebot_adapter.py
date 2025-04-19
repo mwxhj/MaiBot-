@@ -416,19 +416,32 @@ class OneBotAdapter(Bot):
 
         onebot_message = MessageConverter.to_platform_message("onebot", message)
 
+        # **新增：记录转换后的 OneBot 消息格式**
+        logger.debug(f"转换后的 OneBot 消息格式: {onebot_message}")
+
         # 构造API请求
         api_request = {
             "action": "send_msg",
             "params": {
                 "message_type": "private" if target.isdigit() else "group",
-                target.isdigit() and "user_id" or "group_id": target,
+                target.isdigit() and "user_id" or "group_id": int(target), # 确保 ID 是整数
                 "message": onebot_message
             }
         }
+        # **新增：记录完整的 API 请求内容**
+        logger.debug(f"准备发送的 API 请求: {json.dumps(api_request, ensure_ascii=False)}")
 
         try:
+            # **新增：发送前检查 WebSocket 状态**
+            if not self.websocket or self.websocket.closed:
+                 logger.error(f"尝试发送消息时 WebSocket 连接已关闭或不存在 (Target: {target})")
+                 raise ConnectionError("WebSocket connection is closed or unavailable.")
+
+            logger.debug(f"WebSocket 状态 (发送前): open={self.websocket.open}, closed={self.websocket.closed}")
             # 发送请求
             await self.websocket.send(json.dumps(api_request))
+            # **新增：记录发送成功**
+            logger.debug(f"WebSocket send 调用完成 (Target: {target})")
 
             # 简单实现：返回当前时间戳作为消息ID
             return str(int(time.time()))
