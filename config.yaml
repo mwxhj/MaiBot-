@@ -77,9 +77,8 @@ llm:
       api_base: "${MINGWANG_BASE_URL}"
       timeout: 60
       models:
-        - "mingwang-chat-v1"
-        - "mingwang-chat-v2-beta"
-        - "mingwang-embed-v1"
+        - "deepseek-v3-0324"
+        - "text-embedding-3-small"
 
   # 任务路由策略
   usage_strategy:
