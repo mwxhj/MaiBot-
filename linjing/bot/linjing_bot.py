@@ -186,28 +186,31 @@ class LinjingBot:
         # 通过消息管道处理消息
         result_context = await self.message_pipeline.process(context)
         
+        # 从处理后的上下文中获取最终回复
+        final_reply = result_context.get_state("reply")
+
         # 存储对话
-        if result_context.response and self.memory_manager:
+        if final_reply and self.memory_manager:
             await self.memory_manager.store_conversation(
                 user_id=context.user_id,
                 user_message=message,
-                bot_message=result_context.response
+                bot_message=final_reply
             )
-        
+
         # 更新情绪状态
-        if result_context.response and self.emotion_manager:
+        if final_reply and self.emotion_manager:
             # 假设从上下文中提取情绪因素
             emotion_factors = result_context.get_state("emotion_factors", {})
             await self.emotion_manager.update_emotion(context.user_id, emotion_factors)
-        
+
         # 发布消息发送事件
-        if result_context.response:
+        if final_reply:
             await self.event_bus.publish(
-                EventType.MESSAGE_SENT, 
-                {"message": result_context.response, "context": result_context}
+                EventType.MESSAGE_SENT,
+                {"message": final_reply, "context": result_context}
             )
-        
-        return result_context.response
+
+        return final_reply
     
     def get_adapter(self, name: str) -> Optional[Any]:
         """
