@@ -84,18 +84,16 @@ class DatabaseManager:
 
                     # --- DEBUG LOGGING START ---
                     # 打印将要传递给 create_pool 的 host 值
-                    # host_to_use = self.config.get("host", "localhost")
-                    host_to_use = "1Panel-postgresql-wHk9" # !!! 仅用于测试 !!!
-                    logger.debug(f"DatabaseManager.connect attempting to create pool with host (TESTING HARDCODED): {host_to_use}")
+                    # 恢复打印 self.db_host
+                    logger.debug(f"DatabaseManager.connect attempting to create pool with host: {self.db_host}")
                     # --- DEBUG LOGGING END ---
                     self.pool = await asyncpg.create_pool(
                         user=self.db_user,
                         password=self.db_password,
                         database=self.db_name,
                         # 直接从 self.config 获取 host，而不是依赖 self.db_host
-                        # host=self.config.get("host", "localhost"),
-                        # !!! 仅用于测试：强制硬编码主机名 !!!
-                        host="1Panel-postgresql-wHk9",
+                        # 恢复使用 self.db_host，因为理论上它应该包含正确的值
+                        host=self.db_host,
                         port=self.db_port,
                         timeout=self.connection_config.get("timeout", 30),
                         # 可以添加 min_size, max_size 等连接池参数
@@ -544,7 +542,7 @@ class DatabaseManager:
             # 添加 user_moods 表 (PostgreSQL)
             moods_table = """
             CREATE TABLE IF NOT EXISTS user_moods (
-                id SERIAL PRIMARY KEY, -- 使用 SERIAL 作为自增主键 (PostgreSQL 语法)
+                id SERIAL PRIMARY KEY, -- 再次确认 PostgreSQL 语法
                 user_id TEXT NOT NULL,
                 mood_data JSONB NOT NULL, -- 使用 JSONB 存储情绪数据
                 timestamp TIMESTAMPTZ DEFAULT NOW()
@@ -604,7 +602,7 @@ class DatabaseManager:
             # 添加 user_moods 表 (SQLite)
             moods_table = """
             CREATE TABLE IF NOT EXISTS user_moods (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, -- SQLite 语法保持不变
+                id INTEGER PRIMARY KEY AUTOINCREMENT, -- SQLite 语法
                 user_id TEXT NOT NULL,
                 mood_data TEXT NOT NULL, -- SQLite 使用 TEXT 存储 JSON
                 timestamp REAL NOT NULL
