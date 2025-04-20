@@ -88,21 +88,29 @@ class DatabaseManager:
                     port_to_use = self.db_port
                     logger.debug(f"DatabaseManager.connect attempting to create pool with host: {host_to_use}, port: {port_to_use}") # 打印将要使用的值
                     # --- DEBUG LOGGING END ---
+                    # 修正后的连接配置（优先使用DSN并强制IPv4）
+                    encoded_password = asyncpg.URI(self.db_password).password
+                    final_dsn = (
+                        f"postgresql://{self.db_user}:{encoded_password}@"
+                        f"{host_to_use}:{port_to_use}/{self.db_name}"
+                        "?sslmode=disable&connect_timeout=10"
+                    )
+                    
+                    logger.debug(f"最终连接DSN: {final_dsn.split('@')[0]}@[host]:{port_to_use}/[dbname]")
+                    
                     self.pool = await asyncpg.create_pool(
-                        user=self.db_user,
-                        password=self.db_password,
-                        database=self.db_name,
-                        # 恢复使用 host 和 port 参数
-                        host=host_to_use, # 使用变量确保一致性
-                        port=port_to_use, # 使用变量确保一致性
-                        timeout=self.connection_config.get("timeout", 30),
-                        # 连接池参数
+                        dsn=final_dsn,
+                        # 强制网络配置
+                        family=4,  # 强制使用IPv4
+                        host=host_to_use,
+                        port=port_to_use,
+                        # 连接池配置
                         min_size=1,
                         max_size=5,
-                        # 强制使用TCP/IPv4并禁用预处理语句缓存
-                        connection_class=asyncpg.Connection,
-                        statement_cache_size=0,
-                        dsn=f"postgresql://{self.db_user}:{self.db_password}@{host_to_use}:{port_to_use}/{self.db_name}?sslmode=disable"
+                        # 超时配置
+                        command_timeout=self.connection_config.get("timeout", 30),
+                        # 高级配置
+                        statement_cache_size=0
                     )
                     logger.info(f"成功创建 PostgreSQL 连接池: {self.db_name}@{self.db_host}")
                 else:
