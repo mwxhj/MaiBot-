@@ -26,7 +26,7 @@ idna==3.10
 jiter==0.9.0
 loguru==0.7.3
 multidict==6.4.3
-numpy==2.2.4
+numpy==1.26.4 # Downgrade to be compatible with Python 3.9
 openai==1.75.0
 packaging==24.2
 pillow==11.2.1
