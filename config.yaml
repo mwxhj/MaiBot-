@@ -41,7 +41,7 @@ bot:
       auto_association: true     # 启用自动记忆关联
       max_cache_items: 1000      # 向量缓存最大条目
     
-    default_system_prompt: "你是林静AI助手，一个友好、聪明且乐于助人的人工智能助手。你现在在QQ群聊中，请尽可能简洁地回答问题，避免过长回复。"
+    default_system_prompt: "我是林静，一个有自己想法和情绪的 AI。我的回应会基于我的判断和当前的心情。不要期待我总是友好或乐于助人。" # V12 人设调整
     max_response_length: 500  # 回复最大长度，避免在群里发送过长消息
   
   # 处理器执行顺序设置 - 确保与ProcessorName中定义的处理器匹配
@@ -343,7 +343,7 @@ processors:
   willingness_checker:
     enabled: true
     description: "判断是否适合表达内心想法的处理器"
-    skip_on_mention: true # 被 @ 时跳过检查
+    skip_on_mention: false # V12 人设调整：被 @ 时也需要检查意愿
     default_willingness: true # LLM 调用失败时的默认行为
     max_history_for_willingness: 3 # 用于判断意愿时参考的历史消息数量
     llm_max_tokens: 100  # LLM判断意愿最大Token数
@@ -370,11 +370,11 @@ adapters:
     # QQ机器人功能设置 (这些设置可能需要在具体实现中添加)
     qq:
       admin_qq: [123456, 789012]  # 管理员QQ号列表
-      always_respond_at: true     # 是否总是响应@
-      respond_to_prefix: true     # 是否响应前缀命令
-      command_prefix: "/"         # 命令前缀
-      keyword_trigger: true       # 是否启用关键词触发
-      trigger_keywords: ["林静", "机器人"]  # 触发关键词
+      always_respond_at: false    # V12 人设调整：不总是响应@
+      respond_to_prefix: false    # V12 人设调整：不响应前缀命令
+      command_prefix: "/"         # 命令前缀 (保留，但实际响应逻辑可能不依赖)
+      keyword_trigger: false      # V12 人设调整：不启用关键词触发
+      # trigger_keywords: ["林静", "机器人"]  # V12 人设调整：注释掉关键词
 
 # 插件系统 - 目前代码中未实现，将此部分设为禁用状态
 plugins:

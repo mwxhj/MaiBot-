@@ -25,7 +25,7 @@ class MessageContext:
         self,
         message: Message,
         user_id: str,
-        config_manager: ConfigManager, # 添加 config_manager 参数
+        config: Dict[str, Any], # <-- 改为 config 字典
         session_id: Optional[str] = None,
         platform: str = "unknown"
     ):
@@ -35,7 +35,7 @@ class MessageContext:
         Args:
             message: 原始消息对象
             user_id: 发送者用户ID
-            config_manager: ConfigManager 的实例
+            config: 配置字典
             session_id: 会话ID，如果为None则自动生成
             platform: 消息来源平台
         """
@@ -54,10 +54,10 @@ class MessageContext:
         # 历史消息记录
         self.history: List[Message] = []
         # 群组历史记录 {group_id: deque}
-        # 直接使用传入的 config_manager 实例获取配置
-        group_max_history = config_manager.get("processors.read_air.group_max_history", 30)
-        group_user_max_history = config_manager.get("processors.read_air.group_user_max_history", 10)
-        
+        # 直接使用传入的 config 字典获取配置
+        group_max_history = config.get("processors.read_air.group_max_history", 30) # <-- 使用 config.get
+        group_user_max_history = config.get("processors.read_air.group_user_max_history", 10) # <-- 使用 config.get
+
         self.group_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=group_max_history))
         # 用户群组历史记录 {(group_id, user_id): deque}
         self.group_user_history: Dict[tuple, deque] = defaultdict(lambda: deque(maxlen=group_user_max_history))
