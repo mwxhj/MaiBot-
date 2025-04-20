@@ -56,11 +56,14 @@ bot:
   trigger_conditions:
     mention_trigger_enabled: true       # 是否启用 @mention 触发
     message_count_threshold: 10         # 消息计数阈值 (需要实现状态存储)
-    message_count_trigger_enabled: false # 是否启用消息计数触发 (暂不实现)
+    message_count_trigger_enabled: true # 是否启用消息计数触发 (暂不实现)
     time_interval_threshold: 300        # 时间间隔阈值 (秒) (需要实现状态存储)
-    time_interval_trigger_enabled: false # 是否启用时间间隔触发 (暂不实现)
-    high_alert_mode_trigger_enabled: false # 是否启用高戒备模式触发 (需要实现状态存储)
-    # 注意: 高戒备模式的具体逻辑 (如何进入/退出) 需要额外设计
+    time_interval_trigger_enabled: rue # 是否启用时间间隔触发
+    high_alert_mode_trigger_enabled: true # 是否启用高戒备模式触发 (现在改为 true 以便测试)
+    high_alert_duration: 5             # 高戒备持续消息数 (改为 5)
+    # 新增：名字触发配置
+    name_trigger_enabled: true          # 是否启用名字触发高戒备
+    bot_names: ["林静", "Linjing"]      # 触发高戒备的机器人名字列表
 
 # LLM模型配置
 llm:
@@ -354,7 +357,7 @@ processors:
   willingness_checker:
     enabled: true
     description: "判断是否适合表达内心想法的处理器"
-    skip_on_mention: false # V12 人设调整：被 @ 时也需要检查意愿
+    skip_on_mention: true # 修改为 true，使得被 @ 时跳过意愿检查
     default_willingness: true # LLM 调用失败时的默认行为
     max_history_for_willingness: 3 # 用于判断意愿时参考的历史消息数量
     llm_max_tokens: 100  # LLM判断意愿最大Token数
