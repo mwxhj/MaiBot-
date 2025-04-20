@@ -306,8 +306,10 @@ class WillingnessChecker(BaseProcessor):
             
             logger.debug(f"尝试为用户 {user_id} 获取关系摘要。") # 添加日志确认 user_id
             # 从记忆管理器获取关系摘要
-            relation_summary = await self.memory_manager.get_relationship_summary(user_id)
+            relation_summary = await self.memory_manager.get_user_relationship_summary(user_id)
             if not relation_summary:
+                # 修改日志级别为 debug，因为这不一定是错误
+                logger.debug(f"与用户 {user_id} 尚无明确的关系记录。")
                 return f"与用户 {user_id} 尚无明确的关系记录。"
             
             # 关系信息格式化
