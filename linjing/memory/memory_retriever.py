@@ -9,7 +9,7 @@ import logging
 from typing import Any, Dict, List, Optional, Union
 import time
 
-from linjing.memory.memory_manager import Memory
+# 移除错误的 Memory 导入
 from linjing.constants import MemoryType, CACHE_KEY_MEMORIES
 
 logger = logging.getLogger(__name__)
