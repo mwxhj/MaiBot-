@@ -274,6 +274,19 @@ class ReadAirProcessor(BaseProcessor):
             role = f"用户 ({msg.get('user_identifier', '用户')})" if msg["role"] == "user" else f"我 ({self.name})"
             history_text += f"{role}: {msg['content']}\n"
         
+        # 获取关系信息（异步调用转同步调用）
+        relation_info = ""
+        if hasattr(self, "_format_relationship") and hasattr(self, "memory_manager") and self.memory_manager:
+            try:
+                import asyncio
+                # 使用事件循环执行异步调用
+                loop = asyncio.get_event_loop() if asyncio.get_event_loop().is_running() else asyncio.new_event_loop()
+                relation_info = loop.run_until_complete(self._format_relationship(context))
+                logger.debug(f"为读空气分析获取到关系信息: {relation_info}")
+            except Exception as e:
+                logger.error(f"获取关系信息失败: {e}", exc_info=True)
+                relation_info = "关系信息获取失败"
+        
         # 从配置加载模板并格式化
         try:
             current_prompts = self.config.get("prompts", {})
@@ -286,7 +299,9 @@ class ReadAirProcessor(BaseProcessor):
             prompt = self.prompt_template.format(
                 history_text=history_text,
                 user_identifier=user_identifier,
-                message_content=message
+                message_content=message,
+                relation_info=relation_info,
+                group_context="暂无群体背景信息"  # 目前未实现，预留接口
             )
             # YAML 加载时会处理 {{ 和 }}，所以不需要额外转义
         except KeyError as e:

@@ -361,85 +361,14 @@ class ThoughtGenerator(BaseProcessor):
             logger.warning(f"无效的'读空气'分析结果类型: {type(analysis)}，使用占位符")
             return UNANALYZABLE_CONTENT_MARKER
 
-        result = ""
-
         try:
-            # 语言学特征
-            ling = analysis.get("linguistic_profile", {})
-            if ling:
-                result += f"语言风格: {', '.join(ling.get('style_assessment', []))}\n"
-                result += f"语域: {ling.get('register_assessment', '未知')}\n"
-                result += f"关键主题: {', '.join(ling.get('key_topics', []))}\n"
-
-            # 认知情绪状态
-            ces = analysis.get("cognitive_emotional_state", {})
-            if ces:
-                dom_emo = ces.get("dominant_emotion", {})
-                if dom_emo:
-                    result += f"主要情绪: {dom_emo.get('type', '未知')} "
-                    result += f"(效价: {dom_emo.get('valence', 0):.1f}, "
-                    result += f"唤醒度: {dom_emo.get('arousal', 0):.1f})\n"
-                
-                sec_emos = ces.get("secondary_emotions", [])
-                if sec_emos:
-                    result += "次要情绪: " + ", ".join(
-                        [f"{e.get('type', '?')}({e.get('confidence', 0):.1f})"
-                         for e in sec_emos]) + "\n"
-                
-                result += f"认知意图: {', '.join(ces.get('cognitive_intent', []))}\n"
-
-            # 沟通意图
-            comm = analysis.get("communicative_intent", {})
-            if comm:
-                result += f"主要言语行为: {comm.get('primary_speech_act', '未知')}\n"
-                result += f"期望回应: {', '.join(comm.get('expected_response_type', []))}\n"
-
-            # 逻辑分析
-            logic = analysis.get("logical_argument_analysis", {})
-            if logic:
-                if logic.get("contains_argument", False):
-                    result += f"论证清晰度: {logic.get('argument_clarity', '未知')}\n"
-                
-                fallacies = logic.get("identified_fallacies", [])
-                if fallacies:
-                    result += "逻辑谬误: " + ", ".join(
-                        [f"{f.get('type', '?')}({f.get('target', '')})"
-                         for f in fallacies]) + "\n"
-                
-                result += f"隐含假设: {', '.join(logic.get('implicit_assumptions', []))}\n"
-
-            # 社交语境
-            social = analysis.get("social_context_assessment", {})
-            if social:
-                fta = social.get("face_threatening_act", {})
-                if fta:
-                    result += f"面子威胁: {'是' if fta.get('threatens_receiver_positive_face', False) else '否'}\n"
-                    result += f"严重程度: {fta.get('severity', '未知')}\n"
-                
-                result += f"群体规范: {social.get('alignment_with_group_norms', '未知')}\n"
-                result += f"关系影响: {social.get('potential_relationship_impact', '未知')}\n"
-
-            # V12触发器
-            triggers = analysis.get("v12_trigger_scan_results", {})
-            if triggers:
-                active_triggers = [k for k, v in triggers.items() if v is True]
-                if active_triggers:
-                    result += f"触发的V12敏感点: {', '.join(active_triggers)}\n"
-                else:
-                    result += "未触发V12敏感点\n"
-
-            # 综合评估
-            overall = analysis.get("overall_assessment", {})
-            if overall:
-                result += f"消息复杂度: {overall.get('message_complexity', '未知')}\n"
-                result += f"潜在冲突等级: {overall.get('potential_conflict_level', '未知')}\n"
-                result += f"建议互动方式: {overall.get('recommended_engagement', '未知')}\n"
-
+            # 直接将分析结果转换为JSON字符串
+            import json
+            result = json.dumps(analysis, ensure_ascii=False, indent=2)
+            return result
         except Exception as e:
-            logger.error(f"格式化分析结果时出错: {str(e)}", exc_info=True)
+            logger.error(f"格式化分析结果为JSON时出错: {str(e)}", exc_info=True)
             return UNANALYZABLE_CONTENT_MARKER
-
-        return result.strip() or "无详细分析结果"
     
     # --- 新增：格式化关系信息 ---
     # 修改为 async def (确认已修改)

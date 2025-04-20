@@ -95,7 +95,7 @@ class WillingnessChecker(BaseProcessor):
         history_text = self._format_history(context)
 
         # 构建 Prompt
-        prompt = self._build_check_prompt(
+        prompt = await self._build_check_prompt(
             thought=thought,
             emotion_text=emotion_text,
             air_analysis=air_analysis,
@@ -130,7 +130,7 @@ class WillingnessChecker(BaseProcessor):
 
         return context
 
-    def _build_check_prompt(self, thought: str, emotion_text: str, air_analysis: str, personality_text: str, history_text: str) -> str:
+    async def _build_check_prompt(self, thought: str, emotion_text: str, air_analysis: str, personality_text: str, history_text: str) -> str:
         """构建意愿检查提示词"""
         try:
             # 直接使用在 __init__ 中加载好的 self.prompt_template
@@ -141,6 +141,16 @@ class WillingnessChecker(BaseProcessor):
             # 获取角色名 (尝试从 global_config 获取)
             global_config = self.config.get("global_config", {})
             character_name = global_config.get("bot", {}).get("name", "林静") # 默认 '林静'
+            
+            # 获取关系信息
+            relation_prompt_all = ""
+            try:
+                if hasattr(self, "_format_relationship") and hasattr(self, "memory_manager") and self.memory_manager:
+                    relation_prompt_all = await self._format_relationship(context)
+                    logger.debug(f"为意愿检查获取到关系信息: {relation_prompt_all}")
+            except Exception as e:
+                logger.error(f"获取关系信息失败: {e}", exc_info=True)
+                relation_prompt_all = "关系信息获取失败"
 
             # 使用 .format 填充模板占位符
             # 注意：确保模板中的占位符名称与这里的关键字参数完全匹配
@@ -152,7 +162,7 @@ class WillingnessChecker(BaseProcessor):
                 air_analysis=air_analysis,         # 对应 {air_analysis}
                 personality_text=personality_text, # 对应 {personality_text}
                 history_text=history_text,         # 对应 {history_text}
-                relation_prompt_all=""             # 对应 {relation_prompt_all} (TODO: 实现关系获取)
+                relation_prompt_all=relation_prompt_all  # 对应 {relation_prompt_all}
             )
             return prompt
         except KeyError as e:
@@ -214,97 +224,70 @@ class WillingnessChecker(BaseProcessor):
         else:
             return "情绪平静"
 
-    # TODO: 考虑将此方法与 ThoughtGenerator 中的版本统一到工具类，或确保差异是故意的
     def _format_air_analysis(self, context: MessageContext) -> str:
-         """格式化 ReadAir 分析结果 (简化版)，与 ThoughtGenerator._format_air_analysis 不同"""
+         """格式化 ReadAir 分析结果，直接返回JSON字符串"""
          analysis = context.get_state("read_air_analysis")
          if not analysis or not isinstance(analysis, dict):
              return "无对话分析"
          
-         # 只提取关键信息用于意愿判断
-         intent = analysis.get("intent", {}).get("primary", "未知")
-         emotions = analysis.get("emotion", {})
-         emotion_summary = ", ".join([f"{k}({v:.1f})" for k, v in emotions.items() if isinstance(v, (int, float)) and v > 0.4]) or "中性"
-         expectation = analysis.get("social_context", {}).get("expectation", "未知")
-         
-         return f"初步分析：意图({intent}), 情感({emotion_summary}), 社交期望({expectation})"
+         try:
+             # 直接将分析结果转换为JSON字符串
+             import json
+             result = json.dumps(analysis, ensure_ascii=False, indent=2)
+             return result
+         except Exception as e:
+             logger.error(f"格式化分析结果为JSON时出错: {str(e)}", exc_info=True)
+             return "无效的分析结果"
 
     # --- 新增：格式化关系信息 ---
     async def _format_relationship(self, context: MessageContext) -> str:
         """
-        从 MemoryManager 获取关系摘要并格式化为 Prompt 字符串。
-
-        Args:
-            context: 当前消息上下文。
-
-        Returns:
-            格式化后的关系信息字符串，或在出错/无信息时返回提示。
+        获取并格式化与用户的关系信息
         """
-        # 直接使用 self.memory_manager
-        if not self.memory_manager:
-            logger.warning("无法获取关系信息：memory_manager 未设置。")
-            return "关系信息：未知"
-
         try:
-            # 从 MemoryManager 获取基本关系摘要
-            relationship_summary = await self.memory_manager.get_user_relationship_summary(context.user_id)
+            user_id = context.get_user_id()
+            if not user_id or not self.memory_manager:
+                return ""
             
-            # 准备关系信息组件
-            parts = []
+            # 从记忆管理器获取关系摘要
+            relation_summary = await self.memory_manager.get_relationship_summary(user_id)
+            if not relation_summary:
+                return f"与用户 {user_id} 尚无明确的关系记录。"
             
-            # 1. 基本交互信息
-            count = relationship_summary.get("interaction_count", 0)
-            first_ts = relationship_summary.get("first_interaction_ts")
-            last_ts = relationship_summary.get("last_interaction_ts")
-            tags = relationship_summary.get("tags", [])
-
-            parts.append(f"交互次数: {count}")
+            # 关系信息格式化
+            relation_prompt = f"与用户 {user_id} 的关系信息如下:\n"
             
-            if first_ts:
-                 import datetime
-                 first_dt = datetime.datetime.fromtimestamp(first_ts).strftime('%Y-%m-%d')
-                 parts.append(f"初次交互: {first_dt}")
-                 
-            if last_ts:
-                 import datetime
-                 last_dt = datetime.datetime.fromtimestamp(last_ts).strftime('%Y-%m-%d %H:%M')
-                 parts.append(f"上次交互: {last_dt}")
-                 
-            if tags:
-                 parts.append(f"用户标签: {', '.join(tags)}")
-                 
-            # 2. 交互频率（如果数据足够）
-            if first_ts and last_ts and count > 3:
-                duration_days = max(1, (last_ts - first_ts) / (24 * 3600))
-                if duration_days > 1:  # 至少有超过一天的交互历史
-                    frequency = count / duration_days
-                    if frequency > 10:
-                        parts.append("互动频率: 非常频繁")
-                    elif frequency > 5:
-                        parts.append("互动频率: 频繁")
-                    elif frequency > 1:
-                        parts.append("互动频率: 一般")
-                    else:
-                        parts.append("互动频率: 偶尔")
+            # 添加亲密度信息
+            closeness = relation_summary.get("亲密度", {})
+            if closeness:
+                value = closeness.get("value", 0)
+                desc = closeness.get("description", "普通关系")
+                trend = closeness.get("trend", "稳定")
+                relation_prompt += f"- 亲密度: {value}/100 ({desc}, {trend})\n"
             
-            # 3. 关系紧密度（基于互动频率和总次数的综合评估）
-            if count > 0:
-                if count > 50:
-                    parts.append("关系评估: 密切")
-                elif count > 20:
-                    parts.append("关系评估: 熟悉")
-                elif count > 5:
-                    parts.append("关系评估: 认识")
-                else:
-                    parts.append("关系评估: 初步接触")
+            # 添加关系描述
+            description = relation_summary.get("关系描述", "无特殊关系")
+            relation_prompt += f"- 关系描述: {description}\n"
             
-            # 组合所有信息
-            relationship_str = "关系信息：" + "; ".join(parts)
-            return relationship_str
-
+            # 添加关键事件
+            key_events = relation_summary.get("关键事件", [])
+            if key_events:
+                relation_prompt += "- 关键事件:\n"
+                for event in key_events[:3]:  # 最多显示3个关键事件
+                    date = event.get("date", "未知时间")
+                    desc = event.get("description", "未记录")
+                    relation_prompt += f"  * {date}: {desc}\n"
+            
+            # 添加记忆标签
+            memory_tags = relation_summary.get("记忆标签", [])
+            if memory_tags:
+                tags_str = ", ".join(memory_tags[:5])  # 最多显示5个标签
+                relation_prompt += f"- 记忆标签: {tags_str}\n"
+            
+            return relation_prompt
         except Exception as e:
-            logger.error(f"获取或格式化用户 {context.user_id} 关系信息失败: {e}", exc_info=True)
-            return "关系信息：获取失败"
+            logger.error(f"格式化关系信息时出错: {str(e)}", exc_info=True)
+            return ""
 
     # 移除此方法，因为 personality_text 应从配置获取
     # def _format_personality(self) -> str:
