@@ -253,6 +253,10 @@ class ReadAirProcessor(BaseProcessor):
         # 构建提示词 - 传递 context 以便 _build_analysis_prompt 获取历史
         prompt = self._build_analysis_prompt(context, message, user_identifier)
         
+        # --- 添加调试日志：打印最终的 Prompt ---
+        logger.debug(f"最终构建的 ReadAir Prompt:\n---\n{prompt}\n---")
+        # --- 调试日志结束 ---
+
         try:
             # 调用LLM进行分析，指定任务类型为read_air以使用合适的模型
             response, metadata = await self.llm_manager.generate_text(
