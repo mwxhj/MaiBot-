@@ -368,7 +368,7 @@ class OneBotAdapter(Bot):
         if post_type == 'message':
             try:
                 # 使用 MessageConverter 进行转换
-                message_obj = MessageConverter.from_onebot_event(event)
+                message_obj = MessageConverter.to_internal_message("onebot", event)
                 logger.debug(f"消息转换后的事件对象: {message_obj}")
 
                 # 如果转换成功且存在主消息处理函数
