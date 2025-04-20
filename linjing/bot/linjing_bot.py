@@ -166,7 +166,9 @@ class LinjingBot:
         context = MessageContext(
             message=message,
             user_id=message.get_user_id() if hasattr(message, 'get_user_id') else str(message),
+            config=self.config, # <-- 传递 self.config
             session_id=message.get_session_id() if hasattr(message, 'get_session_id') else "default"
+            # platform 参数可以稍后从 message 中提取或保持默认
         )
         
         # 确保用户记录存在
