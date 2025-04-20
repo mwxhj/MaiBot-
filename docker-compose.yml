@@ -33,7 +33,7 @@ services:
     depends_on:
       napcat:
         condition: service_healthy
-      postgres_db: # <--- 添加对新数据库服务的依赖
+      postgres_db: # <--- 重新添加对数据库服务的依赖
         condition: service_started # 或者 service_healthy 如果镜像支持
     networks:
       - linjing-net
@@ -66,7 +66,7 @@ services:
       - QDRANT__SERVICE__GRPC_PORT=6334
       - QDRANT__CLUSTER__ENABLED=false
 
-  postgres_db: # <--- 添加 PostgreSQL 服务
+  postgres_db: # <--- 重新添加 PostgreSQL 服务
     image: postgres:15 # 或者你需要的版本
     container_name: postgres_db_linjing # 避免与外部可能存在的 postgres_db 冲突
     restart: unless-stopped
@@ -94,4 +94,4 @@ volumes:
   linjing-data:
   linjing-logs:
   qdrant-data:
-  postgres-data: # <--- 添加 PostgreSQL 数据卷
+  postgres-data: # <--- 重新添加 PostgreSQL 数据卷

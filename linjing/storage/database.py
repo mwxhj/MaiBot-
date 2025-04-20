@@ -117,22 +117,35 @@ class DatabaseManager:
                     # 使用关键字参数代替 DSN 调用 create_pool，避免 DSN 解析问题
                     connection_timeout = self.connection_config.get("timeout", 30)
                     # 恢复使用配置文件中的主机名
-                    logger.debug(f"调用 create_pool 使用 host={host_to_use}, port={port_to_use}, user={self.db_user}, database={self.db_name}")
+                    # --- 添加更详细的日志，就在调用 create_pool 之前 ---
+                    final_host = host_to_use
+                    final_port = port_to_use
+                    final_user = self.db_user
+                    final_password = self.db_password # 不打印密码本身
+                    final_database = self.db_name
+                    final_ssl = False
+                    final_timeout = connection_timeout
+                    final_command_timeout = self.connection_config.get("timeout", 30)
+                    final_min_size = self.connection_config.get("min_size", 1)
+                    final_max_size = self.connection_config.get("max_size", 5)
+                    # ... 其他参数 ...
+                    logger.critical(f"!!! PRE-CREATE-POOL CHECK: host={final_host}, port={final_port}, user={final_user}, db={final_database}, ssl={final_ssl}, timeout={final_timeout}")
+                    # --- 详细日志结束 ---
                     self.pool = await asyncpg.create_pool(
-                        host=host_to_use, # <--- 使用配置文件中的主机名
-                        port=port_to_use,
-                        user=self.db_user,
-                        password=self.db_password, # 直接传递密码
-                        database=self.db_name,
-                        ssl=False, # 明确禁用 SSL (使用 False 而不是 None)
-                        timeout=connection_timeout, # 连接超时
-                        command_timeout=self.connection_config.get("timeout", 30), # 命令超时
-                        min_size=self.connection_config.get("min_size", 1),
-                        max_size=self.connection_config.get("max_size", 5),
-                        max_cached_statement_lifetime=self.connection_config.get("max_cached_statement_lifetime", 0),
-                        max_queries=self.connection_config.get("max_queries", 50000),
-                        max_inactive_connection_lifetime=self.connection_config.get("max_inactive_connection_lifetime", 300),
-                        statement_cache_size=self.connection_config.get("statement_cache_size", 0)
+                        host=final_host, # <--- 使用最终确认的主机名
+                        port=final_port,
+                        user=final_user,
+                        password=final_password, # 直接传递密码
+                        database=final_database,
+                        ssl=final_ssl, # 明确禁用 SSL (使用 False 而不是 None)
+                        timeout=final_timeout, # 连接超时
+                        command_timeout=final_command_timeout, # 命令超时
+                        min_size=final_min_size,
+                        max_size=final_max_size,
+                        max_cached_statement_lifetime=self.connection_config.get("max_cached_statement_lifetime", 0), # 保留原始获取方式
+                        max_queries=self.connection_config.get("max_queries", 50000), # 保留原始获取方式
+                        max_inactive_connection_lifetime=self.connection_config.get("max_inactive_connection_lifetime", 300), # 保留原始获取方式
+                        statement_cache_size=self.connection_config.get("statement_cache_size", 0) # 保留原始获取方式
                     )
                     logger.info(f"成功创建 PostgreSQL 连接池: {self.db_name}@{self.db_host}")
                 else:
