@@ -111,26 +111,27 @@ class DatabaseManager:
                         "?sslmode=disable" # <--- 移除 connect_timeout=10
                     )
 
-                    logger.debug(f"最终连接DSN: {final_dsn.split('@')[0]}@[host]:{port_to_use}/[dbname]")
+                    # 不再需要手动构建 DSN 字符串
+                    # logger.debug(f"最终连接DSN: {final_dsn.split('@')[0]}@[host]:{port_to_use}/[dbname]")
 
-                    # 简化 create_pool 调用，主要依赖 DSN，移除冲突或无效参数
-                    # 将连接超时(timeout)和命令超时(command_timeout)都设置为配置中的值
+                    # 使用关键字参数代替 DSN 调用 create_pool，避免 DSN 解析问题
                     connection_timeout = self.connection_config.get("timeout", 30)
+                    logger.debug(f"调用 create_pool 使用 host={host_to_use}, port={port_to_use}, user={self.db_user}, database={self.db_name}")
                     self.pool = await asyncpg.create_pool(
-                        dsn=final_dsn,
-                        timeout=connection_timeout, # <--- 添加连接超时参数
-                        # family, host, port 通常由 DSN 提供，移除以避免冲突
-                        # loop 参数通常不需要显式传递
-                        # reconnect 相关参数可能已弃用或内置处理
-                        # 保留必要的连接池和超时配置
-                        min_size=self.connection_config.get("min_size", 1), # 从配置读取或使用默认值
-                        max_size=self.connection_config.get("max_size", 5), # 从配置读取或使用默认值
-                        command_timeout=self.connection_config.get("timeout", 30),
+                        host=host_to_use,
+                        port=port_to_use,
+                        user=self.db_user,
+                        password=self.db_password, # 直接传递密码
+                        database=self.db_name,
+                        ssl=None, # 明确禁用 SSL (如果需要，可以从配置读取)
+                        timeout=connection_timeout, # 连接超时
+                        command_timeout=self.connection_config.get("timeout", 30), # 命令超时
+                        min_size=self.connection_config.get("min_size", 1),
+                        max_size=self.connection_config.get("max_size", 5),
                         max_cached_statement_lifetime=self.connection_config.get("max_cached_statement_lifetime", 0),
                         max_queries=self.connection_config.get("max_queries", 50000),
                         max_inactive_connection_lifetime=self.connection_config.get("max_inactive_connection_lifetime", 300),
                         statement_cache_size=self.connection_config.get("statement_cache_size", 0)
-                        # 如果需要强制 IPv4，通常在系统级别或 DSN 中处理，而不是直接参数
                     )
                     logger.info(f"成功创建 PostgreSQL 连接池: {self.db_name}@{self.db_host}")
                 else:
