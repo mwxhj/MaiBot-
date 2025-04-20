@@ -205,7 +205,7 @@ class ResponseComposer(BaseProcessor):
             格式化后的回复文本
         """
         # 构建提示词
-        prompt = self._build_prompt(context, thought)
+        prompt = await self._build_prompt(context, thought)
         # **新增：记录发送给 LLM (chat 任务) 的完整提示词**
         logger.debug(f"构建的回复生成提示词 (发送给 LLM):\n--- PROMPT START ---\n{prompt}\n--- PROMPT END ---")
 
@@ -234,7 +234,7 @@ class ResponseComposer(BaseProcessor):
         # 否则，直接基于思考结果格式化回复
         return self._format_thought_as_response(thought)
 
-    def _build_prompt(self, context: MessageContext, thought: str) -> str:
+    async def _build_prompt(self, context: MessageContext, thought: str) -> str:
         """
         构建用于生成回复的提示词，适配新的 current_mind_info JSON 输入和 v12_style_guide。
         
@@ -257,40 +257,46 @@ class ResponseComposer(BaseProcessor):
         if "错误：" in v12_style_guide:
              logger.error("未能从配置中获取 v12_style_guide！Prompt 将不完整。")
 
-        # 尝试获取关系信息 (异步调用，需要转同步)
+        # 尝试获取关系信息 (现在使用 await)
         relation_prompt_all = ""
         if hasattr(self, "_format_relationship"):
             try:
-                import asyncio
-                # 使用事件循环执行异步调用
-                loop = asyncio.get_event_loop() if asyncio.get_event_loop().is_running() else asyncio.new_event_loop()
-                relation_prompt_all = loop.run_until_complete(self._format_relationship(context))
+                # 直接 await 调用异步方法
+                relation_prompt_all = await self._format_relationship(context)
                 logger.debug(f"为响应生成获取到关系信息: {relation_prompt_all}")
             except Exception as e:
-                logger.error(f"获取关系信息失败: {e}", exc_info=True)
+                logger.error(f"异步获取关系信息失败: {e}", exc_info=True)
                 relation_prompt_all = "关系信息获取失败"
 
         # 获取当前情绪状态
         mood_prompt = self._format_emotion(context)
         
+        # 获取对话目标 (处理缺失情况)
+        chat_target = context.get_state("chat_target", "无特定目标") # 从 state 获取，提供默认值
+
         try:
             # 使用初始化时加载好的模板，避免运行时重新获取
             if not self.response_prompt_template or "错误：" in self.response_prompt_template:
                  logger.error("ResponseComposer response_prompt 模板无效或未加载，无法构建 Prompt。")
                  return "错误：ResponseComposer response_prompt 模板无效。"
 
-            prompt = self.response_prompt_template.format(
-                history=history,
-                user_identifier=context.message.get_meta("user_display_name") or str(context.user_id),
-                message_content=user_message_text,
-                current_mind_info=thought,  # 现在传入完整的 JSON 字符串
-                v12_style_guide=v12_style_guide,       # 对应 {v12_style_guide}
-                relation_prompt_all=relation_prompt_all, # 对应 {relation_prompt_all}
-                mood_prompt=mood_prompt,               # 对应 {mood_prompt}
-                character_name=self.character_name     # 对应 {character_name}
-            )
+            prompt_params = {
+                "history": history,
+                "user_identifier": context.message.get_meta("user_display_name") or str(context.user_id),
+                "message_content": user_message_text,
+                "current_mind_info": thought,  # 现在传入完整的 JSON 字符串
+                "v12_style_guide": v12_style_guide,       # 对应 {v12_style_guide}
+                "relation_prompt_all": relation_prompt_all, # 对应 {relation_prompt_all}
+                "mood_prompt": mood_prompt,               # 对应 {mood_prompt}
+                "character_name": self.character_name,     # 对应 {character_name}
+                "chat_target": chat_target                # 对应 {chat_target}, Add chat_target
+            }
+
+            prompt = self.response_prompt_template.format(**prompt_params) # 使用 ** 解包
+
         except KeyError as e:
-             logger.error(f"构建 ResponseComposer response_prompt 时缺少占位符: {e}。模板: {self.response_prompt_template}")
+             # 现在 chat_target 已包含，检查是否有其他缺失
+             logger.error(f"构建 ResponseComposer response_prompt 时缺少占位符: {e}。参数: {prompt_params.keys()} 模板: {self.response_prompt_template}")
              prompt = f"错误：构建 Prompt 失败，缺少占位符 {e}。"
         except Exception as e:
              logger.error(f"构建 ResponseComposer response_prompt 时发生未知错误: {e}", exc_info=True)

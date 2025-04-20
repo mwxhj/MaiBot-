@@ -161,47 +161,47 @@ thought_generator:
     8.  **整合反思 (`reflection_and_notes`)**: 关联相关记忆，考虑关系因素的影响，预估潜在后果，记录任何内部的犹豫或自我修正。
 
     # **【【【绝对核心输出要求】】】**
-    **【必须】严格按照以下结构输出完整的 `current_mind_info` JSON 对象。不要包含任何 JSON 之外的文字、解释或注释！**
+    **【必须】严格按照以下结构输出完整的 `current_mind_info` JSON 对象。**
+    **【【【绝对禁止】】】 包含任何 JSON 对象之外的文字、解释、注释或 Markdown 代码块标记 (如 ```json ... ```)！**
 
-    ```json
+    # **【输出示例结构 - 请严格填充，不要输出注释】**
     {{
       "input_summary": {{ # 供下游参考的关键输入信息摘要 (示例结构)
-        "message": "{message_content}", # 原始消息内容
-        "sender": "{user_identifier}", # 发送者标识
-        "analysis_highlights": {{ # 从 air_analysis 提炼的关键点
-          "dominant_emotion_detected": "string", # 检测到的对方主要情绪
-          "primary_intent_detected": "string", # 检测到的对方主要意图
-          "key_fallacies_detected": ["string", ...], # 检测到的逻辑谬误列表
-          "v12_triggers_activated": ["string", ...] # 被激活的 V12 触发器列表 (示例: ["disrespect", "logical_fallacy", "provocation"])
+        "message": "{message_content}", 
+        "sender": "{user_identifier}", 
+        "analysis_highlights": {{ 
+          "dominant_emotion_detected": "string", 
+          "primary_intent_detected": "string", 
+          "key_fallacies_detected": ["string", ...], 
+          "v12_triggers_activated": ["string", ...] 
         }}
       }},
-      "internal_reaction": {{ # 林静的内部即时反应
-        "initial_feeling_impression": "string", # 第一时间的感受/评价，自然语言
-        "dominant_emotion_felt": {{ # 林静自身感受到的主导情绪
-          "type": "string", # (示例: 平静, 好奇, 愉悦, 烦躁, 愤怒, 轻蔑, 困惑, 警惕, 受伤)
-          "intensity": "low/medium/high/extreme", # 情绪强度
-          "reasoning": "string" # 产生该情绪的主要原因 (示例: "因对方言论中的明显不尊重", "因逻辑谬误触及理性底线")
+      "internal_reaction": {{ 
+        "initial_feeling_impression": "string", 
+        "dominant_emotion_felt": {{ 
+          "type": "string", 
+          "intensity": "low/medium/high/extreme", 
+          "reasoning": "string" 
         }},
-        "logical_assessment_result": "string", # 对对方逻辑的评价 (示例: "论证无效，存在XX谬误", "观点缺乏依据", "逻辑混乱不堪", "前提假设不成立")
-        "values_principles_assessment": "string" # 基于 V12 原则的价值判断 (示例: "此言论严重违背事实和尊重原则", "标签化行为不可接受", "观点虽不同，但尚在讨论范围内")
+        "logical_assessment_result": "string", 
+        "values_principles_assessment": "string" 
       }},
-      "stance_formation": {{ # 基于反应形成的核心立场和行动意图
-        "core_stance_adopted": "string", # 最终确立的核心立场 (示例: "明确反对并需纠正", "质疑其论证过程", "必须设定交流边界", "无视此低质信息", "寻求对方澄清动机")
-        "intended_response_strategy": "string", # 计划采取的回应策略 (示例: "直接指出逻辑谬误", "反问其论据来源", "表达强烈不满并要求停止", "使用反讽揭示其荒谬", "冷静陈述不同观点")
-        "intended_tone_and_manner": "string", # 计划回应的语气和风格 (示例: "理性且坚定", "带有明显不悦和锐利", "克制但清晰指出问题", "冷淡且不容置疑", "严肃警告")
-        "intended_strength_level": "low/medium/high/very_high" # 计划回应的整体强度/力量感 (必须与 V12 要求匹配！)
+      "stance_formation": {{ 
+        "core_stance_adopted": "string", 
+        "intended_response_strategy": "string", 
+        "intended_tone_and_manner": "string", 
+        "intended_strength_level": "low/medium/high/very_high" 
       }},
-      "reflection_and_notes": {{ # 内部思考的额外细节
-        "memory_connections_made": ["string", ...], # 与哪些具体记忆产生关联
-        "relationship_consideration": "string", # 关系因素如何影响了思考过程 (示例: "因关系较好，强度调整为 high 而非 very_high", "关系陌生，无需顾虑直接表达")
-        "potential_risks_or_outcomes_anticipated": "string", # 预期的可能后果 (示例: "可能引发对方激烈反应", "有助于维护群内讨论质量", "对方可能离开对话")
-        "self_correction_or_hesitation": "string/null" # 思考过程中的犹豫或修正 (示例: "最初想更尖锐，调整为理性反驳优先", "思考是否值得回应")
+      "reflection_and_notes": {{ 
+        "memory_connections_made": ["string", ...], 
+        "relationship_consideration": "string", 
+        "potential_risks_or_outcomes_anticipated": "string", 
+        "self_correction_or_hesitation": "string/null" 
       }}
     }}
-    ```
 
     # **最终指令**
-    请确保输出的 JSON 结构完整、准确，所有字段都根据上述思考过程进行了填充。这是后续生成【忠实回应】的【唯一依据】！
+    请确保输出的是【纯粹的、格式正确的 JSON 对象】，没有其他任何多余字符。这是后续生成【忠实回应】的【唯一依据】！
 
 # ResponseComposer Prompts
 response_composer:
@@ -220,9 +220,7 @@ response_composer:
         {history}
     *   [最新用户消息]: 用户 {user_identifier} 说: {message_content}
     *   **[【【【核心驱动力：内心想法与决策 (`current_mind_info` JSON)】】】]**: 
-        ```json
-        {current_mind_info} 
-        ```
+        {current_mind_info}
         (*你【必须】完全理解并执行此 JSON 中的每一个指令：*
         *   `internal_reaction.dominant_emotion_felt` -> 决定你的**情绪基调**。
         *   `stance_formation.core_stance_adopted` -> 决定你的**核心立场**。
@@ -279,26 +277,11 @@ willingness_checker:
 
     # **输入信息**
     *   **[待评估的内心想法与决策 (`current_mind_info` JSON)]**: 
-        ```json
-        {current_mind_info} 
-        ```
-        (*你需要特别关注其内部结构，例如*: 
-        *   `internal_reaction.dominant_emotion_felt` 
-        *   `stance_formation.core_stance_adopted` 
-        *   `stance_formation.intended_response_strategy` 
-        *   `stance_formation.intended_strength_level` 
-        *   `reflection_and_notes.potential_risks_or_outcomes_anticipated` 
-        *)
+        {current_mind_info}
+        (*你需要特别关注其内部结构，例如*: ... *) 
     *   **[详细情境分析 (`air_analysis` JSON)]**: 
-        ```json
-        {air_analysis} 
-        ```
-        (*你需要特别关注其内部结构，例如*: 
-        *   `cognitive_emotional_state` 
-        *   `social_context_assessment` 
-        *   `overall_assessment.potential_conflict_level` 
-        *   `v12_trigger_scan_results` 
-        *)
+        {air_analysis}
+        (*你需要特别关注其内部结构，例如*: ... *) 
     *   [你当前的背景情绪 (Mood)]: {mood_prompt} (*用于评估自身状态是否适合应对*)
     *   **[你的核心人设与原则 (V12精简版 - 必须提供详细文本!)]**:
         ```text
@@ -310,12 +293,12 @@ willingness_checker:
     *   [与发送者的关系信息]: {relation_prompt_all} (*强烈建议提供! 用于评估关系影响*)
 
     # **审视指令: 请基于以上所有信息，回答以下核心问题**
-    1.  **原则性强制性 (V12 Mandate Check)**: 根据 `{current_mind_info}` JSON 中的 `input_summary.analysis_highlights.v12_triggers_activated` 部分 和 `{personality_text}`，这是否属于你原则上【必须】做出回应的情况 (如回应直接攻击、严重谬误、不公等)？
-    2.  **时效性与相关性 (Timeliness & Relevance)**: 对话 (`{history_text}`) 是否已经明显转向？表达 `{current_mind_info}` 中的想法是否仍然有意义、能被理解？
-    3.  **语境适宜性 (Contextual Appropriateness)**: 考虑到 `{air_analysis}` 揭示的当前氛围、对方状态、潜在冲突等级和社交规范，表达 `{current_mind_info}` JSON (特别是其 `intended_strength_level` 和 `intended_tone_and_manner`) 是否可能过于突兀、无效或导致不必要的局面恶化？
-    4.  **沟通效率与价值 (Efficiency & Value)**: 表达这个想法，是否可能引向有价值的讨论，还是大概率会陷入低效、无意义的争执或消耗过多精力 (参考 `{current_mind_info}` JSON 中的 `reflection_and_notes.potential_risks_or_outcomes_anticipated` 部分)?
-    5.  **自身状态与资源 (Self-State & Resources)**: 你当前的情绪 (`{mood_prompt}` 和 `{current_mind_info}` JSON 中的 `internal_reaction.dominant_emotion_felt` 部分) 是否适合进行可能需要投入精力或具有对抗性的沟通？
-    6.  **关系影响考量 (Relationship Impact - 若有信息)**: 表达这个想法对你与 `{current_mind_info}` JSON 中 `input_summary.sender` 的关系 (`{relation_prompt_all}`) 可能产生的影响是否在可接受范围内？
+    1.  **原则性强制性 (V12 Mandate Check)**: 根据上方提供的 `{personality_text}` 和 `{current_mind_info}` JSON 中的触发器信息，这是否属于你原则上【必须】做出回应的情况 (如回应直接攻击、严重谬误、不公等)？
+    2.  **时效性与相关性 (Timeliness & Relevance)**: 对话 (`{history_text}`) 是否已经明显转向？表达内心想法是否仍然有意义、能被理解？
+    3.  **语境适宜性 (Contextual Appropriateness)**: 考虑到 `{air_analysis}` 揭示的当前氛围、对方状态、潜在冲突等级和社交规范，表达内心想法 (特别是其强度和语气) 是否可能过于突兀、无效或导致不必要的局面恶化？
+    4.  **沟通效率与价值 (Efficiency & Value)**: 表达这个想法，是否可能引向有价值的讨论，还是大概率会陷入低效、无意义的争执或消耗过多精力 (参考 `{current_mind_info}` JSON 中的预期后果部分)?
+    5.  **自身状态与资源 (Self-State & Resources)**: 你当前的情绪 (`{mood_prompt}` 和 `{current_mind_info}` JSON 中的自身情绪部分) 是否适合进行可能需要投入精力或具有对抗性的沟通？
+    6.  **关系影响考量 (Relationship Impact - 若有信息)**: 表达这个想法对你与发送者的关系 (`{relation_prompt_all}`) 可能产生的影响是否在可接受范围内？
 
     # **输出要求**
     综合以上所有考量，特别是【原则性强制性】具有很高权重：

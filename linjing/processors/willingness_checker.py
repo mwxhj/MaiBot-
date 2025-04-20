@@ -293,10 +293,18 @@ class WillingnessChecker(BaseProcessor):
             return "关系信息：未知（记忆系统未就绪）"
         
         try:
-            user_id = context.get_user_id()
+            # 尝试使用 context.user_id 而不是 context.sender_id
+            user_id = context.user_id
             if not user_id:
-                return "用户ID未知，无法获取关系信息"
+                # 如果 context.user_id 也没有，尝试回退到 message.sender.user_id
+                if hasattr(context, 'message') and hasattr(context.message, 'sender') and hasattr(context.message.sender, 'user_id'):
+                    user_id = context.message.sender.user_id
+                
+                if not user_id:
+                    logger.warning("无法从 context.user_id 或 context.message.sender.user_id 获取用户 ID。")
+                    return "用户ID未知，无法获取关系信息"
             
+            logger.debug(f"尝试为用户 {user_id} 获取关系摘要。") # 添加日志确认 user_id
             # 从记忆管理器获取关系摘要
             relation_summary = await self.memory_manager.get_relationship_summary(user_id)
             if not relation_summary:
@@ -327,10 +335,10 @@ class WillingnessChecker(BaseProcessor):
                     relation_prompt += f"  * {date}: {desc}\n"
             
             # 添加记忆标签
-            memory_tags = relation_summary.get("记忆标签", [])
-            if memory_tags:
-                tags_str = ", ".join(memory_tags[:5])  # 最多显示5个标签
-                relation_prompt += f"- 记忆标签: {tags_str}\n"
+            # memory_tags = relation_summary.get("记忆标签", [])
+            # if memory_tags:
+            #     tags_str = ", ".join(memory_tags[:5])  # 最多显示5个标签
+            #     relation_prompt += f"- 记忆标签: {tags_str}\n"
             
             return relation_prompt
         except Exception as e:
