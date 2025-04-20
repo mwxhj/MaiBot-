@@ -137,6 +137,7 @@ class ResponseComposer(BaseProcessor):
         Returns:
             更新后的消息上下文，包含生成的回复
         """
+        print("!!! DEBUG PRINT: ResponseComposer process ENTERED !!!", flush=True) # 添加 print 标记
         logger.info("--- ResponseComposer process method entered ---") # 入口标记
         logger.info("开始生成回复消息")
         
@@ -202,6 +203,7 @@ class ResponseComposer(BaseProcessor):
             logger.error(f"生成回复时出错 (Outer Try Block): {e}", exc_info=True)
             context.set_state("reply_generation_error", True) # 设置错误标志
 
+        print("!!! DEBUG PRINT: ResponseComposer process FINISHING !!!", flush=True) # 添加 print 标记
         logger.info("--- ResponseComposer process method finishing ---") # 出口标记
         return context
 
