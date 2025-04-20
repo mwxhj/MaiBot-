@@ -912,13 +912,19 @@ class LinjingBot:
         
         # 目前简单处理：只处理组内最后一条消息
         last_message = messages[-1]
+        last_context = contexts[-1] # 获取对应的上下文
         
         # 添加日志，标记这是从合并消息组中选取的
         logger.info(f"从合并消息组中选择最后一条消息进行处理: {last_message}")
         
         # 处理选中的消息
         try:
-            await processor(last_message)
+            # 确保 processor 是有效的 callable
+            if callable(processor):
+                 # 使用关键字参数调用处理器
+                 await processor(message=last_message) 
+            else:
+                 logger.error(f"传递给 _process_message_batch 的处理器无效 (类型: {type(processor)})，无法处理消息组")
         except Exception as e:
             logger.error(f"处理合并消息中的选定消息时出错: {e}", exc_info=True)
     

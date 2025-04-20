@@ -781,14 +781,14 @@ class RequestQueueManager:
         
         # 创建兼容的处理函数包装器
         async def processor_wrapper(data):
-            msg, ctx = data['message'], data['context']
-            return await processor(msg, ctx)
+            # Unpack the tuple stored in data
+            message, context, original_processor = data
+            # Call the original processor (e.g., _process_single_message) with only the message
+            # Using keyword argument for clarity
+            return await original_processor(message=message)
         
         # 构建数据对象
-        data = {
-            'message': message,
-            'context': context
-        }
+        data = (message, context, processor)
         
         # 生成任务ID
         self.task_id_counter += 1

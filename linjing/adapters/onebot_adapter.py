@@ -299,162 +299,112 @@ class OneBotAdapter(Bot):
              self.connected = False # 确保状态更新
 
     async def _handle_event(self, event: Dict[str, Any]):
-        """处理OneBot事件"""
-        event_type = event.get("post_type")
-        if not event_type:
-            logger.warning(f"收到缺少 'post_type' 的事件: {event}")
+        """处理接收到的事件"""
+        logger.debug(f"收到原始消息: {event}") # 打印原始事件数据
+
+        # --- 添加过滤逻辑 ---
+        post_type = event.get("post_type")
+        if post_type == "meta_event":
+            # 特别处理心跳事件以获取 self_id
+            if event.get("meta_event_type") == "heartbeat" and not self.self_id:
+                 status = event.get("status")
+                 if status and status.get("online") and status.get("good"):
+                     # OneBot 标准心跳包通常不包含 self_id，但有些实现（如 go-cqhttp HTTP）可能在 status 里有
+                     # 尝试从 /get_login_info 获取 self_id
+                     try:
+                         login_info = await self.call_api("get_login_info")
+                         fetched_self_id = str(login_info.get("user_id"))
+                         if fetched_self_id:
+                             if not self.self_id:
+                                 self.self_id = fetched_self_id
+                                 logger.info(f"通过 get_login_info 获取到 self_id: {self.self_id}")
+                                 # 验证 self_id
+                                 await self._verify_self_id(self.self_id)
+                                 # 发送适配器连接成功事件
+                                 from linjing.constants import EventType # 局部导入避免循环依赖
+                                 self.event_bus.publish(EventType.ADAPTER_CONNECTED, {
+                                     "adapter_name": self.platform,
+                                     "adapter": self, # 传递适配器实例
+                                     "self_id": self.self_id
+                                 })
+                             elif self.self_id != fetched_self_id:
+                                 logger.warning(f"get_login_info 返回的 ID ({fetched_self_id}) 与当前 ID ({self.self_id}) 不符。")
+                         else:
+                             logger.warning("get_login_info 未返回有效的 user_id")
+                     except Exception as e:
+                         logger.warning(f"尝试从 get_login_info 获取 self_id 失败: {e}")
+
+            # 对于所有 meta_event (包括心跳)，记录后直接返回，不进入后续处理
+            meta_event_type = event.get("meta_event_type")
+            logger.debug(f"忽略元事件 ({meta_event_type})，不处理。")
             return
+        # --- 过滤逻辑结束 ---
 
-        # 检查事件中是否包含self_id，更新适配器的self_id
-        if "self_id" in event and event["self_id"]:
-            old_id = self.self_id
-            new_id = str(event["self_id"])
-            
-            # 验证self_id
-            if self.expected_self_id and self.verify_self_id and new_id != self.expected_self_id:
-                logger.warning(f"收到意外的self_id: {new_id}，预期: {self.expected_self_id}，此事件将被忽略")
-                return
-            
-            self.self_id = new_id
-            if old_id and old_id != self.self_id:
-                logger.debug(f"收到不同的self_id: {self.self_id}，原来: {old_id}")
-            elif not old_id:
-                logger.info(f"从事件获取到self_id: {self.self_id}")
-                # 发布适配器连接事件，确保在获取到self_id后通知LinjingBot
-                await self.event_bus.publish(
-                    "adapter_connected", 
-                    {"adapter_name": "onebot", "adapter": self}
-                )
-        
-        # 检查消息是否由机器人自己发送
-        if event_type == "message" and str(event.get("user_id", "")) == self.self_id:
-            logger.debug(f"跳过机器人自己发送的消息，self_id: {self.self_id}, user_id: {event.get('user_id')}")
-            return
-
-        # 只对消息事件打印详细的 INFO 日志
-        # === 移除之前错误添加的顶层 try ===
-        if event_type == "message":
-            logger.debug("进入 message 事件处理分支") # 确认进入分支
-            # 提取发送者信息
-            user_id = event.get('user_id', '未知') # 修正缩进
-            nickname = event.get('sender', {}).get('nickname', '未知') # 修正缩进
-
-            # 格式化消息内容以供日志记录 (添加 try-except)
-            message_content_str = "" # 修正缩进
-            try: # 修正缩进
-                if 'message' in event and isinstance(event['message'], list):
-                    logger.debug("开始格式化消息段列表")
-                    segments_str = []
-                    for i, seg in enumerate(event['message']):
-                        logger.debug(f"处理段 {i}: {seg}")
-                        seg_type = seg.get('type')
-                        seg_data = seg.get('data', {})
-                        if seg_type == 'text':
-                            segments_str.append(seg_data.get('text', ''))
-                        elif seg_type == 'image':
-                            file = seg_data.get('file', '未知图片')
-                            url = seg_data.get('url', '') # 尝试获取 URL
-                            display_name = file if file != '未知图片' else url
-                            segments_str.append(f"[图片: {display_name}]")
-                        elif seg_type == 'at':
-                            qq = seg_data.get('qq', '未知用户')
-                            segments_str.append(f"[@{qq}]")
-                        elif seg_type == 'reply':
-                            msg_id = seg_data.get('id', '未知消息')
-                            segments_str.append(f"[回复: {msg_id}]")
-                        elif seg_type == 'face':
-                            face_id = seg_data.get('id', '?')
-                            segments_str.append(f"[表情: {face_id}]")
-                        elif seg_type == 'record':
-                             segments_str.append(f"[语音]") # 简单表示
-                        elif seg_type == 'video':
-                             segments_str.append(f"[视频]") # 简单表示
-                        # 可以根据需要添加更多类型的格式化
-                        else:
-                            # 对于其他未显式处理的类型，打印类型和数据摘要
-                            data_summary = str(seg_data)[:30] + ('...' if len(str(seg_data)) > 30 else '')
-                            segments_str.append(f"[{seg_type}: {data_summary}]")
-                    message_content_str = "".join(segments_str)
-                    logger.debug(f"格式化后的消息字符串: {message_content_str}")
-                else:
-                    logger.debug("消息内容不是列表，回退到 raw_message")
-                    # 如果没有 message 列表，回退到 raw_message
-                    message_content_str = event.get('raw_message', '无消息内容')
-            except Exception as e_format: # 修正缩进
-                 logger.error(f"格式化消息内容时出错: {e_format}", exc_info=True)
-                 message_content_str = event.get('raw_message', '[格式化失败]') # 发生错误时提供明确提示
-
-            # 添加群号信息（如果存在）
-            group_id = event.get('group_id') # 修正缩进
-            log_prefix = f"[群聊：{group_id}]" if group_id else "" # 修正缩进
-
-            logger.debug("准备记录 INFO 日志") # 修正缩进
-            # 使用 INFO 级别记录格式化后的消息日志
-            logger.info(f"{log_prefix}[QQ号：{user_id}][QQ名称：{nickname}]：发送了 {message_content_str}") # 修正缩进
-        else: # 修正缩进，与 if 对齐
-             # 对于非消息事件，可以记录一个简单的 DEBUG 日志（可选）
-             logger.debug(f"处理事件: {event_type} - {event.get('sub_type', '')}") # 修正缩进
+        # --- 验证 self_id (如果尚未获取) ---
+        event_self_id = event.get("self_id")
+        if event_self_id:
+            event_self_id_str = str(event_self_id)
+            if not self.self_id:
+                 self.self_id = event_self_id_str
+                 logger.info(f"从事件中获取到 self_id: {self.self_id}")
+                 await self._verify_self_id(self.self_id)
+                 # 发送适配器连接成功事件
+                 from linjing.constants import EventType # 局部导入避免循环依赖
+                 self.event_bus.publish(EventType.ADAPTER_CONNECTED, {
+                     "adapter_name": self.platform,
+                     "adapter": self, # 传递适配器实例
+                     "self_id": self.self_id
+                 })
+            elif self.self_id != event_self_id_str:
+                 logger.warning(f"事件中的 self_id ({event_self_id_str}) 与已知的 self_id ({self.self_id}) 不符！")
+                 # 如果启用了严格验证，可能需要断开连接或报警
+                 if self.verify_self_id and self.expected_self_id and self.expected_self_id != event_self_id_str:
+                     logger.error(f"接收到来自非预期机器人 ({event_self_id_str}) 的事件，预期为 {self.expected_self_id}，连接可能存在问题！")
+                     # 可以考虑在这里添加断开连接的逻辑 await self.disconnect()
 
 
-        # 转换消息格式 (修正缩进)
-        # 注意：这里需要处理原始的 event['message']，而不是转换后的 Message 对象
-        original_message_list = event.get("message") # 先保存原始列表
-        if "message" in event and isinstance(original_message_list, list):
+        # --- 消息转换 ---
+        # 仅处理 post_type 为 'message' 的事件
+        if post_type == 'message':
             try:
-                # 注意：这里修改了原始 event 字典中的 'message' 键
-                event["message"] = Message.from_onebot_event(event)
-                logger.debug(f"消息转换后的事件对象: {event['message']}") # 记录转换后的对象
-            except Exception as e:
-                logger.error(f"消息转换失败: {e}", exc_info=True)
-                # 即使转换失败，也可能需要处理事件本身（例如通知事件）
-                # 如果转换失败，将 message 恢复为原始列表，以便后续处理（如果需要）
-                event["message"] = original_message_list
-                # return # 决定是否在转换失败时中止
+                # 使用 MessageConverter 进行转换
+                message_obj = MessageConverter.from_onebot_event(event)
+                logger.debug(f"消息转换后的事件对象: {message_obj}")
 
-        # 调用通过 bot.on() 注册的事件处理器 (位于 adapter_utils.py 的 Bot 基类中) (修正缩进)
-        # 传递完整的 event 字典
-        await self.handle_event(event_type, event)
-
-        # 如果是消息事件并且已注册主消息处理器，则调用它 (修正缩进)
-        # 注意：我们传递转换后的 Message 对象给 LinjingBot.handle_message
-        if event_type == "message" and self._message_handler and isinstance(event.get("message"), Message): # 使用内部变量名
-            try:
-                logger.debug(f"调用主消息处理函数: {self._message_handler.__name__}")
-                # LinjingBot.handle_message 期望接收转换后的 Message 对象
-                # **修改：接收 handle_message 的返回值**
-                reply_message = await self._message_handler(event["message"]) # 使用内部变量名
-
-                # **新增：检查是否有回复需要发送**
-                if reply_message:
-                    logger.debug(f"主处理函数返回了回复，准备发送: {reply_message}")
-                    # 从原始 event 中获取发送目标
-                    target_id = None
-                    message_type = event.get("message_type")
-                    if message_type == "private":
-                        target_id = event.get("user_id")
-                    elif message_type == "group":
-                        target_id = event.get("group_id")
-                    
-                    if target_id:
-                        try:
-                            # **修改：调用适配器的 send 方法发送消息，并传递 message_type**
-                            await self.send(str(target_id), reply_message, message_type)
-                            logger.info(f"已向 {message_type} {target_id} 发送回复")
-                        except Exception as send_e:
-                            logger.error(f"发送回复到 {message_type} {target_id} 时出错: {send_e}", exc_info=True)
+                # 如果转换成功且存在主消息处理函数
+                if message_obj and self._message_handler:
+                    logger.debug(f"调用主消息处理函数: {self._message_handler.__name__}")
+                    reply = await self._message_handler(message_obj)
+                    if reply:
+                        # 如果主处理函数返回了回复，则发送回复
+                        logger.debug(f"主处理函数返回回复: {reply}")
+                        # 确定回复目标和消息类型
+                        target_id = message_obj.group_id if message_obj.message_type == 'group' else message_obj.user_id
+                        await self.send(target_id, reply, message_obj.message_type)
                     else:
-                        logger.warning(f"无法确定回复目标，原始事件: {event}")
-                else:
-                    logger.debug("主处理函数未返回回复消息")
+                        logger.debug("主处理函数未返回回复消息")
+                elif not self._message_handler:
+                    logger.warning("收到消息但未注册主消息处理函数")
 
             except Exception as e:
-                # 恢复原始的异常处理和日志记录
-                logger.error(f"调用主消息处理函数时出错: {e}", exc_info=True) # 重新启用 exc_info=True
-        elif event_type == "message" and not self._message_handler: # 使用内部变量名 (修正缩进)
-             logger.warning("收到消息事件，但没有注册主消息处理函数")
-    
-        # 移除了外层的 try...except KeyError 和 try...except Exception
+                logger.error(f"处理消息事件时出错: {e}", exc_info=True)
+        elif post_type == 'notice':
+            # 处理通知事件 (如果需要)
+            logger.debug(f"收到通知事件: {event.get('notice_type')}")
+            # 在这里可以添加对特定通知事件的处理逻辑，例如群成员增加/减少等
+            # 可以通过 self.event_bus.publish 发布更具体的事件类型
+            pass
+        else:
+            logger.warning(f"收到未知 post_type 的事件: {post_type}")
 
+    async def _verify_self_id(self, current_self_id: str):
+        """验证获取到的 self_id 是否符合预期"""
+        if self.verify_self_id and self.expected_self_id:
+             if current_self_id != self.expected_self_id:
+                 logger.error(f"机器人 self_id ({current_self_id}) 与预期 ({self.expected_self_id}) 不符！请检查配置或连接。")
+                 # 可以考虑抛出异常或触发报警
+             else:
+                 logger.info(f"机器人 self_id ({current_self_id}) 验证通过。")
 
     # **修改：添加 message_type 参数**
     async def send(self, target: str, message: Union[str, Message, MessageSegment], message_type: str) -> str:
