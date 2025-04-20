@@ -49,8 +49,8 @@ class ResponseComposer(BaseProcessor):
         self.personality = None # 预期由 LinjingBot 设置 (当前未实现)
 
         # --- 从处理器配置 (self.config) 加载参数 ---
-        # 加载 Prompt 模板
-        prompts_config = self.config.get("prompts", {}).get(self.name, {}) # 使用 self.name 获取对应配置
+        # 加载 Prompt 模板 (prompts 已被注入到 self.config['prompts'])
+        prompts_config = self.config.get("prompts", {}) # 直接获取 prompts 字典
         self.response_prompt_template = prompts_config.get("response_prompt", "")
         self.fallback_prompt_template = prompts_config.get("fallback_prompt", "")
 
@@ -155,11 +155,12 @@ class ResponseComposer(BaseProcessor):
             
         except Exception as e:
             logger.error(f"生成回复时出错: {e}", exc_info=True)
-            # 发生错误时，也使用 create_response 设置错误回复
-            error_reply_message = Message(MessageSegment.text(self._generate_error_response()))
-            context.create_response(error_reply_message)
-            # 同时保留错误状态
-            context.set_state("reply", error_reply_message)
+            # 移除默认错误回复逻辑，只记录错误
+            # error_reply_message = Message(MessageSegment.text(self._generate_error_response()))
+            # context.create_response(error_reply_message)
+            # context.set_state("reply", error_reply_message)
+            # 可以在这里设置一个错误标志，或者让 context.get_state("reply") 返回 None
+            context.set_state("reply_generation_error", True) # 添加一个错误标志
 
         return context
 
@@ -260,6 +261,57 @@ class ResponseComposer(BaseProcessor):
              prompt = "错误：构建 Prompt 时发生未知错误。"
 
         return prompt
+
+    # TODO: 考虑将此方法与 ThoughtGenerator/WillingnessChecker 中的版本统一到工具类
+    def _format_emotion(self, context: MessageContext) -> str:
+        """
+        从 MessageContext 中提取并格式化当前的情绪状态，用于 Prompt。
+        主要提取强度大于阈值的情绪维度。
+
+        Args:
+            context: 当前消息上下文。
+
+        Returns:
+            格式化后的情绪状态字符串，如果无明显情绪则返回 "情绪平静"。
+        """
+        # 从 context state 获取由 EmotionManager 设置的情绪字典
+        emotion_dict = context.get_state("emotion")
+        if not emotion_dict or not isinstance(emotion_dict, dict):
+            logger.debug("未在上下文中找到有效的情绪状态字典")
+            return "情绪平静" # 默认状态
+
+        logger.debug(f"格式化情绪状态字典: {emotion_dict}")
+        emotion_text = ""
+        # 从全局配置中获取情绪显著性阈值
+        # global_config 是在 LinjingBot._init_processors 中注入的
+        global_config = self.config.get("global_config", {})
+        significant_threshold = global_config.get("emotion", {}).get("vad_model", {}).get("significant_threshold", 0.3)
+        logger.debug(f"使用情绪显著性阈值: {significant_threshold}")
+
+        # 从字典中获取 VAD 维度值
+        # 注意：EmotionManager 现在存储的是 VAD 值，键名是 valence, arousal, dominance
+        valence = emotion_dict.get("valence", 0.5)
+        arousal = emotion_dict.get("arousal", 0.5)
+        dominance = emotion_dict.get("dominance", 0.5)
+        baseline_vad = global_config.get("emotion", {}).get("vad_model", {}).get("baseline_vad", [0.5, 0.3, 0.5])
+        if len(baseline_vad) != 3: baseline_vad = [0.5, 0.3, 0.5] # 确保基线有效
+
+        # 检查每个维度与基线的偏差是否超过阈值
+        significant_emotions = []
+        if abs(valence - baseline_vad[0]) > significant_threshold:
+            significant_emotions.append(f"Valence={valence:.2f}")
+        if abs(arousal - baseline_vad[1]) > significant_threshold:
+            significant_emotions.append(f"Arousal={arousal:.2f}")
+        if abs(dominance - baseline_vad[2]) > significant_threshold:
+            significant_emotions.append(f"Dominance={dominance:.2f}")
+
+        if significant_emotions:
+            emotion_text = ", ".join(significant_emotions)
+        else:
+             # 如果 emotion_dict 存在但没有 'dimensions' 或格式不对
+             logger.warning(f"情绪状态字典中缺少 'dimensions' 或格式无效: {emotion_dict}")
+
+        return emotion_text.strip(", ") or "情绪平静"
 
     # 使用与 ThoughtGenerator 和 WillingnessChecker 统一的格式化逻辑
     def _format_history(self, history_list: List[Message]) -> str: # <-- 修改参数为 history_list: List[Message]

@@ -21,14 +21,14 @@ logger = logging.getLogger(__name__)
 class DatabaseManager:
     """
     数据库管理器，提供异步SQL操作接口。
-    
+
     基于SQLite实现，支持异步操作，用于存储结构化数据。
     """
-    
+
     def __init__(self, config: Dict[str, Any] = None):
         """
         初始化数据库管理器。
-        
+
         Args:
             config: 数据库配置字典，包含连接参数
         """
@@ -56,7 +56,7 @@ class DatabaseManager:
                  logger.warning(f"数据库密码环境变量 {password_env_var} 未设置!")
         elif self.db_type == "sqlite":
              self.db_path = self.config.get("path", "data/linjing.db") # SQLite 路径
-             self._connection: Optional[aiosqlite.Connection] = None # SQLite 连接对象
+             self._connection: Optional['aiosqlite.Connection'] = None # SQLite 连接对象 (使用字符串避免导入)
              # 确保db_path目录存在
              os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
              logger.info(f"数据库管理器初始化 (SQLite)，数据库路径：{self.db_path}")
@@ -70,18 +70,18 @@ class DatabaseManager:
         # if self.db_type == "postgresql":
         #     logger.critical(f"!!! DB MANAGER INIT PARSED: host={self.db_host}, port={self.db_port}, user={self.db_user}, db={self.db_name}")
         # --- 移除结束 ---
-    
+
     async def connect(self) -> bool:
         """
         连接到数据库
-        
+
         Returns:
             是否连接成功
         """
         if self._initialized:
              logger.debug(f"数据库 ({self.db_type}) 已连接/初始化")
              return True
-             
+
         try:
             if self.db_type == "postgresql":
                 if self.pool is None:
@@ -149,7 +149,7 @@ class DatabaseManager:
                  if self._connection is None:
                      # 确保目录存在 (已在 __init__ 中处理)
                      # os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-                     
+
                      # 重新导入 aiosqlite，因为它只在这里使用
                      import aiosqlite
                      self._connection = await aiosqlite.connect(
@@ -158,19 +158,19 @@ class DatabaseManager:
                          isolation_level=self.connection_config.get("isolation_level")
                      )
                      self._connection.row_factory = self._dict_factory # 使用自定义的行工厂
-                     
+
                      # 应用 PRAGMA 设置
                      pragma_config = self.connection_config.get("pragma", {"foreign_keys": "ON"}) # 默认开启外键
                      for key, value in pragma_config.items():
                          await self._connection.execute(f"PRAGMA {key}={value}")
                      await self._connection.commit()
-                     
+
                      logger.info(f"成功连接到 SQLite 数据库: {self.db_path}")
                  else:
                       logger.debug("SQLite 连接已存在")
             else:
                 raise ValueError(f"不支持的数据库类型: {self.db_type}")
-                
+
             # 在调用可能触发递归的操作之前，先标记为已初始化
             self._initialized = True
 
@@ -185,7 +185,7 @@ class DatabaseManager:
                  await self._initialize_tables()
             # self._initialized = True # 已上移
             return True
-            
+
         except Exception as e:
             logger.error(f"连接数据库 ({self.db_type}) 失败: {e}", exc_info=True)
             # 清理可能部分创建的连接/池
@@ -197,7 +197,7 @@ class DatabaseManager:
                  self._connection = None
             self._initialized = False
             return False
-    
+
     async def disconnect(self) -> None:
         """
         断开数据库连接或关闭连接池
@@ -220,10 +220,10 @@ class DatabaseManager:
                     logger.info("SQLite 数据库连接已断开")
                 except Exception as e:
                     logger.error(f"断开 SQLite 连接失败: {e}", exc_info=True)
-        
+
         # 确保 _initialized 总是被重置
         self._initialized = False
-    
+
     # 注意：此方法对于 PostgreSQL 返回 List[asyncpg.Record]，对于 SQLite 返回 List[Dict]。
     # 调用者需要根据 db_type 处理不同的返回类型。
     async def execute_query(self, query: str, params: Tuple = ()) -> List[Union[asyncpg.Record, Dict[str, Any]]]:
@@ -256,7 +256,7 @@ class DatabaseManager:
                     prepared_query = query
                     for i in range(1, len(params) + 1):
                         prepared_query = prepared_query.replace("?", f"${i}", 1)
-                        
+
                     return await conn.fetch(prepared_query, *params)
             except Exception as e:
                 logger.error(f"执行 PostgreSQL 查询失败: {e}", exc_info=True)
@@ -283,7 +283,7 @@ class DatabaseManager:
                  return []
         else:
              raise ValueError(f"不支持的数据库类型: {self.db_type}")
-    
+
     # 注意：此方法对于 PostgreSQL 可能返回 RETURNING 子句的值或 None，
     # 对于 SQLite 返回 lastrowid (int) 或 -1。调用者需处理差异。
     async def execute_insert(self, query: str, params: Tuple = ()) -> Optional[Any]:
@@ -317,7 +317,7 @@ class DatabaseManager:
                     for i in range(1, param_count + 1):
                         # 确保只替换参数占位符，避免误伤 SQL 中的 '?'
                         prepared_query = prepared_query.replace("?", f"${i}", 1)
-                        
+
                     # 检查是否有 RETURNING 子句
                     if "RETURNING" in prepared_query.upper():
                          # 使用 fetchval 获取单个返回值 (例如 RETURNING id)
@@ -349,7 +349,7 @@ class DatabaseManager:
                  return -1 # SQLite 插入失败返回 -1
         else:
              raise ValueError(f"不支持的数据库类型: {self.db_type}")
-    
+
     # 注意：此方法对于 PostgreSQL 返回解析状态字符串得到的行数，可能为 0；
     # 对于 SQLite 返回 cursor.rowcount。失败时都返回 -1。
     async def execute_update(self, query: str, params: Tuple = ()) -> int:
@@ -380,7 +380,7 @@ class DatabaseManager:
                     param_count = len(params)
                     for i in range(1, param_count + 1):
                         prepared_query = prepared_query.replace("?", f"${i}", 1)
-                        
+
                     status = await conn.execute(prepared_query, *params)
                     # 从状态字符串解析影响的行数，例如 'UPDATE 1' 或 'DELETE 1'
                     try:
@@ -412,7 +412,7 @@ class DatabaseManager:
                  return -1 # 返回 -1 表示失败
         else:
              raise ValueError(f"不支持的数据库类型: {self.db_type}")
-    
+
     async def execute_transaction(self, queries: List[Tuple[str, Tuple]]) -> bool:
         """
         在单个事务中执行多个 SQL 语句。
@@ -475,20 +475,20 @@ class DatabaseManager:
                  return False
         else:
              raise ValueError(f"不支持的数据库类型: {self.db_type}")
-    
+
     async def table_exists(self, table_name: str) -> bool:
         """
         检查表是否存在
-        
+
         Args:
             table_name: 表名
-            
+
         Returns:
             表是否存在
         """
         if not self._initialized:
             await self.connect()
-            
+
         try:
             if self.db_type == "postgresql":
                 # PostgreSQL 查询 information_schema
@@ -513,7 +513,7 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"检查表 '{table_name}' 是否存在失败 ({self.db_type}): {e}", exc_info=True)
             return False
-    
+
     async def execute_script(self, script: str) -> bool:
         """
         执行包含多条语句的 SQL 脚本。
@@ -571,7 +571,7 @@ class DatabaseManager:
                  return False
         else:
              raise ValueError(f"不支持的数据库类型: {self.db_type}")
-    
+
     async def _initialize_tables(self) -> None:
         """
         初始化数据库表 (适配 PostgreSQL 和 SQLite)
@@ -600,7 +600,7 @@ class DatabaseManager:
             CREATE INDEX IF NOT EXISTS idx_memories_memory_type ON memories(memory_type);
             CREATE INDEX IF NOT EXISTS idx_memories_creation_time ON memories(creation_time);
             """
-            
+
             users_table = """
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
@@ -613,7 +613,7 @@ class DatabaseManager:
             );
             CREATE INDEX IF NOT EXISTS idx_users_platform_id ON users(platform, platform_id);
             """
-            
+
             sessions_table = """
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
@@ -624,7 +624,7 @@ class DatabaseManager:
             );
             CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
             """
-            
+
             # 添加 user_moods 表 (PostgreSQL)
             moods_table = """
             CREATE TABLE IF NOT EXISTS user_moods (
@@ -636,9 +636,9 @@ class DatabaseManager:
             -- 索引优化情绪查询
             CREATE INDEX IF NOT EXISTS idx_user_moods_user_id_timestamp ON user_moods(user_id, timestamp DESC);
             """
-            
+
             tables_script = memories_table + users_table + sessions_table + moods_table
-            
+
         elif self.db_type == "sqlite":
             # SQLite specific CREATE TABLE statements
             memories_table = """
@@ -659,7 +659,7 @@ class DatabaseManager:
             CREATE INDEX IF NOT EXISTS idx_memories_memory_type ON memories(memory_type);
             CREATE INDEX IF NOT EXISTS idx_memories_creation_time ON memories(creation_time);
             """
-            
+
             users_table = """
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
@@ -672,7 +672,7 @@ class DatabaseManager:
             );
             CREATE INDEX IF NOT EXISTS idx_users_platform_id ON users(platform, platform_id);
             """
-            
+
             sessions_table = """
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
@@ -684,7 +684,7 @@ class DatabaseManager:
             );
             CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
             """
-            
+
             # 添加 user_moods 表 (SQLite)
             moods_table = """
             CREATE TABLE IF NOT EXISTS user_moods (
@@ -696,7 +696,7 @@ class DatabaseManager:
             -- 索引优化情绪查询
             CREATE INDEX IF NOT EXISTS idx_user_moods_user_id_timestamp ON user_moods(user_id, timestamp DESC);
             """
-            
+
             tables_script = memories_table + users_table + sessions_table + moods_table
         else:
              raise ValueError(f"不支持的数据库类型: {self.db_type}")
@@ -709,18 +709,22 @@ class DatabaseManager:
              else:
                   logger.error(f"数据库表 ({self.db_type}) 初始化失败")
         else:
-             logger.warning("没有为数据库类型 {self.db_type} 定义初始化脚本")
-    
+             logger.warning(f"没有为数据库类型 {self.db_type} 定义初始化脚本") # 修正日志字符串格式
+
+        # --- 添加会话状态表初始化 ---
+        await self._create_session_state_tables()
+        # --- 添加结束 ---
+
     def _dict_factory(self, cursor, row):
         """
         将 SQLite 查询结果行 (元组) 转换为字典。
         注意：此方法仅用于 SQLite (aiosqlite)。
               asyncpg 返回的 Record 对象本身支持按列名访问 (record['column_name'])。
-        
+
         Args:
             cursor: aiosqlite 游标对象
             row: 结果行元组
-            
+
         Returns:
             字典形式的结果行
         """
@@ -729,7 +733,7 @@ class DatabaseManager:
              logger.warning("_dict_factory 被非 SQLite 连接调用，这通常是不必要的。")
              # 返回空字典或原始行，取决于调用者期望
              return {}
-             
+
         d = {}
         try:
             # cursor.description 包含列信息 (name, type_code, display_size, internal_size, precision, scale, null_ok)
@@ -754,5 +758,172 @@ class DatabaseManager:
              logger.error(f"SQLite _dict_factory 执行出错: {e}", exc_info=True)
              # 出错时返回部分转换结果或空字典
              return d
-             
+
         return d
+
+    # --- 会话状态相关方法 --- (确保与类内其他方法缩进一致)
+    async def _create_session_state_tables(self) -> None:
+        """创建用于存储会话状态的表 (适配 PostgreSQL 和 SQLite)"""
+        script = ""
+        if self.db_type == "postgresql":
+            script = """
+                CREATE TABLE IF NOT EXISTS session_states (
+                    session_id TEXT PRIMARY KEY,
+                    last_active_ts REAL DEFAULT 0.0,
+                    message_count INTEGER DEFAULT 0,
+                    is_high_alert BOOLEAN DEFAULT FALSE,
+                    high_alert_counter INTEGER DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_session_states_last_active ON session_states(last_active_ts);
+            """
+        elif self.db_type == "sqlite":
+            script = """
+                CREATE TABLE IF NOT EXISTS session_states (
+                    session_id TEXT PRIMARY KEY,
+                    last_active_ts REAL DEFAULT 0.0,
+                    message_count INTEGER DEFAULT 0,
+                    is_high_alert INTEGER DEFAULT 0, -- SQLite 使用 INTEGER 存储布尔值 (0 或 1)
+                    high_alert_counter INTEGER DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_session_states_last_active ON session_states(last_active_ts);
+            """
+        else:
+             logger.warning(f"未知的数据库类型 {self.db_type}，无法创建 session_states 表。")
+             return
+
+        if script:
+            success = await self.execute_script(script)
+            if success:
+                logger.info(f"会话状态表 (session_states) 初始化/验证完成 ({self.db_type})")
+            else:
+                logger.error(f"会话状态表 (session_states) 初始化失败 ({self.db_type})")
+
+    async def get_session_state(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """获取指定会话的状态"""
+        query = "SELECT last_active_ts, message_count, is_high_alert, high_alert_counter FROM session_states WHERE session_id = ?"
+        # 使用 fetch_one 优化，因为它只需要一行
+        row = await self.fetch_one(query, (session_id,))
+        if row:
+            # 根据数据库类型处理返回结果
+            if self.db_type == "postgresql":
+                # asyncpg 返回 Record 对象
+                return {
+                    "last_active_ts": row['last_active_ts'],
+                    "message_count": row['message_count'],
+                    "is_high_alert": row['is_high_alert'], # PostgreSQL 直接返回布尔值
+                    "high_alert_counter": row['high_alert_counter']
+                }
+            elif self.db_type == "sqlite":
+                # aiosqlite 返回字典 (通过 row_factory)
+                return {
+                    "last_active_ts": row['last_active_ts'],
+                    "message_count": row['message_count'],
+                    "is_high_alert": bool(row['is_high_alert']), # SQLite 需要将 INTEGER 转为布尔值
+                    "high_alert_counter": row['high_alert_counter']
+                }
+        return None # 没有找到记录
+
+    async def update_session_state(self, session_id: str, **kwargs) -> bool:
+        """
+        更新或插入会话状态。使用关键字参数指定要更新的字段。
+        例如: update_session_state(session_id, message_count=0, last_active_ts=time.time())
+
+        Returns:
+            操作是否成功。
+        """
+        if not kwargs:
+            return True # 没有要更新的内容，视为成功
+
+        valid_fields = ["last_active_ts", "message_count", "is_high_alert", "high_alert_counter"]
+        update_data = {}
+        for key, value in kwargs.items():
+            if key in valid_fields:
+                # 对布尔值进行特殊处理以适应 SQLite
+                if key == "is_high_alert" and self.db_type == "sqlite":
+                    update_data[key] = 1 if value else 0
+                else:
+                    update_data[key] = value
+            else:
+                logger.warning(f"尝试更新无效的 session_states 字段: {key}")
+
+        if not update_data:
+            return True # 没有有效的字段更新
+
+        fields = list(update_data.keys())
+        values = list(update_data.values())
+        set_clause = ", ".join([f"{field} = ?" for field in fields])
+
+        if self.db_type == "postgresql":
+            # PostgreSQL 使用 ON CONFLICT DO UPDATE
+            # 将 ? 替换为 $1, $2...
+            set_clause_pg = ", ".join([f"{fields[i]} = ${i+2}" for i in range(len(fields))])
+            query = f"""
+                INSERT INTO session_states (session_id, {', '.join(fields)})
+                VALUES ($1, {', '.join([f'${i+2}' for i in range(len(fields))])})
+                ON CONFLICT (session_id) DO UPDATE SET {set_clause_pg}
+            """
+            params = tuple([session_id] + values)
+            try:
+                # 对于 INSERT ... ON CONFLICT，execute 通常不返回有意义的值，检查异常即可
+                await self.execute_update(query, params) # 使用 execute_update 更合适，虽然返回值可能不直接用
+                logger.debug(f"会话 {session_id} 状态已更新 (PostgreSQL): {update_data}")
+                return True
+            except Exception as e:
+                logger.error(f"更新会话状态失败 (PostgreSQL): {e}", exc_info=True)
+                return False
+
+        elif self.db_type == "sqlite":
+            # SQLite 使用 INSERT OR REPLACE 或 ON CONFLICT DO UPDATE (后者需要 SQLite 3.24+)
+            # 为了兼容性，这里使用 INSERT OR REPLACE 的逻辑，通过先 DELETE 再 INSERT 实现
+            # 或者直接使用 INSERT ... ON CONFLICT
+            # 使用 INSERT ... ON CONFLICT 语法 (更优)
+            query = f"""
+                INSERT INTO session_states (session_id, {', '.join(fields)})
+                VALUES (?, {', '.join(['?'] * len(fields))})
+                ON CONFLICT(session_id) DO UPDATE SET {set_clause}
+            """
+            # 准备 UPSERT 的值列表: session_id, insert_values..., update_values...
+            # 修正：SQLite 的 ON CONFLICT DO UPDATE 只需要 session_id 和 update_values
+            # 修正：SQLite 的 INSERT ... ON CONFLICT ... DO UPDATE 语法需要 WHERE 子句
+            # 修正：SQLite 的 UPSERT 语法 (SQLite 3.24+)
+            # INSERT INTO table(col1, col2) VALUES(?, ?) ON CONFLICT(col1) DO UPDATE SET col2=excluded.col2;
+            set_clause_sqlite = ", ".join([f"{field} = excluded.{field}" for field in fields])
+            query = f"""
+                INSERT INTO session_states (session_id, {', '.join(fields)})
+                VALUES (?, {', '.join(['?'] * len(fields))})
+                ON CONFLICT(session_id) DO UPDATE SET {set_clause_sqlite}
+            """
+            params = tuple([session_id] + values) # 只需要 session_id 和插入的值
+
+            try:
+                # 使用 execute_update 执行 UPSERT
+                await self.execute_update(query, params)
+                logger.debug(f"会话 {session_id} 状态已更新 (SQLite): {update_data}")
+                return True
+            except Exception as e:
+                logger.error(f"更新会话状态失败 (SQLite): {e}", exc_info=True)
+                return False
+        else:
+            logger.error(f"不支持的数据库类型 {self.db_type}，无法更新会话状态。")
+            return False
+
+    # --- 辅助方法 --- (确保与类内其他方法缩进一致)
+    async def fetch_one(self, query: str, params: Tuple = ()) -> Optional[Union[asyncpg.Record, Dict[str, Any]]]:
+        """执行查询并返回第一行结果"""
+        results = await self.execute_query(query, params)
+        return results[0] if results else None
+
+    async def fetch_all(self, query: str, params: Tuple = ()) -> List[Union[asyncpg.Record, Dict[str, Any]]]:
+        """执行查询并返回所有结果 (execute_query 的别名)"""
+        return await self.execute_query(query, params)
+
+    async def fetch_val(self, query: str, params: Tuple = ()) -> Optional[Any]:
+        """执行查询并返回第一行第一列的值"""
+        row = await self.fetch_one(query, params)
+        if row:
+            if self.db_type == "postgresql":
+                return row[0] # asyncpg.Record 按索引访问
+            elif self.db_type == "sqlite":
+                # aiosqlite 返回字典，获取第一个键的值
+                return next(iter(row.values())) if row else None
+        return None

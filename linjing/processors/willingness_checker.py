@@ -38,10 +38,10 @@ class WillingnessChecker(BaseProcessor):
         self.llm_manager = None
         self.personality = None # 预期由 LinjingBot 设置 (当前未实现)
         # 从传入的配置中获取 willingness_checker 处理器的 prompt 模板
-        # 预期 config 结构: {"prompts": {"willingness_checker": {"check_prompt": "..."}}}
-        self.prompt_template = self.config.get("prompts", {}).get(self.name, {}).get("check_prompt", "") # 使用 self.name 获取对应配置
+        # 预期 config 结构: {"prompts": {"check_prompt": "..."}} (prompts 已被注入)
+        self.prompt_template = self.config.get("prompts", {}).get("check_prompt", "") # 直接从 prompts 获取
         if not self.prompt_template:
-             logger.error(f"未能从配置中加载 {self.name} check_prompt 模板！")
+             logger.error(f"未能从配置 {self.name} 中加载 prompts.check_prompt 模板！")
              self.prompt_template = "错误：缺少 {self.name} Prompt 模板。"
         # 是否在被 @ 时跳过检查的配置
         self.skip_on_mention = self.config.get("skip_on_mention", True)
@@ -142,12 +142,9 @@ class WillingnessChecker(BaseProcessor):
     def _build_check_prompt(self, thought: str, emotion_text: str, air_analysis: str, personality_text: str, history_text: str) -> str:
         """构建意愿检查提示词"""
         try:
-            # 确保从 self.config 获取最新的 prompts 数据
-            current_prompts = self.config.get("prompts", {})
-            self.prompt_template = current_prompts.get(self.name, {}).get("check_prompt", self.prompt_template)
-
+            # 直接使用在 __init__ 中加载好的 self.prompt_template
             if not self.prompt_template or "错误：" in self.prompt_template:
-                 logger.error(f"WillingnessChecker Prompt 模板无效或未加载，无法构建 Prompt。")
+                 logger.error(f"WillingnessChecker Prompt 模板无效或未加载 (来自 __init__)，无法构建 Prompt。")
                  return f"错误：{self.name} Prompt 模板无效。"
 
             # 获取角色名 (尝试从 global_config 获取)

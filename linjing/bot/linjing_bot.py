@@ -8,6 +8,7 @@
 # import os # 在此文件中未使用
 # import sys # 在此文件中未使用
 import asyncio
+import time # <--- 导入 time 模块
 import json # 导入 json 模块
 import importlib
 import inspect
@@ -29,11 +30,11 @@ logger = get_logger(__name__)
 
 class LinjingBot:
     """林静机器人主类，负责协调各个组件"""
-    
+
     def __init__(self, config: Dict[str, Any]):
         """
         初始化机器人主类
-        
+
         Args:
             config: 全局配置
         """
@@ -43,28 +44,40 @@ class LinjingBot:
         self.personality = None
         self.adapters = {}
         self.processors = {}
-        self.storage_manager = None
+        self.storage_manager: Optional[DatabaseManager] = None # 添加类型提示
         self.memory_manager = None
         self.emotion_manager = None
         self.llm_manager = None
         self.plugin_manager = None
         self.running = False
+        self.self_id: Optional[str] = None # 用于存储机器人自身 ID
         # 新增：存储加载的配置文本
         self.personality_principles_text: str = ""
         self.style_guide_text: str = ""
+        # 新增：读取触发条件配置
+        trigger_config = config.get("bot", {}).get("trigger_conditions", {})
+        self.mention_trigger_enabled = trigger_config.get("mention_trigger_enabled", True)
+        self.message_count_trigger_enabled = trigger_config.get("message_count_trigger_enabled", False)
+        self.message_count_threshold = trigger_config.get("message_count_threshold", 10)
+        self.time_interval_trigger_enabled = trigger_config.get("time_interval_trigger_enabled", False)
+        self.time_interval_threshold = trigger_config.get("time_interval_threshold", 300)
+        self.high_alert_mode_trigger_enabled = trigger_config.get("high_alert_mode_trigger_enabled", False)
+        self.high_alert_duration = trigger_config.get("high_alert_duration", 1) # Bot回复后，后续多少条消息内算高戒备，默认为1条
+
+        # 移除内存状态字典，状态将由 DatabaseManager 管理
 
         # 注册事件处理器
         self._register_event_handlers()
-    
+
     async def initialize(self) -> bool:
         """
         初始化机器人组件
-        
+
         Returns:
             初始化是否成功
         """
         logger.info("正在初始化林静机器人...")
-        
+
         try:
             # 加载人格和风格指南文本
             await self._load_personality_principles()
@@ -72,97 +85,105 @@ class LinjingBot:
 
             # 初始化LLM管理器
             await self._init_llm_manager()
-            
+
             # 初始化存储系统
             await self._init_storage()
-            
+
             # 初始化记忆系统
             await self._init_memory()
-            
+
             # 初始化情绪系统
             await self._init_emotion()
-            
+
             # 初始化处理器
             await self._init_processors()
-            
+
             # 初始化适配器
             await self._init_adapters()
-            
+
             # 初始化插件系统
             await self._init_plugins()
-            
+
             logger.info("林静机器人初始化完成")
             return True
-            
+
         except Exception as e:
             logger.error(f"初始化失败: {str(e)}", exc_info=True)
             return False
-    
+
     async def start(self) -> None:
         """启动机器人及其组件"""
         if self.running:
             logger.warning("机器人已经在运行")
             return
-        
+
         logger.info("正在启动林静机器人...")
-        
+
         try:
             # 启动所有适配器
             for adapter_name, adapter in self.adapters.items():
                 if hasattr(adapter, 'connect') and callable(adapter.connect):
                     logger.info(f"正在连接适配器: {adapter_name}")
                     await adapter.connect()
-            
+
             self.running = True
-            
+
             # 发布启动事件
             await self.event_bus.publish(EventType.BOT_STARTED, {"bot": self})
-            
+
             logger.info("林静机器人启动完成")
-            
+
         except Exception as e:
             logger.error(f"启动失败: {str(e)}", exc_info=True)
             raise
-    
+
     async def stop(self) -> None:
         """停止机器人及其组件"""
         if not self.running:
             logger.warning("机器人没有运行")
             return
-        
+
         logger.info("正在停止林静机器人...")
-        
+
         try:
             # 发布停止事件
             await self.event_bus.publish(EventType.BOT_STOPPED, {"bot": self})
-            
+
             # 断开所有适配器
             for adapter_name, adapter in self.adapters.items():
                 if hasattr(adapter, 'disconnect') and callable(adapter.disconnect):
                     logger.info(f"正在断开适配器: {adapter_name}")
                     await adapter.disconnect()
-            
+
             self.running = False
             logger.info("林静机器人停止完成")
-            
+
         except Exception as e:
             logger.error(f"停止失败: {str(e)}", exc_info=True)
             raise
-    
+
     async def handle_message(self, message: Any) -> Optional[Any]:
         """
         处理接收到的消息
-        
+
         Args:
             message: 消息对象
-            
+
         Returns:
             处理后的响应消息
         """
         if not self.running:
             logger.warning("机器人没有运行，无法处理消息")
             return None
-        
+
+        # --- V12 触发条件判断 ---
+        # 调用改为异步
+        should_process = await self._should_process_message(message)
+        if not should_process:
+            # logger.debug("消息未满足触发条件，跳过处理。") # 可以取消注释以获得更详细的日志
+            return None
+        # --- 触发条件判断结束 ---
+
         # 创建消息上下文
         context = MessageContext(
             message=message,
@@ -171,7 +192,7 @@ class LinjingBot:
             session_id=message.get_session_id() if hasattr(message, 'get_session_id') else "default"
             # platform 参数可以稍后从 message 中提取或保持默认
         )
-        
+
         # 确保用户记录存在
         if self.memory_manager:
             try:
@@ -190,22 +211,22 @@ class LinjingBot:
         # 获取对话历史
         if self.memory_manager:
             history = await self.memory_manager.get_conversation_history(
-                context.user_id, 
+                context.user_id,
                 limit=self.config.get("memory", {}).get("max_conversation_history", 10)
             )
             context.with_history(history)
-        
+
         # 获取情绪状态
         if self.emotion_manager:
             emotion = await self.emotion_manager.get_emotion(context.user_id)
             context.with_emotion(emotion.to_dict() if hasattr(emotion, 'to_dict') else emotion)
-        
+
         # 发布消息接收事件
         await self.event_bus.publish(
-            EventType.MESSAGE_RECEIVED, 
+            EventType.MESSAGE_RECEIVED,
             {"message": message, "context": context}
         )
-        
+
         # --- V12 重构：在管道中处理情绪更新 ---
         processed_context = context # 使用新变量，避免覆盖初始 context
 
@@ -213,7 +234,15 @@ class LinjingBot:
         read_air_processor = self.get_processor(ProcessorName.READ_AIR)
         if read_air_processor:
             logger.debug("手动执行 ReadAirProcessor...")
-            processed_context = await read_air_processor.process(processed_context)
+            try:
+                processed_context = await read_air_processor.process(processed_context)
+                # 检查 ReadAir 是否成功获取分析结果
+                if not processed_context.get_state("read_air_analysis"):
+                     logger.error("ReadAirProcessor 执行成功但未能生成有效的分析结果，终止处理。")
+                     return None # 或者返回 context，取决于是否需要保存用户消息
+            except Exception as e:
+                 logger.error(f"执行处理器 {ProcessorName.READ_AIR} 时出错，终止处理: {e}", exc_info=True)
+                 return None # ReadAir 失败则无法继续
             logger.debug("ReadAirProcessor 执行完毕。")
         else:
             logger.warning(f"处理器管道中未找到 {ProcessorName.READ_AIR}，无法执行读空气分析。")
@@ -257,10 +286,24 @@ class LinjingBot:
                 try:
                     processed_context = await processor.process(processed_context)
                     logger.debug(f"处理器 {processor_name} 执行完毕。")
+
+                    # --- V12 检查点 ---
+                    # 如果是 ThoughtGenerator 失败 (没有 thought)，则停止
+                    if processor_name == ProcessorName.THOUGHT_GENERATOR and not processed_context.get_state("thought"):
+                        logger.error("ThoughtGenerator 执行成功但未能生成有效的思考结果，终止处理。")
+                        break # 停止后续处理器
+
+                    # 如果是 WillingnessChecker 判断不愿意，则停止
+                    if processor_name == ProcessorName.WILLINGNESS_CHECKER:
+                        is_willing = processed_context.get_state("is_willing_to_reply", True) # 获取意愿，默认为 True
+                        if not is_willing:
+                            logger.info("WillingnessChecker 判断不适合回复，终止处理。")
+                            break # 停止后续处理器 (不执行 ResponseComposer)
+
                 except Exception as e:
-                     logger.error(f"执行处理器 {processor_name} 时出错: {e}", exc_info=True)
-                     # 可以选择在这里中断处理或继续下一个处理器
-                     # break # 如果希望出错时中断
+                     logger.error(f"执行处理器 {processor_name} 时出错，终止处理: {e}", exc_info=True)
+                     # 出错时中断后续处理
+                     break
             else:
                  logger.warning(f"在管道顺序中找到但在实例中未找到处理器: {processor_name}")
 
@@ -283,6 +326,18 @@ class LinjingBot:
 
         # --- Return the reply first ---
         if final_reply:
+             # --- V12 高戒备模式触发 (数据库实现) ---
+             if self.high_alert_mode_trigger_enabled and self.storage_manager:
+                 session_id = message.get_session_id() if hasattr(message, 'get_session_id') else "default"
+                 logger.debug(f"机器人回复成功，会话 {session_id} 进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
+                 # 更新数据库状态
+                 await self.storage_manager.update_session_state(
+                     session_id,
+                     is_high_alert=True,
+                     high_alert_counter=0
+                 )
+             # --- 高戒备模式触发结束 ---
+
              # 为了尽快响应用户，将耗时的数据库写入和情绪更新操作放入后台任务执行
              asyncio.create_task(self._save_conversation_async(context, result_context, message, final_reply))
              return final_reply
@@ -343,31 +398,139 @@ class LinjingBot:
         # Note: MESSAGE_SENT event is already published in handle_message before this task runs.
         # No need to publish it again here.
         # Also, no need to return anything from this background task.
-    
+
+    # --- 新增：触发条件判断逻辑 (改为异步并使用数据库) ---
+    async def _should_process_message(self, message: Any) -> bool:
+        """
+        判断是否应该处理当前消息，基于配置的触发条件 (使用数据库持久化状态)。
+
+        Args:
+            message: 传入的消息对象。
+
+        Returns:
+            True 如果应该处理，False 如果应该忽略。
+        """
+        current_ts = time.time()
+        session_id = message.get_session_id() if hasattr(message, 'get_session_id') else "default"
+
+        # --- 从数据库获取当前会话状态 ---
+        if not self.storage_manager:
+            logger.warning("StorageManager 未初始化，无法检查会话状态，默认不处理。")
+            return False
+
+        session_state = await self.storage_manager.get_session_state(session_id)
+        if session_state is None:
+            # 如果没有状态记录，则创建默认状态
+            session_state = {
+                "last_active_ts": 0.0,
+                "message_count": 0,
+                "is_high_alert": False,
+                "high_alert_counter": 0
+            }
+            # 首次消息，需要写入初始状态，但先不在这里写，在后面统一更新
+
+        # --- 更新会话状态 (计数和时间戳) ---
+        current_message_count = session_state["message_count"] + 1
+        update_payload = {
+            "last_active_ts": current_ts,
+            "message_count": current_message_count
+        }
+
+        # --- 检查高戒备模式 ---
+        is_high_alert = session_state["is_high_alert"]
+        alert_count = session_state["high_alert_counter"]
+
+        if is_high_alert:
+            if alert_count < self.high_alert_duration:
+                 logger.debug(f"消息触发条件：处于高戒备模式 (计数 {alert_count + 1}/{self.high_alert_duration})")
+                 update_payload["high_alert_counter"] = alert_count + 1
+                 await self.storage_manager.update_session_state(session_id, **update_payload)
+                 return True # 高戒备模式下直接处理
+            else:
+                 # 高戒备计数已满，退出高戒备模式
+                 logger.debug(f"会话 {session_id} 退出高戒备模式。")
+                 update_payload["is_high_alert"] = False
+                 update_payload["high_alert_counter"] = 0 # 重置计数器
+                 # 状态将在后续检查后统一更新
+        # --- 高戒备检查结束 ---
+
+        # 标记是否因为某个条件触发了处理
+        triggered = False
+
+        # 1. @Mention 检查 (最高优先级)
+        if self.mention_trigger_enabled and self.self_id:
+            # 确保 message.segments 存在且是列表
+            segments = getattr(message, 'segments', None)
+            if isinstance(segments, list):
+                for segment in message.segments:
+                    # 假设 segment 是一个有 type 和 data 属性的对象或字典
+                    segment_type = getattr(segment, 'type', None) or segment.get('type') if isinstance(segment, dict) else None
+                    segment_data = getattr(segment, 'data', None) or segment.get('data') if isinstance(segment, dict) else {}
+
+                    if segment_type == "at" and str(segment_data.get("qq")) == self.self_id:
+                        logger.debug(f"消息触发条件：被 @mention (QQ: {self.self_id})")
+                        # 被 @ 时重置消息计数器
+                        update_payload["message_count"] = 0
+                        triggered = True # 标记为触发
+                        break # 找到一个 @ 即可退出循环
+
+        # 2. 消息计数检查 (仅在未被 @ 触发时检查)
+        if not triggered and self.message_count_trigger_enabled:
+            # 使用从数据库获取并已 +1 的 current_message_count
+            if current_message_count >= self.message_count_threshold:
+                logger.debug(f"消息触发条件：达到消息计数阈值 ({current_message_count}/{self.message_count_threshold})")
+                update_payload["message_count"] = 0 # 重置计数器
+                triggered = True
+
+        # 3. 时间间隔检查 (仅在未被前面条件触发时检查)
+        if not triggered and self.time_interval_trigger_enabled:
+            last_active_ts = session_state["last_active_ts"]
+            # 如果 last_active_ts 为 0 (首次消息) 或 间隔超过阈值
+            if last_active_ts == 0 or (current_ts - last_active_ts > self.time_interval_threshold):
+                 if last_active_ts != 0: # 避免首次触发时打印间隔
+                     logger.debug(f"消息触发条件：达到时间间隔阈值 ({(current_ts - last_active_ts):.1f}s > {self.time_interval_threshold}s)")
+                 else:
+                     logger.debug(f"消息触发条件：会话首次活跃或时间间隔状态重置。")
+                 # 时间间隔触发时，也重置消息计数器
+                 update_payload["message_count"] = 0
+                 triggered = True
+
+        # --- 统一更新数据库状态 ---
+        # 只有在需要更新时才写入数据库 (或者首次创建记录时)
+        if update_payload or session_state["last_active_ts"] == 0.0: # 如果是首次消息也写入
+             await self.storage_manager.update_session_state(session_id, **update_payload)
+
+        # --- 返回最终判断结果 ---
+        if not triggered:
+            # logger.debug("消息未满足任何已启用的触发条件。") # 可以取消注释
+            pass
+
+        return triggered
+
     def get_adapter(self, name: str) -> Optional[Any]:
         """
         获取指定名称的适配器
-        
+
         Args:
             name: 适配器名称
-            
+
         Returns:
             适配器对象或None
         """
         return self.adapters.get(name)
-    
+
     def get_processor(self, name: str) -> Optional[Processor]:
         """
         获取指定名称的处理器
-        
+
         Args:
             name: 处理器名称
-            
+
         Returns:
             处理器对象或None
         """
         return self.message_pipeline.get_processor(name)
-    
+
     async def _load_personality_principles(self) -> None:
         """加载人格原则文件内容"""
         # 注意：这里的路径是相对于项目根目录还是当前文件？假设是相对于 linjing 包
@@ -414,11 +577,11 @@ class LinjingBot:
         except Exception as e:
             logger.error(f"加载风格指南文件失败: {e}", exc_info=True)
             self.style_guide_text = "错误：加载风格指南文件失败！"
-    
+
     async def _init_llm_manager(self) -> None:
         """初始化LLM管理器"""
         logger.info("正在初始化LLM管理器...")
-        
+
         # 导入LLM管理器
         try:
             from linjing.llm.llm_manager import LLMManager
@@ -428,15 +591,15 @@ class LinjingBot:
         except ImportError as e:
             logger.error(f"LLM管理器导入失败: {str(e)}")
             raise
-    
+
     async def _init_storage(self) -> None:
         """初始化存储系统"""
         logger.info("正在初始化存储系统...")
-        
+
         # 导入存储管理器
         try:
             from linjing.storage.database import DatabaseManager
-            
+
             # 数据库管理器
             # 再次尝试过滤，确保只传递 DatabaseManager.__init__ 关心的顶级键
             db_config_raw = self.config.get("storage", {}).get("database", {})
@@ -459,36 +622,36 @@ class LinjingBot:
 
             self.storage_manager = DatabaseManager(config=db_config_for_init)
             await self.storage_manager.connect()
-            
+
             # 向量数据库管理器
             self.vector_db_manager = VectorDBManagerFactory.create(
                 self.config.get("storage", {}).get("vector_db", {})
             )
             await self.vector_db_manager.connect()
-            
+
         except ImportError as e:
             logger.error(f"存储系统导入失败: {str(e)}")
             raise
-    
+
     async def _init_memory(self) -> None:
         """初始化记忆系统"""
         logger.info("正在初始化记忆系统...")
-        
+
         # 导入记忆管理器
         try:
             from linjing.memory.memory_manager import MemoryManager
-            
+
             # 创建记忆管理器
             memory_config = self.config.get("memory", {})
-            
+
             # 确保vector_db配置是字典而不是字符串
             vector_db_config = self.config.get("storage", {}).get("vector_db", {})
             if not isinstance(vector_db_config, dict):
                 vector_db_config = {}
-                
+
             # 在配置中添加向量数据库配置
             memory_config["vector_db"] = vector_db_config
-            
+
             # 在配置中添加数据库路径 (这部分可能不再需要，因为 db_manager 已包含连接信息)
             # memory_config["db_path"] = self.config.get("storage", {}).get("db_path", "data/database.db")
 
@@ -498,22 +661,22 @@ class LinjingBot:
                  raise RuntimeError("Storage manager not initialized before MemoryManager") # 或者返回 False
 
             self.memory_manager = MemoryManager(db_manager=self.storage_manager, config=memory_config)
-            
+
             # 初始化记忆管理器
             await self.memory_manager.initialize()
-            
+
         except ImportError as e:
             logger.error(f"记忆系统导入失败: {str(e)}")
             raise
-    
+
     async def _init_emotion(self) -> None:
         """初始化情绪系统"""
         logger.info("正在初始化情绪系统...")
-        
+
         # 导入情绪管理器
         try:
             from linjing.emotion.emotion_manager import EmotionManager
-            
+
             # 创建情绪管理器
             self.emotion_manager = EmotionManager(
                 config=self.config.get("emotion", {}),
@@ -527,11 +690,11 @@ class LinjingBot:
             #      if hasattr(self.emotion_manager, 'initialize_tables'):
             #           await self.emotion_manager.initialize_tables()
 
-            
+
         except ImportError as e:
             logger.error(f"情绪系统导入失败: {str(e)}")
             raise
-    
+
     async def _init_processors(self) -> None:
         """初始化处理器"""
         logger.info("正在初始化处理器...")
@@ -565,7 +728,7 @@ class LinjingBot:
             ProcessorName.THOUGHT_GENERATOR,
             ProcessorName.RESPONSE_COMPOSER
         ])
-        
+
         # 导入并初始化处理器
         for name in pipeline_order:
             try:
@@ -596,7 +759,7 @@ class LinjingBot:
                     from linjing.processors.read_air import ReadAirProcessor
                     processor = ReadAirProcessor(name=name, config=processor_config) # 传递 name 参数
                     processor.set_llm_manager(self.llm_manager)
-                
+
                 elif name == ProcessorName.THOUGHT_GENERATOR:
                     from linjing.processors.thought_generator import ThoughtGenerator
                     processor = ThoughtGenerator(name=name, config=processor_config) # 传递 name 参数
@@ -612,13 +775,13 @@ class LinjingBot:
                     processor = WillingnessChecker(name=name, config=processor_config)
                     processor.set_llm_manager(self.llm_manager)
                     # processor.set_personality(self.personality) # 移除旧的调用
-                
+
                 elif name == ProcessorName.RESPONSE_COMPOSER:
                     from linjing.processors.response_composer import ResponseComposer
                     processor = ResponseComposer(name=name, config=processor_config) # 传递 name 参数
                     processor.set_llm_manager(self.llm_manager)
                     # processor.set_personality(self.personality) # 移除旧的调用
-                
+
                 else:
                     # 尝试根据处理器名称动态导入模块 (例如 "read_air" -> linjing.processors.read_air)
                     module_path = f"linjing.processors.{name.lower()}"
@@ -627,42 +790,42 @@ class LinjingBot:
                         module = importlib.import_module(module_path)
                         # 查找处理器类
                         for _, obj in inspect.getmembers(module):
-                            if (inspect.isclass(obj) and issubclass(obj, Processor) 
+                            if (inspect.isclass(obj) and issubclass(obj, Processor)
                                     and obj.__name__ != 'Processor'):
                                 processor_class = obj
                                 break
                         else:
                             raise ImportError(f"在模块 {module_path} 中找不到处理器类")
-                        
+
                         # 创建处理器实例
                         processor = processor_class(name=name, config=processor_config)
-                        
+
                     except (ImportError, AttributeError) as e:
                         logger.error(f"无法导入处理器 {name}: {str(e)}")
                         continue
-                
+
                 # 添加处理器到管道
                 self.processors[name] = processor
                 self.message_pipeline.add_processor(processor)
                 logger.debug(f"已添加处理器: {name}")
-                
+
             except Exception as e:
                 # 添加更详细的错误日志
                 logger.critical(f"!!! 初始化处理器 '{name}' 失败，该处理器将不会被添加到管道中 !!!", exc_info=True)
                 # logger.error(f"初始化处理器 {name} 失败: {str(e)}", exc_info=True) # 保留原始错误日志（可选）
-    
+
     async def _init_adapters(self) -> None:
         """初始化适配器"""
         logger.info("正在初始化适配器...")
-        
+
         # 获取适配器配置
         adapter_configs = self.config.get("adapters", {})
-        
+
         # 导入并初始化适配器
         for name, config in adapter_configs.items():
             if not config.get("enabled", True):
                 continue
-            
+
             try:
                 # 导入适配器
                 if name == "onebot":
@@ -679,26 +842,26 @@ class LinjingBot:
                     except (ImportError, AttributeError) as e:
                         logger.error(f"无法导入适配器 {name}: {str(e)}")
                         continue
-                
+
                 # 注册消息处理函数
                 if hasattr(adapter, 'register_message_handler'):
                     adapter.register_message_handler(self.handle_message)
-                
+
                 # 添加适配器
                 self.adapters[name] = adapter
                 logger.debug(f"已添加适配器: {name}")
-                
+
             except Exception as e:
                 logger.error(f"初始化适配器 {name} 失败: {str(e)}", exc_info=True)
-    
+
     async def _init_plugins(self) -> None:
         """初始化插件系统"""
         logger.info("正在初始化插件系统...")
-        
+
         # 导入插件管理器
         try:
             from linjing.plugins.plugin_manager import PluginManager
-            
+
             # 创建组件映射
             components = {
                 "bot": self,
@@ -709,25 +872,27 @@ class LinjingBot:
                 "storage_manager": self.storage_manager,
                 "emotion_manager": self.emotion_manager
             }
-            
+
             # 创建插件管理器
             self.plugin_manager = PluginManager(
                 config=self.config.get("plugins", {}),
                 components=components
             )
-            
+
             # 加载插件
             await self.plugin_manager.load_plugins()
-            
+
         except ImportError as e:
             logger.error(f"插件系统导入失败: {str(e)}")
             raise
-    
+
     def _register_event_handlers(self) -> None:
         """注册事件处理器"""
         # 订阅错误事件
         self.event_bus.subscribe(EventType.ERROR_OCCURRED, self._on_error)
-    
+        # 订阅适配器连接成功事件以获取 self_id
+        self.event_bus.subscribe(EventType.ADAPTER_CONNECTED, self._on_adapter_connected)
+
     # 注意：参数 event_type 在当前实现中未使用，可以考虑移除或添加日志记录
     def _on_error(self, event_type: str, data: Dict[str, Any]) -> None:
         """
@@ -740,6 +905,25 @@ class LinjingBot:
         error = data.get("error", "未知错误") # 提供默认值
         source = data.get("source", "未知来源") # 提供默认值
         logger.error(f"事件总线报告来自 [{source}] 的错误: {str(error)}")
+
+    # 新增：处理适配器连接事件
+    def _on_adapter_connected(self, event_type: str, data: Dict[str, Any]) -> None:
+        """
+        当适配器连接成功时，尝试获取并存储 self_id。
+        """
+        adapter_name = data.get("adapter_name")
+        adapter_instance = data.get("adapter")
+        if adapter_instance and hasattr(adapter_instance, 'get_self_id'):
+            self_id = adapter_instance.get_self_id()
+            if self_id:
+                if self.self_id and self.self_id != self_id:
+                     logger.warning(f"适配器 {adapter_name} 报告了不同的 self_id ({self_id})，将覆盖旧值 ({self.self_id})。")
+                self.self_id = str(self_id) # 确保存储为字符串
+                logger.info(f"从适配器 {adapter_name} 获取到 self_id: {self.self_id}")
+            else:
+                 logger.warning(f"适配器 {adapter_name} 连接成功，但未能提供 self_id。")
+        else:
+             logger.debug(f"适配器 {adapter_name} 连接事件未提供实例或 get_self_id 方法。")
 
 
 # 创建机器人单例实例

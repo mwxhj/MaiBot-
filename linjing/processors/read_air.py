@@ -56,10 +56,10 @@ class ReadAirProcessor(BaseProcessor):
         # **新增：存储 Prompt 模板**
         # 从传入的配置中获取 read_air 处理器的 prompt 模板
         # 预期 config 结构: {"prompts": {"read_air": {"analysis_prompt": "..."}}}
-        # self.config 是传递给处理器的配置字典
-        self.prompt_template = self.config.get("prompts", {}).get(self.name, {}).get("analysis_prompt", "") # 使用 self.name 获取对应配置
+        # self.config 是传递给处理器的配置字典, prompts 已被注入到 self.config['prompts']
+        self.prompt_template = self.config.get("prompts", {}).get("analysis_prompt", "") # 直接从 prompts 获取
         if not self.prompt_template:
-             logger.error("未能从配置中加载 ReadAir analysis_prompt 模板！将无法生成分析。")
+             logger.error(f"未能从配置 {self.name} 中加载 prompts.analysis_prompt 模板！将无法生成分析。")
              # 可以选择抛出异常或设置一个默认的错误提示
              # raise ValueError("Missing required prompt template: prompts.read_air.analysis_prompt")
              self.prompt_template = "错误：缺少 ReadAir 分析 Prompt 模板。" # 提供一个错误提示

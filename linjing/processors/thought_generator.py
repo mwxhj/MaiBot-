@@ -59,10 +59,10 @@ class ThoughtGenerator(BaseProcessor):
         # **修改：从配置加载思考模板**
         # 从传入的配置中获取 thought_generator 处理器的 prompt 模板
         # 预期 config 结构: {"prompts": {"thought_generator": {"thinking_prompt": "..."}}}
-        # self.config 是传递给处理器的配置字典
-        self.thinking_template = self.config.get("prompts", {}).get(self.name, {}).get("thinking_prompt", "") # 使用 self.name 获取对应配置
+        # self.config 是传递给处理器的配置字典, prompts 已被注入到 self.config['prompts']
+        self.thinking_template = self.config.get("prompts", {}).get("thinking_prompt", "") # 直接从 prompts 获取
         if not self.thinking_template:
-             logger.error("未能从配置中加载 ThoughtGenerator thinking_prompt 模板！将无法生成思考。")
+             logger.error(f"未能从配置 {self.name} 中加载 prompts.thinking_prompt 模板！将无法生成思考。")
              self.thinking_template = "错误：缺少 ThoughtGenerator 思考 Prompt 模板。"
 
         # LLM 管理器，用于调用语言模型
@@ -136,7 +136,8 @@ class ThoughtGenerator(BaseProcessor):
             context.log_processor(self.name, f"处理失败: {str(e)}")
         
         return context
-    
+
+    # 修改为 async def
     async def _generate_thought(self, context: MessageContext) -> Optional[str]:
         """
         生成内部思考
@@ -147,9 +148,9 @@ class ThoughtGenerator(BaseProcessor):
         Returns:
             生成的思考内容
         """
-        # 构建提示词
-        prompt = self._build_thinking_prompt(context)
-        
+        # 构建提示词 (确认已修改)
+        prompt = await self._build_thinking_prompt(context)
+
         try:
             # 调用LLM生成思考，使用任务路由选择合适的模型
             thought, metadata = await self.llm_manager.generate_text(
@@ -170,7 +171,8 @@ class ThoughtGenerator(BaseProcessor):
             logger.error(f"思考生成失败: {str(e)}", exc_info=True)
             return None
     
-    def _build_thinking_prompt(self, context: MessageContext) -> str:
+    # 修改为 async def
+    async def _build_thinking_prompt(self, context: MessageContext) -> str:
         """
         构建思考提示词
         
@@ -197,19 +199,16 @@ class ThoughtGenerator(BaseProcessor):
         if "错误：" in personality_text:
              logger.error("未能从配置中获取 personality_text！Prompt 将不完整。")
 
-        # 获取关系信息摘要
-        relation_prompt_all = self._format_relationship(context)
-        
+        # 获取关系信息摘要 (确认已修改)
+        relation_prompt_all = await self._format_relationship(context)
+
         # 构建思考提示词
         depth_description = ["简单", "一般", "详细", "深入", "非常深入"][min(self.thinking_depth, 4)]
         
         try:
-            # 确保从 self.config 获取最新的 prompts 数据
-            current_prompts = self.config.get("prompts", {})
-            self.thinking_template = current_prompts.get("thought_generator", {}).get("thinking_prompt", self.thinking_template)
-
+            # 直接使用在 __init__ 中加载好的 self.thinking_template
             if not self.thinking_template or "错误：" in self.thinking_template:
-                 logger.error("ThoughtGenerator Prompt 模板无效或未加载，无法构建 Prompt。")
+                 logger.error(f"ThoughtGenerator Prompt 模板无效或未加载 (来自 __init__)，无法构建 Prompt。")
                  return "错误：ThoughtGenerator Prompt 模板无效。"
 
             # 获取角色名 (尝试从 global_config 获取，如果 LinjingBot 传递了的话)
@@ -443,7 +442,8 @@ class ThoughtGenerator(BaseProcessor):
         return result.strip() or "无详细分析结果"
     
     # --- 新增：格式化关系信息 ---
-    def _format_relationship(self, context: MessageContext) -> str:
+    # 修改为 async def (确认已修改)
+    async def _format_relationship(self, context: MessageContext) -> str:
         """
         从 MemoryManager 获取关系摘要并格式化为 Prompt 字符串。
 
@@ -464,19 +464,9 @@ class ThoughtGenerator(BaseProcessor):
             # 为了保持简单，暂时使用 asyncio.run，但这在生产环境中可能不是最佳实践
             # TODO: 考虑将 _build_thinking_prompt 改为异步
             # 调用 self.memory_manager 的方法
-            # 注意：这里仍然存在同步调用异步的问题，后续可能需要重构
-            import asyncio
-            try:
-                 # 尝试在当前事件循环中运行，如果不行则创建新循环 (不推荐)
-                 loop = asyncio.get_running_loop()
-                 relationship_summary = loop.run_until_complete(
-                     self.memory_manager.get_user_relationship_summary(context.user_id)
-                 )
-            except RuntimeError: # No running event loop
-                 logger.warning("在同步方法 _format_relationship 中没有找到运行的事件循环，尝试创建新循环运行 get_user_relationship_summary (可能影响性能)。")
-                 relationship_summary = asyncio.run(
-                     self.memory_manager.get_user_relationship_summary(context.user_id)
-                 )
+            # 注意：这里仍然存在同步调用异步的问题，后续可能需要重构 (注释保留，但代码已修正)
+            # 现在可以直接 await 调用异步方法
+            relationship_summary = await self.memory_manager.get_user_relationship_summary(context.user_id)
 
             if not relationship_summary:
                 return "关系信息：暂无"
