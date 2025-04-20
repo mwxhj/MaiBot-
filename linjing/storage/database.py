@@ -11,6 +11,7 @@ import asyncio # <--- 导入 asyncio 模块
 # import aiosqlite # <-- 不再需要 aiosqlite
 import asyncpg # <--- 导入 asyncpg 用于异步操作
 import json
+import traceback # <--- 添加导入
 from pathlib import Path # <--- 保留 Path 用于 SQLite (如果需要)
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -65,9 +66,11 @@ class DatabaseManager:
         self.connection_config = self.config.get("connection", {})
         self.create_tables = self.config.get("create_tables_on_connect", True)
         self._initialized = False
-        # --- 添加日志：确认 __init__ 结束时的值 ---
+        # --- 添加日志：记录每次初始化和调用者信息 ---
+        stack_info = "".join(traceback.format_stack(limit=5)) # 获取调用栈信息
+        logger.critical(f"!!! DB MANAGER INIT CALLED. Config: {self.config}. Stack:\n{stack_info}") # 记录传入的配置和调用栈
         if self.db_type == "postgresql":
-            logger.critical(f"!!! DB MANAGER INIT DONE: host={self.db_host}, port={self.db_port}, user={self.db_user}, db={self.db_name}")
+            logger.critical(f"!!! DB MANAGER INIT PARSED: host={self.db_host}, port={self.db_port}, user={self.db_user}, db={self.db_name}")
         # --- 日志结束 ---
     
     async def connect(self) -> bool:
