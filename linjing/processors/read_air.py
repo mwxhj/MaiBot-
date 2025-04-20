@@ -8,13 +8,12 @@
 
 import json
 from typing import Any, Dict, List, Optional # <--- 移除未使用的 Tuple
-from loguru import logger # 确保导入 logger
 
 # from linjing.adapters import Message # <--- Message 类在此文件未直接使用
 from linjing.processors.base_processor import BaseProcessor
 from linjing.processors.message_context import MessageContext
 from linjing.processors.processor_registry import ProcessorRegistry
-from linjing.utils.logger import get_logger
+from loguru import logger # 确保 logger 已导入
 from linjing.constants import ProcessorName # <--- ProcessorName 在 _analyze_message 方法中使用
 
 # 获取日志记录器
@@ -112,40 +111,58 @@ class ReadAirProcessor(BaseProcessor):
             context.log_processor(self.name, "处理失败: 缺少 llm_manager")
             return context
         
-        # 获取消息对象
-        message = context.message
-        
-        # 提取明文文本
-        message_text = message.extract_plain_text() if hasattr(message, 'extract_plain_text') else str(message)
-        
-        # 检查消息是否包含图片
-        contains_image = False
-        image_urls = []
-        if hasattr(message, 'segments') and isinstance(message.segments, list):
-            for segment in message.segments:
-                segment_type = getattr(segment, 'type', None)
-                segment_data = getattr(segment, 'data', {})
-                # 检查是否为图片类型
-                if segment_type and segment_type.name == "IMAGE":
-                    contains_image = True
-                    if "url" in segment_data:
-                        image_urls.append(segment_data["url"])
-                    logger.debug(f"读空气处理器检测到图片: {segment_data.get('url', '无URL')}")
-        
-        # 记录图片信息
-        if contains_image:
-            context.set_state("contains_image", True)
-            context.set_state("image_urls", image_urls)
-            logger.info(f"消息包含图片，总数: {len(image_urls)}")
-            # 如果消息只有图片没有文本，添加提示信息
-            if not message_text.strip():
-                message_text = "[用户发送了一张图片，无文字说明]"
-        
-        # 获取历史消息用于分析
-        history = self._prepare_history(context)
-        
         try:
-            # 分析消息的情感、意图和社交期望
+            logger.debug(f"[{self.name}] 开始处理 context (Platform: {context.platform}, User: {context.user_id})", tag=self.name) # 添加开始日志
+            
+            message = context.message
+            # --- 添加日志 ---
+            logger.debug(f"[{self.name}] 获取到 context.message: 类型={type(message)}, 值={str(message)[:200]}...", tag=self.name) # 限制日志长度
+            # --- 日志结束 ---
+
+            message_text = "" # 初始化 message_text
+            if message: # 检查 message 是否有效
+                # --- 添加日志 ---
+                logger.debug(f"[{self.name}] 准备提取 message 文本...", tag=self.name)
+                # --- 日志结束 ---
+                # 增加 hasattr 检查提高健壮性
+                if hasattr(message, 'extract_plain_text') and callable(message.extract_plain_text):
+                    message_text = message.extract_plain_text()
+                else:
+                    logger.warning(f"[{self.name}] message 对象缺少有效的 extract_plain_text 方法，将使用 str() 转换。类型: {type(message)}", tag=self.name)
+                    message_text = str(message)
+                logger.debug(f"[{self.name}] 提取到文本: '{message_text[:50]}...'", tag=self.name) # 记录提取到的文本（部分）
+
+                # --- 图片处理逻辑 --- 
+                contains_image = False
+                image_urls = []
+                if hasattr(message, 'segments') and isinstance(message.segments, list):
+                    for segment in message.segments:
+                        segment_type = getattr(segment, 'type', None)
+                        segment_data = getattr(segment, 'data', {})
+                        # 检查是否为图片类型
+                        # 注意：假设 segment_type 是枚举或类似对象，需要比较其 .name
+                        if segment_type and hasattr(segment_type, 'name') and segment_type.name == "IMAGE":
+                            contains_image = True
+                            if "url" in segment_data:
+                                image_urls.append(segment_data["url"])
+                            logger.debug(f"[{self.name}] 检测到图片: {segment_data.get('url', '无URL')}", tag=self.name)
+                
+                if contains_image:
+                    context.set_state("contains_image", True)
+                    context.set_state("image_urls", image_urls)
+                    logger.info(f"[{self.name}] 消息包含图片，总数: {len(image_urls)}", tag=self.name)
+                    # 如果消息只有图片没有文本，添加提示信息
+                    if not message_text.strip():
+                        message_text = "[用户发送了一张图片，无文字说明]"
+            else:
+                logger.warning(f"[{self.name}] context.message 无效或为 None，无法提取文本。", tag=self.name)
+                # 如果没有消息，可能无法进行有意义的分析，可以选择提前返回
+                # context.log_processor(self.name, "消息对象无效，跳过分析")
+                # return context 
+
+            # --- 添加日志 ---
+            logger.debug(f"[{self.name}] 准备调用 _analyze_message...", tag=self.name)
+            # --- 日志结束 ---
             analysis = await self._analyze_message(context, message_text)
             
             # 如果分析成功，将结果添加到上下文
@@ -182,35 +199,16 @@ class ReadAirProcessor(BaseProcessor):
                 context.log_processor(self.name, emotion_summary)
                 context.log_processor(self.name, social_summary)
             else:
-                context.log_processor(self.name, "无法分析消息")
+                context.log_processor(self.name, "无法分析消息或分析结果为空") # 区分情况
         
         except Exception as e:
-            # 1. 首先，立即记录原始错误 e 的基本信息和堆栈跟踪
-            logger.error(f"读空气处理过程中发生原始错误: {type(e).__name__}", exc_info=True) # 添加 exc_info
-
-            # 2. 尝试记录更详细的信息，但简化并增加健壮性
+            # 修改日志记录方式，避免 f-string 格式化问题
             try:
-                # 简化：只记录关键信息，而不是整个 context
-                error_context_info = {
-                    "message_id": context.message.message_id if context.message else None,
-                    "user_id": context.user_id,
-                    "group_id": context.group_id,
-                    "platform": context.platform,
-                    "original_text": context.message.extract_plain_text()[:200] if context.message else None # 限制长度
-                }
-                context_info_str = json.dumps(error_context_info, ensure_ascii=False, default=str)
-                logger.error(f"读空气处理失败的上下文概要: {context_info_str}")
+                context_dict_str = json.dumps(context.to_dict(), indent=2, ensure_ascii=False, default=str)
+                logger.error(f"读空气处理失败 - 输入数据:\n{context_dict_str}", exc_info=True)
             except Exception as log_e:
-                 # 3. 改进日志记录错误的日志，包含原始错误 e 的类型
-                 logger.error(f"记录读空气失败详细上下文时出错 (原始错误类型: {type(e).__name__}): {log_e}", exc_info=True) # 添加原始错误类型和 exc_info
-
-            # 4. 记录简化的失败信息到 processor 日志 (保持不变或按需调整)
-            # 检查 context 是否有 log_processor 方法
-            if hasattr(context, 'log_processor') and callable(context.log_processor):
-                context.log_processor(self.name, f"处理失败: {type(e).__name__} - {str(e)}")
-            else:
-                logger.warning("Context 对象缺少 log_processor 方法，无法记录处理器失败日志。")
-                logger.error(f"ReadAirProcessor 处理失败详情: {type(e).__name__} - {str(e)}") # 备用日志记录
+                 logger.error(f"记录读空气失败日志时出错: {log_e}", exc_info=True) # 记录原始错误和日志记录错误
+            context.log_processor(self.name, f"处理失败: {type(e).__name__} - {str(e)}")
         
         return context
     
