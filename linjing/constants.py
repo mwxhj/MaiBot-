@@ -20,6 +20,7 @@ class EventType:
     BOT_STARTED = "bot_started"
     BOT_STOPPED = "bot_stopped"
     ERROR_OCCURRED = "error_occurred"
+    ADAPTER_CONNECTED = "adapter_connected" # 新增：适配器连接成功事件
 
 # 消息类型
 class MessageType:
