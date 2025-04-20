@@ -12,7 +12,7 @@ import importlib
 import inspect
 import os # <--- 重新导入 os 用于文件路径操作
 import yaml # <-- 导入 yaml 库
-from typing import Dict, List, Any, Optional, Tuple, Type, Callable
+from typing import Dict, List, Any, Optional, Tuple, Type, Callable, Set, Union
 
 from linjing.utils.logger import get_logger
 from linjing.constants import EventType, ProcessorName
@@ -22,6 +22,12 @@ from linjing.processors.message_context import MessageContext
 from linjing.processors.base_processor import BaseProcessor as Processor
 from linjing.storage.database import DatabaseManager
 from linjing.storage.vector_db_manager_factory import VectorDBManagerFactory
+
+# 导入并发控制组件
+from linjing.concurrent import (
+    QueueManager, MessageDebouncer, 
+    ResourceLockManager, EasyResourceLock, ResourceType
+)
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -65,6 +71,11 @@ class LinjingBot:
         self.name_trigger_enabled = trigger_config.get("name_trigger_enabled", True)
         self.bot_names = trigger_config.get("bot_names", ["林静", "Linjing"])
 
+        # 初始化并发控制组件
+        self.queue_manager = None
+        self.message_debouncer = None
+        self.resource_lock = None
+
         # 注册事件处理器
         self._register_event_handlers()
 
@@ -86,6 +97,7 @@ class LinjingBot:
             await self._init_processors()
             await self._init_adapters()
             await self._init_plugins()
+            await self._init_concurrent_controls()
             logger.info("林静机器人初始化完成")
             return True
         except Exception as e:
@@ -105,6 +117,13 @@ class LinjingBot:
                     await adapter.connect()
             self.running = True
             await self.event_bus.publish(EventType.BOT_STARTED, {"bot": self})
+
+            # 启动并发控制组件
+            if self.queue_manager:
+                await self.queue_manager.start()
+            if self.message_debouncer:
+                await self.message_debouncer.start()
+
             logger.info("林静机器人启动完成")
         except Exception as e:
             logger.error(f"启动失败: {str(e)}", exc_info=True)
@@ -123,6 +142,18 @@ class LinjingBot:
                     logger.info(f"正在断开适配器: {adapter_name}")
                     await adapter.disconnect()
             self.running = False
+
+            # 停止并发控制组件
+            if self.queue_manager:
+                await self.queue_manager.stop()
+            if self.message_debouncer:
+                await self.message_debouncer.stop()
+            # 停止资源锁管理器
+            if self.resource_lock:
+                if hasattr(self.resource_lock, 'stop') and callable(self.resource_lock.stop):
+                    await self.resource_lock.stop()
+                    logger.info("资源锁管理器已停止")
+
             logger.info("林静机器人停止完成")
         except Exception as e:
             logger.error(f"停止失败: {str(e)}", exc_info=True)
@@ -157,28 +188,124 @@ class LinjingBot:
             session_id=message.get_session_id() if hasattr(message, 'get_session_id') else "default"
         )
 
-        # 确保用户记录存在
-        if self.memory_manager:
+        # --- 新增：检查是否处于高警戒模式，用于消息合并 ---
+        is_high_alert = False
+        if self.storage_manager:
             try:
-                platform = message.get_platform() if hasattr(message, 'get_platform') else "unknown"
-                name = message.get_user_name() if hasattr(message, 'get_user_name') else None
-                await self.memory_manager.ensure_user_exists(
-                    user_id=context.user_id, platform=platform, name=name
-                )
+                session_id = message.get_session_id() if hasattr(message, 'get_session_id') else "default"
+                session_state = await self.storage_manager.get_session_state(session_id)
+                is_high_alert = session_state and session_state.get("is_high_alert", False)
             except Exception as e:
-                logger.error(f"处理用户存在性检查时出错 (用户ID: {context.user_id}): {e}", exc_info=True)
+                logger.error(f"获取会话状态失败: {e}", exc_info=True)
+        
+        # --- 新增：尝试消息合并 ---
+        if self.message_debouncer:
+            try:
+                was_debounced, group_id = await self.message_debouncer.process_message(
+                    message=message,
+                    context=context,
+                    processor=self._process_single_message,
+                    is_high_alert=is_high_alert
+                )
+                if was_debounced:
+                    logger.debug(f"消息已被合并到组 {group_id}，稍后处理")
+                    return None  # 消息被合并，暂不处理
+            except Exception as e:
+                logger.error(f"消息合并处理失败: {e}", exc_info=True)
+        
+        # --- 新增：通过队列管理器处理单条消息 ---
+        if self.queue_manager:
+            try:
+                success = await self.queue_manager.add_message(
+                    message=message,
+                    context=context,
+                    processor=self._process_single_message
+                )
+                if success:
+                    logger.debug("消息已加入队列，按顺序处理")
+                    return None  # 消息已加入队列，实际处理和返回将在队列处理时完成
+                else:
+                    logger.error("消息加入队列失败，尝试直接处理")
+            except Exception as e:
+                logger.error(f"消息队列处理失败: {e}", exc_info=True)
+        
+        # 如果并发控制组件不可用或失败，则直接处理消息
+        logger.warning("并发控制失败或未启用，直接处理消息")
+        return await self._process_single_message(message)
 
-        # 获取对话历史
-        if self.memory_manager:
-            history = await self.memory_manager.get_conversation_history(
-                context.user_id,
-                limit=self.config.get("memory", {}).get("max_conversation_history", 10)
-            )
-            context.with_history(history)
-            logger.debug(f"获取到对话历史: {len(history)} 条")
+    async def _process_single_message(self, message: Any) -> Optional[Any]:
+        """
+        处理单条消息（在队列中或直接处理）
+        
+        Args:
+            message: 消息对象
+            
+        Returns:
+            处理后的响应消息
+        """
+        logger.info(f"开始处理消息: {message}")
+        
+        # 创建消息上下文
+        context = MessageContext(
+            message=message,
+            user_id=message.get_user_id() if hasattr(message, 'get_user_id') else str(message),
+            config=self.config,
+            session_id=message.get_session_id() if hasattr(message, 'get_session_id') else "default"
+        )
 
-        # 获取情绪状态
-        if self.emotion_manager:
+        # --- 使用资源锁保护共享资源访问 ---
+        if self.resource_lock:
+            # 使用资源锁保护记忆系统访问
+            async with self.resource_lock.lock(ResourceType.MEMORY):
+                # 确保用户记录存在
+                if self.memory_manager:
+                    try:
+                        platform = message.get_platform() if hasattr(message, 'get_platform') else "unknown"
+                        name = message.get_user_name() if hasattr(message, 'get_user_name') else None
+                        await self.memory_manager.ensure_user_exists(
+                            user_id=context.user_id, platform=platform, name=name
+                        )
+                    except Exception as e:
+                        logger.error(f"处理用户存在性检查时出错 (用户ID: {context.user_id}): {e}", exc_info=True)
+                
+                # 获取对话历史
+                if self.memory_manager:
+                    history = await self.memory_manager.get_conversation_history(
+                        context.user_id,
+                        limit=self.config.get("memory", {}).get("max_conversation_history", 10)
+                    )
+                    context.with_history(history)
+                    logger.debug(f"获取到对话历史: {len(history)} 条")
+        else:
+            # 如果没有资源锁，直接执行
+            # 确保用户记录存在
+            if self.memory_manager:
+                try:
+                    platform = message.get_platform() if hasattr(message, 'get_platform') else "unknown"
+                    name = message.get_user_name() if hasattr(message, 'get_user_name') else None
+                    await self.memory_manager.ensure_user_exists(
+                        user_id=context.user_id, platform=platform, name=name
+                    )
+                except Exception as e:
+                    logger.error(f"处理用户存在性检查时出错 (用户ID: {context.user_id}): {e}", exc_info=True)
+            
+            # 获取对话历史
+            if self.memory_manager:
+                history = await self.memory_manager.get_conversation_history(
+                    context.user_id,
+                    limit=self.config.get("memory", {}).get("max_conversation_history", 10)
+                )
+                context.with_history(history)
+                logger.debug(f"获取到对话历史: {len(history)} 条")
+
+        # 使用资源锁保护情绪系统访问
+        if self.resource_lock and self.emotion_manager:
+            async with self.resource_lock.lock(ResourceType.EMOTION):
+                emotion = await self.emotion_manager.get_emotion(context.user_id)
+                context.with_emotion(emotion.to_dict() if hasattr(emotion, 'to_dict') else emotion)
+                logger.debug(f"获取到情绪状态: {context.get_state('emotion')}")
+        elif self.emotion_manager:
+            # 如果没有资源锁，直接执行
             emotion = await self.emotion_manager.get_emotion(context.user_id)
             context.with_emotion(emotion.to_dict() if hasattr(emotion, 'to_dict') else emotion)
             logger.debug(f"获取到情绪状态: {context.get_state('emotion')}")
@@ -188,129 +315,76 @@ class LinjingBot:
             EventType.MESSAGE_RECEIVED, {"message": message, "context": context}
         )
 
-        # --- V12 重构：在管道中处理情绪更新 ---
-        processed_context = context
-
-        # 1. 手动执行 ReadAirProcessor (如果存在)
-        read_air_processor = self.get_processor(ProcessorName.READ_AIR)
-        if read_air_processor:
-            logger.debug("手动执行 ReadAirProcessor...")
-            try:
-                processed_context = await read_air_processor.process(processed_context)
-                logger.debug(f"ReadAirProcessor 执行完毕。Context 状态: read_air_analysis={processed_context.get_state('read_air_analysis')}")
-                if not processed_context.get_state("read_air_analysis"):
-                     logger.error("ReadAirProcessor 执行成功但未能生成有效的分析结果，终止处理。")
-                     return None
-            except Exception as e:
-                 logger.error(f"执行处理器 {ProcessorName.READ_AIR} 时出错，终止处理: {e}", exc_info=True)
-                 return None
-        else:
-            logger.warning(f"处理器管道中未找到 {ProcessorName.READ_AIR}，无法执行读空气分析。")
-
-        # 2. 更新情绪状态 (基于 ReadAir 分析结果)
-        if self.emotion_manager:
-            logger.debug("开始更新情绪状态...")
-            read_air_analysis = processed_context.get_state("read_air_analysis")
-            message_text = message.extract_plain_text() if hasattr(message, 'extract_plain_text') else str(message)
-            factors = {"read_air_analysis": read_air_analysis if isinstance(read_air_analysis, dict) else {}}
-            try:
-                updated_emotion = await self.emotion_manager.update_emotion(
-                    processed_context.user_id, factors, message_text
-                )
-                processed_context.with_emotion(updated_emotion.to_dict())
-                logger.debug(f"情绪状态已更新并设置回上下文: {updated_emotion}")
-            except Exception as e:
-                 logger.error(f"更新情绪状态时出错 (UserID: {processed_context.user_id}): {e}", exc_info=True)
-
-        # 3. 执行管道中剩余的处理器
-        logger.debug("开始执行剩余的消息处理器...")
-        pipeline_order = self.config.get("bot", {}).get("processor_pipeline", [])
-        try:
-            read_air_index = pipeline_order.index(ProcessorName.READ_AIR)
-            start_index = read_air_index + 1
-        except ValueError:
-            logger.warning(f"管道顺序中未找到 {ProcessorName.READ_AIR}，将从头开始执行所有处理器。")
-            start_index = 0
-
-        for i in range(start_index, len(pipeline_order)):
-            processor_name = pipeline_order[i]
-            processor = self.get_processor(processor_name)
-            if processor:
-                logger.debug(f"执行处理器: {processor_name}...")
-                try:
-                    processed_context = await processor.process(processed_context)
-                    # --- 添加日志记录关键状态 ---
-                    if processor_name == ProcessorName.THOUGHT_GENERATOR:
-                        logger.debug(f"ThoughtGenerator 执行完毕。Context 状态: thought={processed_context.get_state('thought')}")
-                    elif processor_name == ProcessorName.WILLINGNESS_CHECKER:
-                        logger.debug(f"WillingnessChecker 执行完毕。Context 状态: is_willing_to_reply={processed_context.get_state('is_willing_to_reply')}")
-                    elif processor_name == ProcessorName.RESPONSE_COMPOSER:
-                        logger.debug(f"ResponseComposer 执行完毕。Context 状态: reply={processed_context.get_state('reply')}")
-                    else:
-                        logger.debug(f"处理器 {processor_name} 执行完毕。")
-                    # --- 日志记录结束 ---
-
-                    # --- V12 检查点 ---
-                    if processor_name == ProcessorName.THOUGHT_GENERATOR and not processed_context.get_state("thought"):
-                        logger.error("ThoughtGenerator 执行成功但未能生成有效的思考结果，终止处理。")
-                        break
-                    if processor_name == ProcessorName.WILLINGNESS_CHECKER:
-                        is_willing = processed_context.get_state("is_willing_to_reply", True)
-                        if not is_willing:
-                            logger.info("WillingnessChecker 判断不适合回复，终止处理。")
-                            break
-                except Exception as e:
-                     logger.error(f"执行处理器 {processor_name} 时出错，终止处理: {e}", exc_info=True)
-                     break
-            else:
-                 logger.warning(f"在管道顺序中找到但在实例中未找到处理器: {processor_name}")
-
-        result_context = processed_context
-        logger.debug("所有剩余处理器执行完毕。")
-
+        # --- V12 处理流程：执行处理器管道 ---
+        processed_context = await self._execute_processor_pipeline(context)
+        
         # 从处理后的上下文中获取最终回复
-        final_reply = result_context.get_state("reply")
+        final_reply = processed_context.get_state("reply")
 
         # 发布消息发送事件
         if final_reply:
             await self.event_bus.publish(
                 EventType.MESSAGE_SENT,
-                {"message": final_reply, "context": result_context}
+                {"message": final_reply, "context": processed_context}
             )
 
         # --- Return the reply first ---
         if final_reply:
-             # --- 重新加入：回复成功后开启高戒备 ---
+             # --- 使用资源锁保护会话状态更新 ---
              if self.high_alert_mode_trigger_enabled and self.storage_manager:
                  session_id = message.get_session_id() if hasattr(message, 'get_session_id') else "default"
-                 logger.info(f"机器人回复成功，会话 {session_id} 进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
-                 await self.storage_manager.update_session_state(
-                     session_id,
-                     is_high_alert=True,
-                     high_alert_counter=0
-                 )
-             # --- 高戒备触发结束 ---
-
-             # 为了尽快响应用户，将耗时的数据库写入操作放入后台任务执行
-             asyncio.create_task(self._save_conversation_async(context, result_context, message, final_reply))
-             return final_reply
-        else:
-             logger.warning(f"消息处理完成但未生成回复: UserID={context.user_id}, SessionID={context.session_id}")
-             # --- 即使没有回复，如果被提及，也可能需要开启高戒备 ---
-             if mentioned_or_named and self.high_alert_mode_trigger_enabled and self.storage_manager:
-                 session_id = message.get_session_id() if hasattr(message, 'get_session_id') else "default"
-                 # 检查是否已处于高戒备，避免重复日志和更新
-                 current_state = await self.storage_manager.get_session_state(session_id)
-                 if not current_state or not current_state.get("is_high_alert"):
-                     logger.info(f"会话 {session_id} 因被提及但无回复而进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
+                 
+                 if self.resource_lock:
+                     async with self.resource_lock.lock(ResourceType.SESSION):
+                         logger.info(f"机器人回复成功，会话 {session_id} 进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
+                         await self.storage_manager.update_session_state(
+                             session_id,
+                             is_high_alert=True,
+                             high_alert_counter=0
+                         )
+                 else:
+                     # 如果没有资源锁，直接执行
+                     logger.info(f"机器人回复成功，会话 {session_id} 进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
                      await self.storage_manager.update_session_state(
                          session_id,
                          is_high_alert=True,
                          high_alert_counter=0
-                         # 注意：这里不更新 last_active_ts 和 message_count，因为 _should_process_message 中已更新
                      )
-             return None
+             # --- 高戒备触发结束 ---
 
+             # 为了尽快响应用户，将耗时的数据库写入操作放入后台任务执行
+             asyncio.create_task(self._save_conversation_async(context, processed_context, message, final_reply))
+             return final_reply
+        else:
+             logger.warning(f"消息处理完成但未生成回复: UserID={context.user_id}, SessionID={context.session_id}")
+             # --- 即使没有回复，如果被提及，也可能需要开启高戒备 ---
+             mentioned_or_named = await self._check_if_mentioned(message)
+             if mentioned_or_named and self.high_alert_mode_trigger_enabled and self.storage_manager:
+                 session_id = message.get_session_id() if hasattr(message, 'get_session_id') else "default"
+                 
+                 if self.resource_lock:
+                     async with self.resource_lock.lock(ResourceType.SESSION):
+                         # 检查是否已处于高戒备，避免重复日志和更新
+                         current_state = await self.storage_manager.get_session_state(session_id)
+                         if not current_state or not current_state.get("is_high_alert"):
+                             logger.info(f"会话 {session_id} 因被提及但无回复而进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
+                             await self.storage_manager.update_session_state(
+                                 session_id,
+                                 is_high_alert=True,
+                                 high_alert_counter=0
+                             )
+                 else:
+                     # 如果没有资源锁，直接执行
+                     # 检查是否已处于高戒备，避免重复日志和更新
+                     current_state = await self.storage_manager.get_session_state(session_id)
+                     if not current_state or not current_state.get("is_high_alert"):
+                         logger.info(f"会话 {session_id} 因被提及但无回复而进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
+                         await self.storage_manager.update_session_state(
+                             session_id,
+                             is_high_alert=True,
+                             high_alert_counter=0
+                         )
+             return None
 
     async def _save_conversation_async(self, context: MessageContext, result_context: MessageContext, user_message: Any, bot_reply: Any):
         """Helper coroutine to save conversation asynchronously."""
@@ -473,10 +547,9 @@ class LinjingBot:
 
         # --- 如果被提及，则开启高戒备 (无论是否触发处理) ---
         if mentioned_or_named and self.high_alert_mode_trigger_enabled:
-            # 仅在当前不处于高戒备时才记录日志并重置计数器
-            if not session_state["is_high_alert"]:
-                logger.info(f"会话 {session_id} 因被提及而进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
-                update_payload["high_alert_counter"] = 0 # 重置计数器
+            # 无论之前的高戒备状态如何，只要被提及就重置计数器
+            logger.info(f"会话 {session_id} 因被提及而进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
+            update_payload["high_alert_counter"] = 0 # 重置计数器
             update_payload["is_high_alert"] = True # 确保开启或维持高戒备
 
         # --- 统一更新数据库状态 ---
@@ -773,6 +846,290 @@ class LinjingBot:
         else:
              logger.debug(f"适配器 {adapter_name} 连接事件未提供实例或 get_self_id 方法。")
 
+    async def _init_concurrent_controls(self) -> None:
+        """初始化并发控制组件"""
+        logger.info("正在初始化并发控制组件...")
+        
+        # 创建并发控制配置的默认值
+        concurrent_config = self.config.get("concurrent", {})
+        
+        # 初始化请求队列管理器
+        queue_config = concurrent_config.get("queue", {})
+        self.queue_manager = QueueManager(
+            max_queues=queue_config.get("max_queues", 100),
+            max_queue_size=queue_config.get("max_queue_size", 50),
+            queue_timeout=queue_config.get("queue_timeout", 600.0),
+            idle_cleanup_interval=queue_config.get("idle_cleanup_interval", 300.0)
+        )
+        await self.queue_manager.start()
+        logger.info("请求队列管理器初始化完成")
+        
+        # 初始化消息去重/合并器
+        debounce_config = concurrent_config.get("debounce", {})
+        self.message_debouncer = MessageDebouncer(
+            debounce_window=debounce_config.get("window", 0.5),
+            min_messages_to_combine=debounce_config.get("min_messages", 2),
+            max_messages_to_combine=debounce_config.get("max_messages", 5),
+            high_alert_only=debounce_config.get("high_alert_only", True),
+            check_interval=debounce_config.get("check_interval", 0.1)
+        )
+        await self.message_debouncer.start()
+        # 设置合并后的处理函数
+        self.message_debouncer.set_processor(self._process_message_batch)
+        logger.info("消息去重/合并器初始化完成")
+        
+        # 初始化资源锁管理器
+        lock_config = concurrent_config.get("lock", {})
+        use_simplified_locks = lock_config.get("use_simplified", True)
+        if use_simplified_locks:
+            self.resource_lock = EasyResourceLock()
+            self.resource_lock.start()
+            logger.info("使用简化版资源锁管理器")
+        else:
+            self.resource_lock = ResourceLockManager(
+                lock_timeout=lock_config.get("timeout", 30.0)
+            )
+            self.resource_lock.start()
+            logger.info("使用完整版资源锁管理器")
+        
+        logger.info("并发控制组件初始化完成")
+    
+    async def _process_message_batch(self, messages: List[Any], contexts: List[Any], processor: Callable) -> None:
+        """
+        处理消息批次（合并消息）
+        
+        Args:
+            messages: 消息列表
+            contexts: 上下文列表
+            processor: 处理函数
+        """
+        logger.info(f"开始处理合并消息组，共 {len(messages)} 条消息")
+        
+        if not messages:
+            logger.warning("收到空的消息组，跳过处理")
+            return
+        
+        # 目前简单处理：只处理组内最后一条消息
+        last_message = messages[-1]
+        
+        # 添加日志，标记这是从合并消息组中选取的
+        logger.info(f"从合并消息组中选择最后一条消息进行处理: {last_message}")
+        
+        # 处理选中的消息
+        try:
+            await processor(last_message)
+        except Exception as e:
+            logger.error(f"处理合并消息中的选定消息时出错: {e}", exc_info=True)
+    
+    async def _execute_processor_pipeline(self, context: MessageContext) -> MessageContext:
+        """
+        执行处理器管道
+        
+        Args:
+            context: 消息上下文
+            
+        Returns:
+            处理后的上下文
+        """
+        processed_context = context
+        
+        # 1. 手动执行 ReadAirProcessor (如果存在)
+        read_air_processor = self.get_processor(ProcessorName.READ_AIR)
+        if read_air_processor:
+            logger.debug("手动执行 ReadAirProcessor...")
+            try:
+                processed_context = await read_air_processor.process(processed_context)
+                logger.debug(f"ReadAirProcessor 执行完毕。Context 状态: read_air_analysis={processed_context.get_state('read_air_analysis')}")
+                
+                # 打印读空气分析结果报告
+                self._print_component_report("读空气分析", processed_context.get_state("read_air_analysis"))
+                
+                if not processed_context.get_state("read_air_analysis"):
+                     logger.error("ReadAirProcessor 执行成功但未能生成有效的分析结果，终止处理。")
+                     return processed_context
+            except Exception as e:
+                 logger.error(f"执行处理器 {ProcessorName.READ_AIR} 时出错，终止处理: {e}", exc_info=True)
+                 return processed_context
+        else:
+            logger.warning(f"处理器管道中未找到 {ProcessorName.READ_AIR}，无法执行读空气分析。")
+
+        # 2. 更新情绪状态 (基于 ReadAir 分析结果)
+        if self.emotion_manager:
+            logger.debug("开始更新情绪状态...")
+            read_air_analysis = processed_context.get_state("read_air_analysis")
+            message_text = processed_context.message.extract_plain_text() if hasattr(processed_context.message, 'extract_plain_text') else str(processed_context.message)
+            factors = {"read_air_analysis": read_air_analysis if isinstance(read_air_analysis, dict) else {}}
+            
+            # 使用资源锁保护情绪更新
+            if self.resource_lock:
+                async with self.resource_lock.lock(ResourceType.EMOTION):
+                    try:
+                        updated_emotion = await self.emotion_manager.update_emotion(
+                            processed_context.user_id, factors, message_text
+                        )
+                        processed_context.with_emotion(updated_emotion.to_dict() if hasattr(updated_emotion, 'to_dict') else updated_emotion)
+                        logger.debug(f"情绪状态已更新并设置回上下文: {updated_emotion}")
+                        
+                        # 打印情绪状态报告
+                        self._print_component_report("情绪状态", processed_context.get_state("emotion"))
+                    except Exception as e:
+                         logger.error(f"更新情绪状态时出错 (UserID: {processed_context.user_id}): {e}", exc_info=True)
+            else:
+                # 如果没有资源锁，直接执行
+                try:
+                    updated_emotion = await self.emotion_manager.update_emotion(
+                        processed_context.user_id, factors, message_text
+                    )
+                    processed_context.with_emotion(updated_emotion.to_dict() if hasattr(updated_emotion, 'to_dict') else updated_emotion)
+                    logger.debug(f"情绪状态已更新并设置回上下文: {updated_emotion}")
+                    
+                    # 打印情绪状态报告
+                    self._print_component_report("情绪状态", processed_context.get_state("emotion"))
+                except Exception as e:
+                     logger.error(f"更新情绪状态时出错 (UserID: {processed_context.user_id}): {e}", exc_info=True)
+
+        # 3. 执行管道中剩余的处理器
+        logger.debug("开始执行剩余的消息处理器...")
+        pipeline_order = self.config.get("bot", {}).get("processor_pipeline", [])
+        try:
+            read_air_index = pipeline_order.index(ProcessorName.READ_AIR)
+            start_index = read_air_index + 1
+        except ValueError:
+            logger.warning(f"管道顺序中未找到 {ProcessorName.READ_AIR}，将从头开始执行所有处理器。")
+            start_index = 0
+
+        for i in range(start_index, len(pipeline_order)):
+            processor_name = pipeline_order[i]
+            processor = self.get_processor(processor_name)
+            if processor:
+                logger.debug(f"执行处理器: {processor_name}...")
+                try:
+                    processed_context = await processor.process(processed_context)
+                    # --- 添加日志记录关键状态 ---
+                    if processor_name == ProcessorName.THOUGHT_GENERATOR:
+                        logger.debug(f"ThoughtGenerator 执行完毕。Context 状态: thought={processed_context.get_state('thought')}")
+                        # 打印思考生成结果报告
+                        self._print_component_report("思考生成", processed_context.get_state("thought"))
+                    elif processor_name == ProcessorName.WILLINGNESS_CHECKER:
+                        logger.debug(f"WillingnessChecker 执行完毕。Context 状态: is_willing_to_reply={processed_context.get_state('is_willing_to_reply')}")
+                        # 打印意愿检查结果报告
+                        willingness_report = {
+                            "is_willing_to_reply": processed_context.get_state("is_willing_to_reply"),
+                            "unwilling_reason": processed_context.get_state("unwilling_reason", ""),
+                            "willingness_analysis": processed_context.get_state("willingness_analysis", {})
+                        }
+                        self._print_component_report("意愿检查", willingness_report)
+                    elif processor_name == ProcessorName.RESPONSE_COMPOSER:
+                        logger.debug(f"ResponseComposer 执行完毕。Context 状态: reply={processed_context.get_state('reply')}")
+                    else:
+                        logger.debug(f"处理器 {processor_name} 执行完毕。")
+                    # --- 日志记录结束 ---
+
+                    # --- V12 检查点 ---
+                    if processor_name == ProcessorName.THOUGHT_GENERATOR and not processed_context.get_state("thought"):
+                        logger.error("ThoughtGenerator 执行成功但未能生成有效的思考结果，终止处理。")
+                        break
+                    if processor_name == ProcessorName.WILLINGNESS_CHECKER:
+                        is_willing = processed_context.get_state("is_willing_to_reply", True)
+                        if not is_willing:
+                            logger.info("WillingnessChecker 判断不适合回复，终止处理。")
+                            break
+                except Exception as e:
+                     logger.error(f"执行处理器 {processor_name} 时出错，终止处理: {e}", exc_info=True)
+                     break
+            else:
+                 logger.warning(f"在管道顺序中找到但在实例中未找到处理器: {processor_name}")
+
+        logger.debug("所有剩余处理器执行完毕。")
+        return processed_context
+    
+    async def _check_if_mentioned(self, message: Any) -> bool:
+        """
+        检查消息是否提及了机器人
+        
+        Args:
+            message: 消息对象
+            
+        Returns:
+            是否提及了机器人
+        """
+        # 代码从 _should_process_message 方法中提取出来
+        mentioned = False
+        
+        # 检查是否包含@提及
+        if hasattr(message, 'segments') and isinstance(message.segments, list):
+            for segment in message.segments:
+                if (segment.type and segment.type.name == "AT" and 
+                    segment.data and segment.data.get("qq") == self.self_id):
+                    mentioned = True
+                    break
+        
+        # 如果没找到@提及，检查文本中是否包含机器人名字
+        if not mentioned and self.name_trigger_enabled:
+            bot_names = self.config.get("bot", {}).get("bot_names", ["林静", "Linjing"])
+            message_text = message.extract_plain_text() if hasattr(message, 'extract_plain_text') else str(message)
+            
+            for name in bot_names:
+                if name in message_text:
+                    mentioned = True
+                    break
+        
+        return mentioned
+
+    def _print_component_report(self, component_name: str, data: Any, prefix: str = "") -> None:
+        """
+        打印组件处理结果的详细报告
+        
+        Args:
+            component_name: 组件名称
+            data: 组件处理结果数据
+            prefix: 日志前缀
+        """
+        if data is None:
+            logger.info(f"{prefix}【{component_name}】处理结果为空")
+            return
+
+        logger.info(f"{prefix}【{component_name}】处理结果报告开始 ───────────────────")
+        
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if isinstance(value, dict) and len(value) > 5:
+                    sub_items = list(value.items())[:5]
+                    logger.info(f"{prefix}  {key}: {dict(sub_items)}... (共{len(value)}项)")
+                elif isinstance(value, list) and len(value) > 5:
+                    logger.info(f"{prefix}  {key}: {value[:5]}... (共{len(value)}项)")
+                else:
+                    value_str = str(value)
+                    if len(value_str) > 100:
+                        value_str = value_str[:97] + "..."
+                    logger.info(f"{prefix}  {key}: {value_str}")
+        elif isinstance(data, list):
+            if len(data) > 5:
+                for i, item in enumerate(data[:5]):
+                    item_str = str(item)
+                    if len(item_str) > 100:
+                        item_str = item_str[:97] + "..."
+                    logger.info(f"{prefix}  [{i}]: {item_str}")
+                logger.info(f"{prefix}  ... (共{len(data)}项)")
+            else:
+                for i, item in enumerate(data):
+                    item_str = str(item)
+                    if len(item_str) > 100:
+                        item_str = item_str[:97] + "..."
+                    logger.info(f"{prefix}  [{i}]: {item_str}")
+        else:
+            value_str = str(data)
+            if len(value_str) > 500:
+                lines = value_str[:500].split('\n')
+                for line in lines[:5]:
+                    logger.info(f"{prefix}  {line}")
+                logger.info(f"{prefix}  ... (内容过长，已截断)")
+            else:
+                lines = value_str.split('\n')
+                for line in lines:
+                    logger.info(f"{prefix}  {line}")
+                    
+        logger.info(f"{prefix}【{component_name}】处理结果报告结束 ───────────────────")
 
 # 创建机器人单例实例
 _bot_instance = None

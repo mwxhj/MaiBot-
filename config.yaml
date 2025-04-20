@@ -16,11 +16,38 @@ system:
     retention_days: 30  # 日志保留天数
   network:
     default_download_timeout: 30.0  # 默认文件下载超时(秒)
+  # 配置加载顺序
+  configs:
+    - "config.yaml"                  # 主配置文件
+    - "linjing/config/prompts.yaml"  # 提示词配置
+    - "linjing/config/concurrent.yaml" # 并发控制组件配置
 
 # 调试配置
 debug:
   always_high_alert: true  # 开发模式：始终处于高戒备状态，回复所有消息
   log_all_events: true     # 记录所有接收到的事件
+
+# 并发控制组件配置
+concurrent:
+  # 队列管理器配置
+  queue:
+    max_queues: 15            # 最大并发队列数量
+    max_queue_size: 50         # 每个队列的最大容量
+    queue_timeout: 120       # 队列处理超时时间（秒）
+    idle_cleanup_interval: 300.0 # 空闲队列清理间隔（秒）
+  
+  # 消息去重/合并器配置
+  debounce:
+    window: 1.5                # 合并窗口（秒）
+    min_messages: 2            # 最小合并消息数
+    max_messages: 5            # 最大合并消息数
+    high_alert_only: true      # 只在高警戒模式下合并消息
+    check_interval: 0.1        # 检查间隔（秒）
+  
+  # 资源锁配置
+  lock:
+    use_simplified: true       # 使用简化版资源锁管理器
+    timeout: 5              # 锁获取超时时间（秒）
 
 # 机器人核心设置
 bot:
@@ -324,11 +351,6 @@ emotion:
       - {threshold: 0.2, word: "非常顺从"}
       - {threshold: 0.0, word: "极其顺从"}
 
-  # --- 以下为旧配置，将被忽略或移除 ---
-  # emotion_vocabulary: ... (这个可能仍被 Prompt 使用，暂时保留)
-  # event_impact: ... (旧的单维度影响因子，已废弃)
-  # expression_control: ... (旧的强度等级，已废弃)
-
 # 处理器配置
 processors:
   read_air:
@@ -369,7 +391,7 @@ processors:
     skip_on_mention: false # 修改为 false，确保任何情况下都检查意愿
     default_willingness: true # LLM 调用失败时的默认行为
     max_history_for_willingness: 3 # 用于判断意愿时参考的历史消息数量
-    llm_max_tokens: 100  # LLM判断意愿最大Token数
+    llm_max_tokens: 4096  # LLM判断意愿最大Token数
 
 # 适配器设置
 adapters:
