@@ -2,18 +2,27 @@
 # -*- coding: utf-8 -*-
 
 """
-资源锁管理器，提供对共享资源的细粒度锁控制。
-实现辅助策略：Locking
+资源锁模块，提供分布式锁及资源访问控制机制。
+
+提供以下功能：
+1. 同步和异步资源锁
+2. 分布式锁支持
+3. 超时和自动释放机制
+4. 可重入锁
+5. 读写锁
 """
 
 import asyncio
+import logging
 import time
+import uuid
+from contextlib import asynccontextmanager, contextmanager
 from enum import Enum, auto
-from typing import Dict, Any, Set, Optional
-from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from ..utils.logger import get_logger
+from linjing.utils.logger import get_logger
 
+# 获取日志记录器
 logger = get_logger(__name__)
 
 class ResourceType(Enum):

@@ -2,23 +2,31 @@
 # -*- coding: utf-8 -*-
 
 """
-消息去重/合并器模块，负责合并短时间内的连续消息。
+消息去重与合并处理模块，用于处理快速连续发送的相似消息。
 
 提供以下功能：
-1. 短时窗口内的消息合并
-2. 消息分组与批处理
-3. 高警戒模式（对重要对话不合并）
-4. 可配置的合并策略
+1. 消息分组
+2. 按批次处理
+3. 可配置的合并策略
+4. 设置延迟窗口
+5. 消息优先级处理
 """
 
 import asyncio
+import copy
+import hashlib
+import json
+import logging
 import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Awaitable
+from datetime import datetime
+from enum import Enum
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
-from ..utils.logger import get_logger
+from linjing.types.message_types import Message
+from linjing.utils.logger import get_logger
 
 # 获取日志记录器
 logger = get_logger(__name__)
