@@ -176,20 +176,26 @@ class ResponseComposer(BaseProcessor):
 
             logger.debug(f"准备将回复对象设置到 context: {reply_message}") # 保留原有日志
             # 使用 create_response 来设置最终响应，而不是 set_state
-            context.create_response(reply_message)
-            # 保留 set_state 以防其他地方可能用到，但主要依赖 create_response
-            context.set_state("reply", reply_message)
-            # 使用提取的纯文本更新日志信息
-            logger.info(f"已生成回复并设置到 context: {reply_text_for_log[:50]}{'...' if len(reply_text_for_log) > 50 else ''}")
+            try:
+                context.create_response(reply_message)
+                logger.info(f"成功调用 context.create_response. context.response 类型: {type(context.response)}, 内容: {context.response}") # 检查调用后状态
+            except Exception as cr_err:
+                 logger.error(f"调用 context.create_response 时出错: {cr_err}", exc_info=True)
+                 # 即使 create_response 失败，也尝试设置状态以供调试
             
-        except Exception as e:
-            logger.error(f"生成回复时出错: {e}", exc_info=True)
-            # 移除默认错误回复逻辑，只记录错误
-            # error_reply_message = Message(MessageSegment.text(self._generate_error_response()))
-            # context.create_response(error_reply_message)
-            # context.set_state("reply", error_reply_message)
-            # 可以在这里设置一个错误标志，或者让 context.get_state("reply") 返回 None
-            context.set_state("reply_generation_error", True) # 添加一个错误标志
+            # This sets a state variable, might be redundant or used elsewhere
+            logger.debug("尝试调用 context.set_state('reply', ...)") # 原日志保持 debug
+            try:
+                context.set_state("reply", reply_message)
+                logger.debug("成功调用 context.set_state('reply').") # 原日志保持 debug
+            except Exception as cs_err:
+                logger.error(f"调用 context.set_state('reply') 时出错: {cs_err}", exc_info=True)
+            
+            # logger.info(f"已生成回复并设置到 context: {reply_text_for_log[:50]}{'...'} ") # 这行日志现在可能引起混淆，注释掉
+            
+        except Exception as e: # 这个 except 块捕获 process 方法的主要流程错误
+            logger.error(f"生成回复时出错 (Outer Try Block): {e}", exc_info=True)
+            context.set_state("reply_generation_error", True) # 设置错误标志
 
         return context
 
