@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional, Union
 import time
 
 # 移除错误的 Memory 导入
+# 导入正确的 MemoryModel
+from linjing.storage.storage_models import MemoryModel
 from linjing.constants import MemoryType, CACHE_KEY_MEMORIES
 
 logger = logging.getLogger(__name__)
@@ -50,7 +52,7 @@ class MemoryRetriever:
     
     async def retrieve(self, query: str, user_id: str, session_id: Optional[str] = None, 
                      memory_types: Optional[List[Union[MemoryType, str]]] = None,
-                     limit: Optional[int] = None, use_cache: bool = True) -> List[Memory]:
+                     limit: Optional[int] = None, use_cache: bool = True) -> List[MemoryModel]: # 使用 MemoryModel
         """
         检索与查询相关的记忆
         
@@ -133,7 +135,7 @@ class MemoryRetriever:
         
         return result
     
-    async def rank_memories(self, memories: List[Memory], query: str) -> List[Memory]:
+    async def rank_memories(self, memories: List[MemoryModel], query: str) -> List[MemoryModel]: # 使用 MemoryModel
         """
         根据多种因素对记忆进行排序
         
@@ -195,7 +197,7 @@ class MemoryRetriever:
         # 返回排序后的记忆列表
         return [memory for memory, _ in scored_memories]
     
-    async def _rerank_with_llm(self, memories: List[Memory], query: str) -> List[Memory]:
+    async def _rerank_with_llm(self, memories: List[MemoryModel], query: str) -> List[MemoryModel]: # 使用 MemoryModel
         """
         使用LLM重新排序记忆
         
@@ -278,8 +280,8 @@ class MemoryRetriever:
             logger.error(f"使用LLM重排序记忆失败: {e}", exc_info=True)
             return memories
     
-    async def retrieve_memory_by_type(self, user_id: str, memory_type: Union[MemoryType, str], 
-                                    limit: int = 10) -> List[Memory]:
+    async def retrieve_memory_by_type(self, user_id: str, memory_type: Union[MemoryType, str],
+                                    limit: int = 10) -> List[MemoryModel]: # 使用 MemoryModel
         """
         按类型检索用户记忆
         
@@ -321,7 +323,7 @@ class MemoryRetriever:
                         except Exception:
                             row["metadata"] = {}
                     
-                    memory = Memory.from_dict(row)
+                    memory = MemoryModel.from_dict(row) # 使用 MemoryModel
                     memory.access()  # 记录访问
                     memories.append(memory)
                 
@@ -332,7 +334,7 @@ class MemoryRetriever:
         
         return []
     
-    async def retrieve_user_profile(self, user_id: str) -> Optional[Memory]:
+    async def retrieve_user_profile(self, user_id: str) -> Optional[MemoryModel]: # 使用 MemoryModel
         """
         检索用户资料记忆
         
@@ -345,7 +347,7 @@ class MemoryRetriever:
         profiles = await self.retrieve_memory_by_type(user_id, MemoryType.USER_PROFILE, limit=1)
         return profiles[0] if profiles else None
     
-    async def retrieve_user_preferences(self, user_id: str, limit: int = 5) -> List[Memory]:
+    async def retrieve_user_preferences(self, user_id: str, limit: int = 5) -> List[MemoryModel]: # 使用 MemoryModel
         """
         检索用户偏好记忆
         
@@ -358,7 +360,7 @@ class MemoryRetriever:
         """
         return await self.retrieve_memory_by_type(user_id, MemoryType.PREFERENCE, limit=limit)
     
-    async def retrieve_recent_conversations(self, user_id: str, limit: int = 10) -> List[Memory]:
+    async def retrieve_recent_conversations(self, user_id: str, limit: int = 10) -> List[MemoryModel]: # 使用 MemoryModel
         """
         检索最近对话记忆
         
@@ -398,7 +400,7 @@ class MemoryRetriever:
                         except Exception:
                             row["metadata"] = {}
                     
-                    memory = Memory.from_dict(row)
+                    memory = MemoryModel.from_dict(row) # 使用 MemoryModel
                     memory.access()  # 记录访问
                     memories.append(memory)
                 
