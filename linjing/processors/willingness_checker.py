@@ -138,7 +138,7 @@ class WillingnessChecker(BaseProcessor):
             response, metadata = await self.llm_manager.generate_text(
                 prompt,
                 max_tokens=self.config.get("llm_max_tokens", 100), # 从配置读取 token 限制
-                task="willingness_check" # 定义新的任务类型
+                task=self.name # 使用处理器名称作为任务类型
             )
             
             # 解析 LLM 响应 (期望返回 "true" 或 "false" 字符串)

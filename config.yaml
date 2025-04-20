@@ -162,12 +162,16 @@ llm:
       read_air:
         - provider_id: "DUCKgemini_provider"
           model: "gemini-1.5-pro-latest"
-      thought_generation:
+      thought_generator:
         - provider_id: "DUCKgemini_provider"
           model: "gemini-1.5-pro-latest"
-      # **新增：意愿检查任务路由**
-      willingness_check:
+      # **修改：使用正确的处理器名称**
+      willingness_checker:
         - provider_id: "DUCKgemini_provider" # 或者选择其他合适的模型
+          model: "gemini-1.5-pro-latest"
+      # **添加：添加response_composer处理器**
+      response_composer:
+        - provider_id: "DUCKgemini_provider"
           model: "gemini-1.5-pro-latest"
 
 # 存储设置

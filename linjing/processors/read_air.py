@@ -258,7 +258,7 @@ class ReadAirProcessor(BaseProcessor):
             response, metadata = await self.llm_manager.generate_text(
                 prompt,
                 max_tokens=self.config.get("llm_max_tokens", 1000), # 从配置读取 token 限制
-                task=ProcessorName.READ_AIR  # 使用任务路由机制选择合适的模型
+                task=self.name  # 使用处理器名称作为任务类型，而非ProcessorName枚举
             )
             
             # 记录使用的模型信息

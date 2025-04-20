@@ -214,7 +214,7 @@ class ResponseComposer(BaseProcessor):
             try:
                 response, metadata = await self.llm_manager.generate_text(
                     prompt,
-                    task="chat",  # 回复生成是对话任务
+                    task=self.name,  # 使用处理器名称作为任务类型
                     max_tokens=self.max_tokens,
                     temperature=self.temperature
                 )
@@ -494,7 +494,7 @@ class ResponseComposer(BaseProcessor):
 
                 response, metadata = await self.llm_manager.generate_text(
                     prompt,
-                    task="chat",  # 备用回复也是对话任务
+                    task=self.name,  # 使用处理器名称作为任务类型
                     max_tokens=self.max_tokens,
                     temperature=self.temperature
                 )

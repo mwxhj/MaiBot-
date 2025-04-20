@@ -167,7 +167,7 @@ class ThoughtGenerator(BaseProcessor):
             thought, metadata = await self.llm_manager.generate_text(
                 prompt,
                 max_tokens=self.config.get("max_tokens", 1000), # 从配置读取 token 限制
-                task="thought_generation"  # 使用专门的任务类型
+                task=self.name  # 使用处理器名称作为任务类型
             )
             
             # 记录使用的模型信息
