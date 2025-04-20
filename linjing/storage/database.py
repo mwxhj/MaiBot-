@@ -92,6 +92,18 @@ class DatabaseManager:
                     # 修正后的连接配置（优先使用DSN并强制IPv4）
                     # 不再需要 asyncpg.URI 来处理密码，直接在 DSN 中使用原始密码
                     # encoded_password = asyncpg.URI(self.db_password).password # <--- 移除或注释掉此行
+
+                    # --- 添加日志检查密码 ---
+                    password_env_var_name = self.config.get('password', 'DB_PASSWORD').strip('${}')
+                    if not self.db_password:
+                        logger.error(f"数据库密码环境变量 '{password_env_var_name}' 未设置或为空！无法构建有效的 DSN。")
+                        # 考虑在这里直接返回失败，避免无效尝试
+                        # return False # 或者 raise ValueError("数据库密码未配置")
+                    else:
+                         # 为了安全，不直接打印密码，只确认存在且长度不为0
+                         logger.debug(f"从环境变量 '{password_env_var_name}' 获取的数据库密码存在且非空。")
+                    # --- 日志检查结束 ---
+
                     # 移除 DSN 中的 connect_timeout，它不是标准的 PostgreSQL 参数
                     final_dsn = (
                         f"postgresql://{self.db_user}:{self.db_password}@"
