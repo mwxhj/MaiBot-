@@ -8,6 +8,7 @@
 
 import json
 from typing import Any, Dict, List, Optional # <--- 移除未使用的 Tuple
+from loguru import logger # 确保导入 logger
 
 # from linjing.adapters import Message # <--- Message 类在此文件未直接使用
 from linjing.processors.base_processor import BaseProcessor
@@ -184,13 +185,32 @@ class ReadAirProcessor(BaseProcessor):
                 context.log_processor(self.name, "无法分析消息")
         
         except Exception as e:
-            # 修改日志记录方式，避免 f-string 格式化问题
+            # 1. 首先，立即记录原始错误 e 的基本信息和堆栈跟踪
+            logger.error(f"读空气处理过程中发生原始错误: {type(e).__name__}", exc_info=True) # 添加 exc_info
+
+            # 2. 尝试记录更详细的信息，但简化并增加健壮性
             try:
-                context_dict_str = json.dumps(context.to_dict(), indent=2, ensure_ascii=False, default=str)
-                logger.error(f"读空气处理失败 - 输入数据:\n{context_dict_str}", exc_info=True)
+                # 简化：只记录关键信息，而不是整个 context
+                error_context_info = {
+                    "message_id": context.message.message_id if context.message else None,
+                    "user_id": context.user_id,
+                    "group_id": context.group_id,
+                    "platform": context.platform,
+                    "original_text": context.message.extract_plain_text()[:200] if context.message else None # 限制长度
+                }
+                context_info_str = json.dumps(error_context_info, ensure_ascii=False, default=str)
+                logger.error(f"读空气处理失败的上下文概要: {context_info_str}")
             except Exception as log_e:
-                 logger.error(f"记录读空气失败日志时出错: {log_e}", exc_info=True) # 记录原始错误和日志记录错误
-            context.log_processor(self.name, f"处理失败: {type(e).__name__} - {str(e)}")
+                 # 3. 改进日志记录错误的日志，包含原始错误 e 的类型
+                 logger.error(f"记录读空气失败详细上下文时出错 (原始错误类型: {type(e).__name__}): {log_e}", exc_info=True) # 添加原始错误类型和 exc_info
+
+            # 4. 记录简化的失败信息到 processor 日志 (保持不变或按需调整)
+            # 检查 context 是否有 log_processor 方法
+            if hasattr(context, 'log_processor') and callable(context.log_processor):
+                context.log_processor(self.name, f"处理失败: {type(e).__name__} - {str(e)}")
+            else:
+                logger.warning("Context 对象缺少 log_processor 方法，无法记录处理器失败日志。")
+                logger.error(f"ReadAirProcessor 处理失败详情: {type(e).__name__} - {str(e)}") # 备用日志记录
         
         return context
     
