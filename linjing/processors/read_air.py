@@ -16,10 +16,6 @@ from linjing.processors.processor_registry import ProcessorRegistry
 from loguru import logger # 确保 logger 已导入
 from linjing.constants import ProcessorName # <--- ProcessorName 在 _analyze_message 方法中使用
 
-# 获取日志记录器
-logger = get_logger(__name__)
-
-
 @ProcessorRegistry.register()
 class ReadAirProcessor(BaseProcessor):
     """
