@@ -853,17 +853,17 @@ class LinjingBot:
         # 创建并发控制配置的默认值
         concurrent_config = self.config.get("concurrent", {})
         
-        # 初始化请求队列管理器
-        queue_config = concurrent_config.get("queue", {})
+        # 初始化队列管理器
+        queue_config = concurrent_config.get("queue_manager", {})
         self.queue_manager = QueueManager(
-            max_queues_per_type=queue_config.get("max_queues_per_type", 100),
-            default_queue_size=queue_config.get("default_queue_size", 50),
+            default_queue_size=queue_config.get("default_queue_size", 100),
             default_concurrent=queue_config.get("default_concurrent", 5),
-            default_timeout=queue_config.get("default_timeout", 600.0),
-            idle_cleanup_interval=queue_config.get("idle_cleanup_interval", 300.0)
+            default_timeout=queue_config.get("default_timeout", 60.0),
+            idle_cleanup_interval=queue_config.get("idle_cleanup_interval", 300.0),
+            event_bus=self.event_bus
         )
         await self.queue_manager.start()
-        logger.info("请求队列管理器初始化完成")
+        logger.info("队列管理器初始化完成")
         
         # 初始化消息去重/合并器
         debounce_config = concurrent_config.get("debounce", {})

@@ -17,10 +17,12 @@ class EventType:
     EMOTION_UPDATED = "emotion_updated"
     MEMORY_STORED = "memory_stored"
     PLUGIN_LOADED = "plugin_loaded"
+    PLUGIN_UNLOADED = "plugin_unloaded"
     BOT_STARTED = "bot_started"
     BOT_STOPPED = "bot_stopped"
     ERROR_OCCURRED = "error_occurred"
     ADAPTER_CONNECTED = "adapter_connected" # 新增：适配器连接成功事件
+    SEND_MESSAGE_REQUEST = "send_message_request"
 
 # 消息类型
 class MessageType:

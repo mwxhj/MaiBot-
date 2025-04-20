@@ -411,7 +411,8 @@ class RequestQueueManager:
         default_queue_size: int = 100,
         default_concurrent: int = 5,
         default_timeout: float = 60.0,
-        idle_cleanup_interval: float = 300.0
+        idle_cleanup_interval: float = 300.0,
+        event_bus: Optional[Any] = None
     ):
         """
         初始化请求队列管理器
@@ -422,12 +423,14 @@ class RequestQueueManager:
             default_concurrent: 默认并发数
             default_timeout: 默认超时时间（秒）
             idle_cleanup_interval: 空闲队列清理间隔（秒）
+            event_bus: 事件总线实例 (可选)
         """
         self.max_queues_per_type = max_queues_per_type
         self.default_queue_size = default_queue_size
         self.default_concurrent = default_concurrent
         self.default_timeout = default_timeout
         self.idle_cleanup_interval = idle_cleanup_interval
+        self.event_bus = event_bus
         
         # 队列类型 -> 队列实例字典
         self.queues: Dict[RequestQueueType, TypedRequestQueue] = {}
@@ -764,58 +767,57 @@ class RequestQueueManager:
         timeout: float = None
     ) -> bool:
         """
-        添加消息到会话队列（兼容旧版本）
-        
+        将消息添加到会话队列中进行处理（兼容旧版本）。
+
         Args:
-            message: 消息对象
-            context: 上下文对象
-            processor: 处理函数
+            message: 原始消息对象
+            context: 消息上下文
+            processor: 处理函数 (期望接收 context 作为参数)
             priority: 优先级
-            timeout: 超时时间
-            
+            timeout: 超时时间（秒）
+
         Returns:
             是否成功添加
         """
-        # 从上下文或消息中获取会话ID
-        session_id = getattr(context, 'session_id', None) or getattr(message, 'session_id', 'default')
+        session_id = context.session_id if hasattr(context, 'session_id') else "default_session"
         
-        # 创建兼容的处理函数包装器
-        async def processor_wrapper(data):
-            # Unpack the tuple stored in data
-            message, context, original_processor = data
-            # Call the original processor (e.g., _process_single_message) with only the message
-            # Using keyword argument for clarity
-            return await original_processor(message=message)
-        
-        # 构建数据对象
-        data = (message, context, processor)
-        
-        # 生成任务ID
-        self.task_id_counter += 1
-        task_id = f"task_{self.task_id_counter}"
-        
-        # 添加元数据
-        metadata = {
-            'task_id': task_id,
-            'session_id': session_id,
-            'is_legacy': True
-        }
-        
-        # 获取会话队列
-        queue = await self.get_session_queue(session_id)
+        # --- 提取发送所需信息 --- 
+        send_metadata = {}
+        if message: # 确保 message 对象存在
+             try:
+                 send_metadata['user_id'] = message.get_user_id()
+                 send_metadata['group_id'] = message.get_group_id()
+                 send_metadata['message_type'] = message.get_message_type()
+                 send_metadata['adapter_name'] = message.get_platform() # 假设 message 有 get_platform 方法
+                 # 存储原始消息引用，以便 _process_request 能访问
+                 send_metadata['original_message'] = message 
+             except AttributeError as e:
+                 logger.warning(f"无法从消息对象提取所有发送元数据: {e}。发送功能可能受限。")
+             except Exception as e:
+                 logger.error(f"提取消息元数据时发生意外错误: {e}", exc_info=True)
+        # --- 提取结束 ---
         
         try:
-            # 添加到队列
-            await queue.add_request(
-                data=data,
+            session_queue = await self.get_or_create_queue(session_id)
+            
+            # 创建一个包装器来适应 TypedRequestQueue 的 processor 签名
+            # 这个包装器接收 data (即我们传入的 context)，然后调用原始的 processor
+            async def processor_wrapper(ctx):
+                return await processor(ctx)
+
+            await session_queue.add_request(
+                data=context, # 将 context 作为 data 传递
                 processor=processor_wrapper,
                 priority=priority,
-                timeout=timeout or self.default_timeout,
-                metadata=metadata
+                timeout=timeout,
+                metadata=send_metadata # <--- 传递包含发送信息的元数据
             )
             return True
         except asyncio.QueueFull:
-            logger.error(f"会话队列 {session_id} 已满，无法添加消息")
+            logger.error(f"会话 {session_id} 队列已满，无法添加消息。")
+            return False
+        except Exception as e:
+            logger.error(f"添加消息到会话 {session_id} 队列时出错: {e}", exc_info=True)
             return False
     
     async def get_queue_status(self) -> Dict[str, Any]:
