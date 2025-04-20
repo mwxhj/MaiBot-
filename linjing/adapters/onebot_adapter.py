@@ -385,18 +385,50 @@ class OneBotAdapter(Bot):
                     logger.debug(f"调用主消息处理函数: {self._message_handler.__name__}")
                     reply = await self._message_handler(message_obj)
                     if reply:
+                        print("!!! DEBUG PRINT: Inside 'if reply' block !!!", flush=True) # 新增
                         # 如果主处理函数返回了回复，则发送回复
                         logger.debug(f"主处理函数返回回复: {reply}")
                         # 确定回复目标和消息类型
-                        target_id = message_obj.group_id if message_obj.message_type == 'group' else message_obj.user_id
-                        print(f"!!! DEBUG PRINT: _handle_event PREPARING TO CALL self.send for target {target_id} !!!", flush=True) # 添加 Print
-                        await self.send(target_id, reply, message_obj.message_type)
+                        target_id = None # 初始化
+                        message_type = None # 初始化
+                        try:
+                            print(f"!!! DEBUG PRINT: Accessing message_obj.message_type... Type: {type(message_obj)}", flush=True) # 新增
+                            message_type = message_obj.message_type
+                            print(f"!!! DEBUG PRINT: message_type = {message_type}", flush=True) # 新增
+                            
+                            print(f"!!! DEBUG PRINT: Determining target_id based on message_type...", flush=True) # 新增
+                            if message_type == 'group':
+                                print("!!! DEBUG PRINT: Accessing message_obj.group_id...", flush=True) # 新增
+                                target_id = message_obj.group_id
+                                print(f"!!! DEBUG PRINT: target_id (group) = {target_id}", flush=True) # 新增
+                            else: # private or other
+                                print("!!! DEBUG PRINT: Accessing message_obj.user_id...", flush=True) # 新增
+                                target_id = message_obj.user_id
+                                print(f"!!! DEBUG PRINT: target_id (private/other) = {target_id}", flush=True) # 新增
+                        except Exception as e_id:
+                             print(f"!!! DEBUG PRINT: ERROR getting message_type or target_id: {e_id} !!!", flush=True) # 新增
+                             logger.error(f"获取 message_type 或 target_id 时出错: {e_id}", exc_info=True)
+                             # 在这里可以选择是继续尝试发送（如果 target_id 可能已知）还是直接返回
+                             return # 或者根据情况处理
+                        
+                        # 只有在成功获取 target_id 和 message_type 后才继续
+                        if target_id is not None and message_type is not None:
+                             print(f"!!! DEBUG PRINT: _handle_event PREPARING TO CALL self.send for target {target_id} !!!", flush=True)
+                             try:
+                                 await self.send(target_id, reply, message_type)
+                                 print(f"!!! DEBUG PRINT: Call to self.send completed for target {target_id} !!!", flush=True)
+                             except Exception as send_err:
+                                 print(f"!!! DEBUG PRINT: Error during self.send: {send_err} !!!", flush=True)
+                                 logger.error(f"调用 self.send 时发生错误: {send_err}", exc_info=True)
+                        else:
+                             print(f"!!! DEBUG PRINT: Skipping send because target_id or message_type is None !!!", flush=True) # 新增
                     else:
                         logger.debug("主处理函数未返回回复消息")
                 elif not self._message_handler:
                     logger.warning("收到消息但未注册主消息处理函数")
 
-            except Exception as e:
+            except Exception as e: # 这是外层 try-except
+                print(f"!!! DEBUG PRINT: ERROR in outer _handle_event try-except: {e} !!!", flush=True) # 新增
                 logger.error(f"处理消息事件时出错: {e}", exc_info=True)
         elif post_type == 'notice':
             # 处理通知事件 (如果需要)
