@@ -856,9 +856,10 @@ class LinjingBot:
         # 初始化请求队列管理器
         queue_config = concurrent_config.get("queue", {})
         self.queue_manager = QueueManager(
-            max_queues=queue_config.get("max_queues", 100),
-            max_queue_size=queue_config.get("max_queue_size", 50),
-            queue_timeout=queue_config.get("queue_timeout", 600.0),
+            max_queues_per_type=queue_config.get("max_queues_per_type", 100),
+            default_queue_size=queue_config.get("default_queue_size", 50),
+            default_concurrent=queue_config.get("default_concurrent", 5),
+            default_timeout=queue_config.get("default_timeout", 600.0),
             idle_cleanup_interval=queue_config.get("idle_cleanup_interval", 300.0)
         )
         await self.queue_manager.start()
