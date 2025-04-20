@@ -303,21 +303,47 @@ class ThoughtGenerator(BaseProcessor):
         history_text = ""
         
         # **修改：使用 self.max_history**
-        recent_history = context.history[-self.max_history:] if context.history else []
-        
-        # 格式化历史消息
+        max_history = self.config.get("max_history_for_thought", 5)
+        recent_history = context.history[-max_history:] if context.history else []
         for msg in recent_history:
-            if msg.get_meta("is_user", False):
-                # 修复：使用get_user_id方法或get_meta获取user_id
-                user_id = msg.get_user_id() if hasattr(msg, 'get_user_id') else msg.get_meta("user_id", "unknown")
-                user_identifier = msg.get_meta("user_display_name") or str(user_id)
-                role = f"用户 ({user_identifier})"
+            # 获取角色 ("用户(ID)" 或 "我")
+            is_user = msg.get_meta("is_user", False)
+            
+            # 获取消息文本
+            try:
+                 content = msg.extract_plain_text()
+                 if not content: # 如果 extract_plain_text 返回空，尝试直接转字符串
+                     content = str(msg)
+            except AttributeError:
+                 content = str(msg)
+
+            if is_user:
+                # 尝试获取用户 ID 和昵称
+                user_id = None
+                nickname = None
+                if hasattr(msg, 'sender'):
+                    if hasattr(msg.sender, 'user_id'):
+                        user_id = msg.sender.user_id
+                    if hasattr(msg.sender, 'nickname'):
+                         nickname = msg.sender.nickname
+                
+                # 构建角色字符串，优先显示昵称和ID
+                if nickname and user_id:
+                    role = f"{nickname}({user_id})"
+                elif nickname:
+                    role = f"{nickname}"
+                elif user_id:
+                    role = f"({user_id})"
+                else:
+                    role = "未知用户" # 都没有
             else:
-                role = f"我 ({self.name})"
-            content = msg.extract_plain_text()
+                # 获取 Bot 名称 (尝试从全局配置或默认)
+                global_config = self.config.get("global_config", {})
+                bot_name = global_config.get("bot", {}).get("name", "林静") 
+                role = f"我 ({bot_name})"
+
             history_text += f"{role}: {content}\n"
-        
-        return history_text.strip() or "无历史对话"
+        return history_text.strip() or "无相关历史对话"
     
     def _format_memories(self, context: MessageContext) -> str:
         """

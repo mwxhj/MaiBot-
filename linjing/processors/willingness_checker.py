@@ -216,14 +216,39 @@ class WillingnessChecker(BaseProcessor):
         max_history = self.config.get("max_history_for_willingness", 3) # 可以配置不同的历史长度
         recent_history = context.history[-max_history:] if context.history else []
         for msg in recent_history:
-            # 获取角色 ("用户" 或 "我")
+            # 获取角色 ("用户(ID)" 或 "我")
             is_user = msg.get_meta("is_user", False) # 使用 get_meta 获取元信息
-            role = "用户" if is_user else f"我 ({self.name})" # 使用 self.name
+            
             # 获取消息文本
             try:
                  content = msg.extract_plain_text()
+                 if not content: # 如果 extract_plain_text 返回空，尝试直接转字符串
+                     content = str(msg)
             except AttributeError:
                  content = str(msg)
+                 
+            if is_user:
+                # 尝试获取用户 ID 和昵称
+                user_id = None
+                nickname = None
+                if hasattr(msg, 'sender'):
+                    if hasattr(msg.sender, 'user_id'):
+                        user_id = msg.sender.user_id
+                    if hasattr(msg.sender, 'nickname'):
+                         nickname = msg.sender.nickname # 修正: 使用 nickname 而非 nick
+                
+                # 构建角色字符串，优先显示昵称和ID
+                if nickname and user_id:
+                    role = f"{nickname}({user_id})"
+                elif nickname:
+                    role = f"{nickname}"
+                elif user_id:
+                    role = f"({user_id})"
+                else:
+                    role = "未知用户" # 都没有
+            else:
+                role = f"我 ({self.name})" # 使用 self.name
+                
             history_text += f"{role}: {content}\n"
         return history_text.strip() or "无相关历史对话"
 

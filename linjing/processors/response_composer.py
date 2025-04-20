@@ -356,42 +356,45 @@ class ResponseComposer(BaseProcessor):
         return emotion_text.strip(", ") or "情绪平静"
 
     # 使用与 ThoughtGenerator 和 WillingnessChecker 统一的格式化逻辑
-    def _format_history(self, history_list: List[Message]) -> str: # <-- 修改参数为 history_list: List[Message]
-        """
-        格式化最近的对话历史记录列表，用于 Prompt。
-
-        Args:
-            history_list: 包含历史消息对象的列表。
-
-        Returns:
-            格式化后的历史对话字符串，如果无历史则返回 "无历史对话"。
-        """
+    def _format_history(self, context: MessageContext) -> str:
+        """格式化历史消息，包含用户昵称和 ID"""
         history_text = ""
-        # 使用 ResponseComposer 自己的 max_history 配置
-        # 直接使用传入的 history_list
-        recent_history = history_list[-self.max_history:] if history_list else []
+        # 使用配置的历史长度
+        max_history_length = self.config.get("max_history_for_read_air", 5) 
+        recent_history = context.history[-max_history_length:] if context.history else []
+        
         for msg in recent_history:
-            if isinstance(msg, Message): # 优先处理 Message 对象
-                 is_user = msg.get_meta("is_user", False)
-                 role = "用户" if is_user else f"我 ({self.character_name})" # 使用 character_name
-                 
-                 # 修复：使用get_user_id方法或get_meta获取user_id
-                 user_id = msg.get_user_id() if hasattr(msg, 'get_user_id') else msg.get_meta("user_id", "unknown")
-                 user_identifier = msg.get_meta("user_display_name") or str(user_id)
-                 
-                 if is_user:
-                     role = f"用户 ({user_identifier})"
+            is_user = msg.get_meta("is_user", False)
+            try:
                  content = msg.extract_plain_text()
-                 history_text += f"{role}: {content}\n"
-            elif isinstance(msg, dict): # 兼容旧格式
-                 # ... (保留旧的兼容逻辑，或者移除如果确定历史总是 Message 对象)
-                 if msg.get("role") == "user":
-                     user_identifier = msg.get("user_identifier", "用户")
-                     history_text += f"用户 ({user_identifier}): {msg.get('content', '')}\n"
-                 elif msg.get("role") == "bot":
-                     history_text += f"我 ({self.character_name}): {msg.get('content', '')}\n"
+                 if not content: content = str(msg)
+            except AttributeError:
+                 content = str(msg)
 
-        return history_text.strip() or "无历史对话"
+            if is_user:
+                user_id = None
+                nickname = None
+                if hasattr(msg, 'sender'):
+                    user_id = getattr(msg.sender, 'user_id', None)
+                    nickname = getattr(msg.sender, 'nickname', None)
+                
+                if nickname and user_id:
+                    role = f"{nickname}({user_id})"
+                elif nickname:
+                    role = f"{nickname}"
+                elif user_id:
+                    role = f"({user_id})"
+                else:
+                    role = "未知用户"
+            else:
+                global_config = self.config.get("global_config", {}) if self.config else {}
+                bot_config = global_config.get("bot", {}) if global_config else {}
+                bot_name = bot_config.get("name", "林静")
+                role = f"我 ({bot_name})"
+
+            history_text += f"{role}: {content}\n"
+        
+        return history_text.strip() or "无相关历史对话"
 
     # 已移除弃用的 _format_personality_traits 方法
 

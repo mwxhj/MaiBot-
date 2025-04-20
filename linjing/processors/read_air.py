@@ -517,3 +517,43 @@ class ReadAirProcessor(BaseProcessor):
         except Exception as e:
             logger.error(f"获取或格式化用户 {context.user_id} 关系信息失败: {e}", exc_info=True)
             return "关系信息：获取失败"
+
+    def _format_history(self, context: MessageContext) -> str:
+        """格式化历史消息，包含用户昵称和 ID"""
+        history_text = ""
+        # 使用配置的历史长度
+        max_history_length = self.config.get("max_history_for_read_air", 5) 
+        recent_history = context.history[-max_history_length:] if context.history else []
+        
+        for msg in recent_history:
+            is_user = msg.get_meta("is_user", False)
+            try:
+                 content = msg.extract_plain_text()
+                 if not content: content = str(msg)
+            except AttributeError:
+                 content = str(msg)
+
+            if is_user:
+                user_id = None
+                nickname = None
+                if hasattr(msg, 'sender'):
+                    user_id = getattr(msg.sender, 'user_id', None)
+                    nickname = getattr(msg.sender, 'nickname', None)
+                
+                if nickname and user_id:
+                    role = f"{nickname}({user_id})"
+                elif nickname:
+                    role = f"{nickname}"
+                elif user_id:
+                    role = f"({user_id})"
+                else:
+                    role = "未知用户"
+            else:
+                global_config = self.config.get("global_config", {}) if self.config else {}
+                bot_config = global_config.get("bot", {}) if global_config else {}
+                bot_name = bot_config.get("name", "林静")
+                role = f"我 ({bot_name})"
+
+            history_text += f"{role}: {content}\n"
+        
+        return history_text.strip() or "无相关历史对话"
