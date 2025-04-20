@@ -96,7 +96,13 @@ class DatabaseManager:
                         host=host_to_use, # 使用变量确保一致性
                         port=port_to_use, # 使用变量确保一致性
                         timeout=self.connection_config.get("timeout", 30),
-                        # 可以添加 min_size, max_size 等连接池参数
+                        # 连接池参数
+                        min_size=1,
+                        max_size=5,
+                        # 强制使用TCP/IPv4并禁用预处理语句缓存
+                        connection_class=asyncpg.Connection,
+                        statement_cache_size=0,
+                        dsn=f"postgresql://{self.db_user}:{self.db_password}@{host_to_use}:{port_to_use}/{self.db_name}?sslmode=disable"
                     )
                     logger.info(f"成功创建 PostgreSQL 连接池: {self.db_name}@{self.db_host}")
                 else:
