@@ -116,9 +116,11 @@ class DatabaseManager:
 
                     # 使用关键字参数代替 DSN 调用 create_pool，避免 DSN 解析问题
                     connection_timeout = self.connection_config.get("timeout", 30)
-                    logger.debug(f"调用 create_pool 使用 host={host_to_use}, port={port_to_use}, user={self.db_user}, database={self.db_name}")
+                    # --- 诊断：强制使用已知可达的 IP 地址 ---
+                    host_to_use_ip = "172.28.0.4" # 从 check_db_conn.py 获取的 IP
+                    logger.debug(f"调用 create_pool 使用 host={host_to_use_ip} (强制IP), port={port_to_use}, user={self.db_user}, database={self.db_name}")
                     self.pool = await asyncpg.create_pool(
-                        host=host_to_use,
+                        host=host_to_use_ip, # <--- 强制使用 IP 地址
                         port=port_to_use,
                         user=self.db_user,
                         password=self.db_password, # 直接传递密码
