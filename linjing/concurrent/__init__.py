@@ -5,8 +5,8 @@
 并发处理模块，提供消息队列、资源锁和请求队列等机制。
 """
 
-from linjing.concurrent.message_debouncer import MessageDebouncer, MessageGroup
-from linjing.concurrent.queue_manager import (
+from .message_debouncer import MessageDebouncer, MessageGroup
+from .queue_manager import (
     QueueManager,
     MessageTask,
     ChatStreamQueue,
@@ -16,7 +16,7 @@ from linjing.concurrent.queue_manager import (
     RequestTask,
     TypedRequestQueue
 )
-from linjing.concurrent.resource_lock import (
+from .resource_lock import (
     ResourceLockManager, 
     EasyResourceLock,
     ResourceType, 

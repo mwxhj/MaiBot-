@@ -13,6 +13,7 @@ import logging
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 正确导入路径
 from linjing.concurrent.queue_manager import (
     RequestQueueManager,
     RequestQueueType,
