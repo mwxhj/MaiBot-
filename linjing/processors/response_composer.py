@@ -7,13 +7,13 @@
 
 import logging
 import random
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional # <--- 移除未使用的 Union
 
 from linjing.adapters.message_types import Message, MessageSegment
 from linjing.processors.base_processor import BaseProcessor
 from linjing.processors.message_context import MessageContext
 from linjing.processors.processor_registry import ProcessorRegistry
-from linjing.processors.base_processor import BaseProcessor as Processor
+# from linjing.processors.base_processor import BaseProcessor as Processor # <--- 别名 Processor 未使用
 
 logger = logging.getLogger(__name__)
 
@@ -34,54 +34,48 @@ class ResponseComposer(BaseProcessor):
         self,
         name: str, # 添加 name 参数
         config: Dict[str, Any],
-        priority: int = 300,
+        # priority: int = 300, # <--- 移除未使用的 priority 参数
     ) -> None:
         """
         初始化响应生成器。
 
         Args:
-            name: 处理器名称
-            config: 配置字典，包含生成回复所需的参数
-            priority: 处理器优先级，默认为300（执行顺序靠后）
+            name: 处理器名称。
+            config: 配置字典，包含生成回复所需的参数。
         """
-        # 调用父类的 __init__，并传递 name
-        super().__init__(name, config) # 传递 name 给父类
-        self.style_factor = config.get("style_factor", 0.8)
-        self.character_name = config.get("character_name", "灵镜")
-        self.response_template = config.get(
-            "response_template", "{response}"
-        )
-        self.use_multimodal = config.get("use_multimodal", True)
+        # 调用父类的 __init__，并传递 name 和 config
+        super().__init__(name=name, config=config) # 显式传递 name 和 config
         self.llm_manager = None
-        self.personality = None
-        # **新增：存储 Prompt 模板**
-        # 注意：这里假设 config 字典包含了加载后的 prompts 数据
-        prompts_config = config.get("prompts", {}).get("response_composer", {})
+        self.personality = None # 预期由 LinjingBot 设置 (当前未实现)
+
+        # --- 从处理器配置 (self.config) 加载参数 ---
+        # 加载 Prompt 模板
+        prompts_config = self.config.get("prompts", {}).get(self.name, {}) # 使用 self.name 获取对应配置
         self.response_prompt_template = prompts_config.get("response_prompt", "")
         self.fallback_prompt_template = prompts_config.get("fallback_prompt", "")
-        # **新增：从处理器特定配置读取其他参数**
-        # 注意：self.config 是传递给处理器的配置字典
-        self.max_history = self.config.get("max_history", 5)
-        self.fallback_responses = self.config.get("fallback_responses", [
+
+        # 加载其他配置项
+        self.max_history = self.config.get("max_history", 5) # 用于格式化历史记录
+        self.fallback_responses = self.config.get("fallback_responses", [ # LLM 失败时的备用回复列表
             "抱歉，我没能完全理解您的意思，能请您再说明一下吗？",
             "不好意思，我没太明白您的意思，可以请您换个方式表达吗？",
             "抱歉，我可能理解有误，您能再详细说明一下您的需求吗？",
         ])
-        self.error_responses = self.config.get("error_responses", [
+        self.error_responses = self.config.get("error_responses", [ # 内部错误时的回复列表
             "抱歉，我遇到了一些技术问题，无法正常回复您的消息。",
             "对不起，处理您的请求时出现了错误，请稍后再试。",
         ])
-        self.default_emoji = self.config.get("default_emoji", "😊") # 从配置读取默认表情
-        # 读取 response_template 和 use_multimodal (之前已有，但确保是从处理器配置读取)
-        self.response_template = self.config.get("response_template", "{response}")
-        self.use_multimodal = self.config.get("use_multimodal", True)
-        # 读取 style_factor (之前已有)
-        self.style_factor = self.config.get("style_factor", 0.8)
-        # 读取 character_name (之前已有，但建议从 bot 配置获取)
-        # self.character_name = self.config.get("character_name", "灵镜") # 保留，但下面会优先用 bot.name
-        # 尝试从全局配置获取 bot name 作为 character_name
-        global_config = config.get("global_config", {}) # 假设全局配置通过 'global_config' 键传递
-        self.character_name = global_config.get("bot", {}).get("name", "灵镜")
+        self.default_emoji = self.config.get("default_emoji", "😊") # 添加风格化表情时使用
+        self.response_template = self.config.get("response_template", "{response}") # 回复包装模板
+        self.use_multimodal = self.config.get("use_multimodal", True) # 是否处理多模态内容
+        self.style_factor = self.config.get("style_factor", 0.8) # 添加风格元素的概率因子
+
+        # 获取角色名 (优先从处理器配置获取，其次尝试从全局配置，最后默认)
+        # TODO: 确认 character_name 的最佳获取方式 (全局配置 vs 处理器配置)
+        self.character_name = self.config.get("character_name") # 尝试从处理器配置获取
+        if not self.character_name:
+             global_config = self.config.get("global_config", {}) # 假设全局配置通过 'global_config' 键传递
+             self.character_name = global_config.get("bot", {}).get("name", "灵镜") # 尝试从全局获取
 
 
         if not self.response_prompt_template:
@@ -147,11 +141,11 @@ class ResponseComposer(BaseProcessor):
                 logger.error(f"_generate_response 返回了非字符串类型: {type(reply)}，内容: {repr(reply)}。将使用空文本。")
                 reply_message.append(MessageSegment.text("")) # 使用空字符串避免后续错误
             
-            logger.debug("准备检查并添加多模态内容...") # 添加日志
-            # 如果需要添加多模态内容
-            if self.use_multimodal and hasattr(context, "multimodal_content"):
+            logger.debug("准备检查并添加多模态内容...")
+            # 如果配置允许且上下文中存在多模态内容，则添加到回复消息中
+            if self.use_multimodal and context.get_state("multimodal_content"):
                 await self._add_multimodal_content(reply_message, context)
-            logger.debug("多模态内容处理完毕 (如果需要)。") # 添加日志
+            logger.debug("多模态内容处理完毕 (如果需要)。")
             
             # 在设置响应之前，详细记录将要设置的 reply_message 内容
             reply_text_for_log = reply_message.extract_plain_text() # 提取纯文本内容用于日志
@@ -233,15 +227,16 @@ class ResponseComposer(BaseProcessor):
         
         # 获取用户消息文本
         user_message_text = context.message.extract_plain_text() if hasattr(context, 'message') else ""
-        
-        # 获取风格指南 (从配置直接获取)
-        v12_style_guide = self.config.get("v12_style_guide", "错误：缺少风格指南")
-        
-        # 获取关系信息 (暂时使用空字符串，待实现)
+
+        # 获取风格指南 (依赖于 LinjingBot 正确加载并传递)
+        # TODO: 修复 LinjingBot 中的配置加载逻辑
+        v12_style_guide = self.config.get("v12_style_guide", "错误：风格指南未加载！")
+
+        # 获取关系信息 (当前为 TODO)
         relation_prompt_all = ""  # TODO: 从 MemoryManager 获取
-        
-        # 获取当前情绪状态 (暂时使用空字符串，待实现)
-        mood_prompt = ""  # TODO: 从 MoodModel 获取
+
+        # 获取当前情绪状态 (当前为 TODO)
+        mood_prompt = self._format_emotion(context) # 复用格式化方法，可能需要调整
         
         try:
             # 确保从 self.config 获取最新的 prompts 数据
@@ -257,10 +252,10 @@ class ResponseComposer(BaseProcessor):
                 user_identifier=context.message.get_meta("user_display_name") or str(context.user_id),
                 message_content=user_message_text,
                 current_mind_info=thought,  # 现在传入完整的 JSON 字符串
-                v12_style_guide=v12_style_guide,
-                relation_prompt_all=relation_prompt_all,
-                mood_prompt=mood_prompt,
-                character_name=self.character_name
+                v12_style_guide=v12_style_guide,       # 对应 {v12_style_guide}
+                relation_prompt_all=relation_prompt_all, # 对应 {relation_prompt_all} (TODO)
+                mood_prompt=mood_prompt,               # 对应 {mood_prompt} (TODO)
+                character_name=self.character_name     # 对应 {character_name}
             )
         except KeyError as e:
              logger.error(f"构建 ResponseComposer response_prompt 时缺少占位符: {e}。模板: {self.response_prompt_template}")
@@ -286,32 +281,37 @@ class ResponseComposer(BaseProcessor):
         
         formatted_history = []
         # 使用 self.max_history 限制历史记录长度
-        for entry in history[-self.max_history:]:
-            if "user" in entry:
-                # 确保用户标识符格式一致
-                user_identifier = entry.get("user_identifier", "用户")
-                formatted_history.append(f"用户 ({user_identifier}): {entry['user']}")
-            elif "role" in entry and entry["role"] == "user":
-                # 兼容read_air处理器的历史格式
-                user_identifier = entry.get("user_identifier", "用户")
-                formatted_history.append(f"用户 ({user_identifier}): {entry['content']}")
-            
-            if "bot" in entry:
-                formatted_history.append(f"我 ({self.character_name}): {entry['bot']}")
-            elif "role" in entry and entry["role"] == "bot":
-                # 兼容read_air处理器的历史格式
-                formatted_history.append(f"我 ({self.character_name}): {entry['content']}")
+        for msg in history[-self.max_history:]:
+            # 统一处理 Message 对象
+            if isinstance(msg, Message):
+                 is_user = msg.get_meta("is_user", False)
+                 role = "用户" if is_user else f"我 ({self.character_name})"
+                 user_identifier = msg.get_meta("user_display_name") or str(msg.user_id)
+                 if is_user:
+                     role = f"用户 ({user_identifier})"
+                 content = msg.extract_plain_text()
+                 formatted_history.append(f"{role}: {content}")
+            # 兼容旧的字典格式 (以防万一)
+            elif isinstance(msg, dict):
+                 if "user" in msg:
+                     user_identifier = msg.get("user_identifier", "用户")
+                     formatted_history.append(f"用户 ({user_identifier}): {msg['user']}")
+                 elif msg.get("role") == "user":
+                     user_identifier = msg.get("user_identifier", "用户")
+                     formatted_history.append(f"用户 ({user_identifier}): {msg['content']}")
+                 elif "bot" in msg:
+                     formatted_history.append(f"我 ({self.character_name}): {msg['bot']}")
+                 elif msg.get("role") == "bot":
+                     formatted_history.append(f"我 ({self.character_name}): {msg['content']}")
         
         return "\n".join(formatted_history)
 
-    def _format_personality_traits(self) -> str:
-        """
-        格式化人格特质 (已弃用，改为直接从 current_mind_info JSON 获取)。
-        
-        Returns:
-            简单描述，实际处理将在 Prompt 中完成
-        """
-        return "友好、乐于助人"  # 实际特质信息现在从 current_mind_info 获取
+    # 移除已弃用的 _format_personality_traits 方法
+    # def _format_personality_traits(self) -> str:
+    #     """
+    #     格式化人格特质 (已弃用)。
+    #     """
+    #     return "友好、乐于助人"
 
     def _format_response(self, response: str) -> str:
         """
@@ -329,21 +329,29 @@ class ResponseComposer(BaseProcessor):
         # 应用响应模板
         formatted_response = self.response_template.format(response=response)
         
-        # 如果有人格设置，可以添加个性化表情或语气词
+        # --- 添加风格化元素 (基于概率和配置) ---
+        # 注意：当前 self.personality 为 None，此部分逻辑无效。
+        # 需要修复 LinjingBot 中的配置加载和传递。
+        # 假设 personality 对象未来会提供 get_preference 方法。
         if self.personality and random.random() < self.style_factor:
-            # Incorrect access: emojis = self.personality.get("emojis", [])
-            # Incorrect access: phrases = self.personality.get("phrases", [])
-            
-            # 获取 emoji 使用倾向
-            emoji_tendency = self.personality.get_preference("emoji_usage", 0.0)
-            # 根据倾向随机决定是否添加表情 (乘以 0.5 降低频率)
-            if emoji_tendency > 0.1 and random.random() < (emoji_tendency * 0.5):
-                 # **修改：使用配置的默认表情**
-                 formatted_response += f" {self.default_emoji}"
-            
-            # 暂时注释掉短语部分，因为 Personality 类没有 phrases 且访问方式错误
-            # if phrases and random.random() < 0.2:
-            #     formatted_response += f" {random.choice(phrases)}"
+            try:
+                # 获取 emoji 使用倾向 (假设方法存在)
+                emoji_tendency = self.personality.get_preference("emoji_usage", 0.0)
+                # 根据倾向随机决定是否添加表情 (乘以 0.5 降低频率)
+                if emoji_tendency > 0.1 and random.random() < (emoji_tendency * 0.5):
+                     # 使用配置的默认表情
+                     formatted_response += f" {self.default_emoji}"
+
+                # TODO: 实现或移除添加短语的逻辑 (当前 personality 无此功能)
+                # phrase_tendency = self.personality.get_preference("phrase_usage", 0.0)
+                # if phrase_tendency > 0.1 and random.random() < phrase_tendency:
+                #     phrases = self.personality.get_phrases() # 假设方法存在
+                #     if phrases:
+                #         formatted_response += f" {random.choice(phrases)}"
+            except AttributeError as e:
+                 logger.warning(f"尝试访问 personality 对象的属性或方法失败: {e}。跳过风格化。")
+            except Exception as e:
+                 logger.error(f"添加风格化元素时出错: {e}", exc_info=True)
         
         return formatted_response
 
@@ -361,15 +369,18 @@ class ResponseComposer(BaseProcessor):
         lines = thought.strip().split("\n")
         response_lines = []
         
+        # 尝试从 thought 字符串中提取标记为 "回复:", "答案:", "结论:" 的行
+        # 这是一个简单的启发式方法，可能不够健壮
         for line in lines:
-            # 跳过思考过程的标记行
-            if line.startswith(("思考:", "分析:", "推理:", "计划:")):
+            # 跳过常见的思考过程标记行
+            if line.startswith(("思考:", "分析:", "推理:", "计划:", "#", "//")):
                 continue
-            # 保留直接回答的行
+            # 提取标记为回复的行
             if line.startswith(("回复:", "答案:", "结论:")):
-                response_lines.append(line.split(":", 1)[1].strip())
-            # 保留有用的信息行
-            elif line and not line.startswith(("#", "//")):
+                # 取冒号后的内容
+                response_lines.append(line.split(":", 1)[-1].strip())
+            # 保留其他非空、非注释的行作为可能的回复内容
+            elif line:
                 response_lines.append(line)
         
         # 如果提取后没有有效内容，返回原始思考
@@ -441,19 +452,17 @@ class ResponseComposer(BaseProcessor):
 
     def _generate_fallback_response_sync(self) -> str:
         """
-        同步方式生成备用回复。
+        同步方式从预定义的列表中随机选择一个备用回复。
 
         Returns:
-            备用回复文本
+            备用回复文本。
         """
-        fallback_responses = [
-            "抱歉，我没能完全理解您的意思，能请您再说明一下吗？",
-            "不好意思，我没太明白您的意思，可以请您换个方式表达吗？",
-            "抱歉，我可能理解有误，您能再详细说明一下您的需求吗？",
-            "对不起，我没有理解您的意图，请问您能更清楚地解释一下吗？",
-            "不好意思，我似乎没有抓住您的重点，能否请您再解释一下？"
-        ]
-        return random.choice(fallback_responses)
+        # 使用从配置中读取的 fallback_responses 列表
+        if not self.fallback_responses:
+             # 如果配置为空，提供一个硬编码的默认值
+             logger.warning("配置中未找到 fallback_responses，使用硬编码的默认回复。")
+             return "抱歉，我不太明白您的意思。"
+        return random.choice(self.fallback_responses)
 
     def _generate_error_response(self) -> str:
         """
@@ -462,14 +471,12 @@ class ResponseComposer(BaseProcessor):
         Returns:
             错误回复文本
         """
-        error_responses = [
-            "抱歉，我遇到了一些技术问题，无法正常回复您的消息。",
-            "对不起，处理您的请求时出现了错误，请稍后再试。",
-            "不好意思，系统暂时出现了故障，请稍候再尝试。",
-            "抱歉，我现在无法处理您的请求，请稍后再试。",
-            "对不起，我遇到了技术障碍，暂时无法回应您的问题。"
-        ]
-        return random.choice(error_responses)
+        # 使用从配置中读取的 error_responses 列表
+        if not self.error_responses:
+             # 如果配置为空，提供一个硬编码的默认值
+             logger.warning("配置中未找到 error_responses，使用硬编码的默认回复。")
+             return "抱歉，处理时遇到问题。"
+        return random.choice(self.error_responses)
 
     async def _add_multimodal_content(self, message: Message, context: MessageContext) -> None:
         """
@@ -479,10 +486,16 @@ class ResponseComposer(BaseProcessor):
             message: 回复消息
             context: 消息上下文
         """
-        # 使用 get_state 获取状态，而不是 get
-        multimodal_content = context.get_state("multimodal_content", [])
-        
+        # 从 context state 获取由其他处理器可能添加的多模态内容列表
+        multimodal_content = context.get_state("multimodal_content", []) # 默认为空列表
+
+        if not multimodal_content:
+             logger.debug("上下文中没有多模态内容需要添加。")
+             return # 没有内容则直接返回
+
+        logger.debug(f"开始处理 {len(multimodal_content)} 个多模态内容项...")
         for item in multimodal_content:
+            # 确保 item 是字典并且包含 type 和 data
             content_type = item.get("type")
             content_data = item.get("data")
             

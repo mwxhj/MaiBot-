@@ -6,7 +6,7 @@
 包括对用户消息的理解、知识检索、思考逻辑和情绪反应等。
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional # <--- 移除未使用的 Tuple, Union
 
 from linjing.processors.base_processor import BaseProcessor
 from linjing.processors.message_context import MessageContext
@@ -57,8 +57,10 @@ class ThoughtGenerator(BaseProcessor):
         logger.debug(f"{self.name} thought_importance 设置为: {self.thought_importance}")
 
         # **修改：从配置加载思考模板**
-        # 注意：这里假设 config 字典包含了加载后的 prompts 数据
-        self.thinking_template = config.get("prompts", {}).get("thought_generator", {}).get("thinking_prompt", "")
+        # 从传入的配置中获取 thought_generator 处理器的 prompt 模板
+        # 预期 config 结构: {"prompts": {"thought_generator": {"thinking_prompt": "..."}}}
+        # self.config 是传递给处理器的配置字典
+        self.thinking_template = self.config.get("prompts", {}).get(self.name, {}).get("thinking_prompt", "") # 使用 self.name 获取对应配置
         if not self.thinking_template:
              logger.error("未能从配置中加载 ThoughtGenerator thinking_prompt 模板！将无法生成思考。")
              self.thinking_template = "错误：缺少 ThoughtGenerator 思考 Prompt 模板。"
@@ -178,23 +180,19 @@ class ThoughtGenerator(BaseProcessor):
         # 获取消息文本
         message_text = context.message.extract_plain_text()
         
-        # 获取历史消息
+        # --- 准备 Prompt 所需的上下文信息 ---
+        # 格式化近期对话历史
         history_text = self._format_history(context)
-        
-        # 获取记忆摘要
+        # 格式化检索到的相关记忆
         memories_text = self._format_memories(context)
-        
-        # 获取情感状态
-        emotion_text = self._format_emotion(context)
-        
-        # 获取"读空气"分析结果
+        # 格式化当前情绪状态 (用于 mood_prompt)
+        mood_prompt = self._format_emotion(context) # 注意: _format_emotion 可能需要调整以输出更适合 Prompt 的格式
+        # 格式化 ReadAir 的分析结果 (JSON 字符串)
         air_analysis = self._format_air_analysis(context)
-        
-        # 获取人格原则文本 (从配置直接获取)
-        personality_text = self.config.get("personality_text", "错误：缺少人格原则文本")
-        
-        # 获取当前情绪状态
-        mood_prompt = self._format_emotion(context)
+        # 获取人格原则文本 (依赖于 LinjingBot 正确加载并传递)
+        # TODO: 修复 LinjingBot 中的配置加载逻辑，确保 personality_text 被正确传递
+        personality_text = self.config.get("personality_text", "错误：人格原则文本未加载！")
+        # 获取关系信息 (当前为 TODO)
         
         # 获取关系信息 (暂时使用空字符串，待实现)
         relation_prompt_all = ""  # TODO: 从 MemoryManager 获取
@@ -237,13 +235,13 @@ class ThoughtGenerator(BaseProcessor):
     
     def _format_history(self, context: MessageContext) -> str:
         """
-        格式化历史消息
-        
+        从 MessageContext 中提取并格式化最近的对话历史记录，用于 Prompt。
+
         Args:
-            context: 消息上下文
-            
+            context: 当前消息上下文。
+
         Returns:
-            格式化的历史消息文本
+            格式化后的历史对话字符串，如果无历史则返回 "无历史对话"。
         """
         history_text = ""
         
@@ -264,14 +262,16 @@ class ThoughtGenerator(BaseProcessor):
     
     def _format_memories(self, context: MessageContext) -> str:
         """
-        格式化记忆内容
-        
+        从 MessageContext 中提取并格式化检索到的相关记忆，用于 Prompt。
+
         Args:
-            context: 消息上下文
-            
+            context: 当前消息上下文。
+
         Returns:
-            格式化的记忆文本
+            格式化后的记忆列表字符串，如果无记忆则返回 "无相关记忆"。
         """
+        # context.memories 预期是一个包含记忆对象的列表
+        # (例如 MemoryManager.search_similar_memories 返回的字典列表)
         if not context.memories:
             return "无相关记忆"
         
@@ -288,18 +288,20 @@ class ThoughtGenerator(BaseProcessor):
     
     def _format_emotion(self, context: MessageContext) -> str:
         """
-        格式化情绪状态
-        
+        从 MessageContext 中提取并格式化当前的情绪状态，用于 Prompt。
+        主要提取强度大于阈值的情绪维度。
+
         Args:
-            context: 消息上下文
-            
+            context: 当前消息上下文。
+
         Returns:
-            格式化的情绪状态文本
+            格式化后的情绪状态字符串，如果无明显情绪则返回 "情绪平静"。
         """
-        # 从 context state 获取情绪字典
+        # 从 context state 获取由 EmotionManager 设置的情绪字典
         emotion_dict = context.get_state("emotion")
         if not emotion_dict or not isinstance(emotion_dict, dict):
-            return "情绪平静"
+            logger.debug("未在上下文中找到有效的情绪状态字典")
+            return "情绪平静" # 默认状态
 
         logger.debug(f"格式化情绪状态字典: {emotion_dict}")
         emotion_text = ""
@@ -320,16 +322,18 @@ class ThoughtGenerator(BaseProcessor):
     
     def _format_air_analysis(self, context: MessageContext) -> str:
         """
-        格式化"读空气"分析结果，适配新的JSON结构
-        
+        从 MessageContext 中提取 ReadAirProcessor 的分析结果 (预期为 JSON 字典)，
+        并将其格式化为适合 Prompt 输入的 JSON 字符串。
+
         Args:
-            context: 消息上下文
-            
+            context: 当前消息上下文。
+
         Returns:
-            格式化的分析结果文本
+            格式化后的分析结果 JSON 字符串，或在出错时返回错误提示。
         """
+        # 从 context state 获取由 ReadAirProcessor 设置的分析结果字典
         analysis = context.get_state("read_air_analysis")
-        logger.debug(f"格式化'读空气'分析结果: {analysis}")
+        logger.debug(f"获取到的'读空气'分析结果: {analysis}")
         
         # 定义无法分析的标记
         UNANALYZABLE_CONTENT_MARKER = "内容无法分析（可能是图片等非文本内容）"
@@ -418,34 +422,32 @@ class ThoughtGenerator(BaseProcessor):
 
         return result.strip() or "无详细分析结果"
     
-    def _format_personality(self) -> str:
-        """
-        格式化人格特点 (已弃用，改为直接从配置获取完整文本)
-        
-        Returns:
-            格式化的人格特点文本
-        """
-        return self.config.get("personality_text", "性格平和，乐于助人")
+    # 已移除弃用的 _format_personality 方法
     
     async def _save_thought_to_memory(self, context: MessageContext, thought: str) -> None:
         """
-        保存思考内容到记忆
-        
+        将生成的思考内容保存到记忆库 (如果配置允许)。
+        注意：当前 MemoryManager 没有通用的 store_memory 方法，此功能可能未完全实现。
+
         Args:
-            context: 消息上下文
-            thought: 思考内容
+            context: 当前消息上下文 (需要包含 memory_manager)。
+            thought: 生成的思考内容字符串。
         """
         try:
+            # 检查 context 是否有关联的 memory_manager
             if hasattr(context, "memory_manager") and context.memory_manager:
-                # **修改：使用 self.thought_importance**
-                await context.memory_manager.store_memory(
-                    content=thought,
-                    memory_type="thought",
-                    importance=self.thought_importance, # 使用从配置读取的值
-                    user_id=context.user_id,
-                    associated_message=context.message
-                )
-                logger.debug("思考已保存到记忆")
+                logger.warning("尝试调用 context.memory_manager.store_memory，但该方法可能不存在。")
+                # TODO: 实现或替换为正确的记忆存储方法，例如 add_knowledge_memory
+                # 可能需要将 thought 视为一种特殊的 knowledge
+                # await context.memory_manager.add_knowledge_memory(
+                #     content=thought,
+                #     category="internal_thought",
+                #     importance=self.thought_importance,
+                #     metadata={"user_id": context.user_id, "session_id": context.session_id}
+                # )
+                # logger.debug("思考已尝试保存到记忆 (使用 add_knowledge_memory)")
+            else:
+                 logger.warning("无法保存思考：未在上下文中找到 memory_manager。")
         except Exception as e:
             logger.error(f"保存思考到记忆失败: {str(e)}", exc_info=True)
             # 失败不影响主流程，只记录日志

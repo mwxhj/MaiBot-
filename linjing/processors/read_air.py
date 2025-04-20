@@ -7,14 +7,14 @@
 """
 
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional # <--- 移除未使用的 Tuple
 
-from linjing.adapters import Message
+# from linjing.adapters import Message # <--- Message 类在此文件未直接使用
 from linjing.processors.base_processor import BaseProcessor
 from linjing.processors.message_context import MessageContext
 from linjing.processors.processor_registry import ProcessorRegistry
 from linjing.utils.logger import get_logger
-from linjing.constants import ProcessorName
+# from linjing.constants import ProcessorName # <--- ProcessorName 在此文件未直接使用
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -54,8 +54,10 @@ class ReadAirProcessor(BaseProcessor):
         # LLM 管理器，用于调用语言模型
         self.llm_manager = None
         # **新增：存储 Prompt 模板**
-        # 注意：这里假设 config 字典包含了加载后的 prompts 数据
-        self.prompt_template = config.get("prompts", {}).get("read_air", {}).get("analysis_prompt", "")
+        # 从传入的配置中获取 read_air 处理器的 prompt 模板
+        # 预期 config 结构: {"prompts": {"read_air": {"analysis_prompt": "..."}}}
+        # self.config 是传递给处理器的配置字典
+        self.prompt_template = self.config.get("prompts", {}).get(self.name, {}).get("analysis_prompt", "") # 使用 self.name 获取对应配置
         if not self.prompt_template:
              logger.error("未能从配置中加载 ReadAir analysis_prompt 模板！将无法生成分析。")
              # 可以选择抛出异常或设置一个默认的错误提示
@@ -171,27 +173,31 @@ class ReadAirProcessor(BaseProcessor):
         
         return history
     
+    # 移除未使用的 history 参数
     async def _analyze_message(
-        self, message: str, history: List[Dict[str, Any]]
+        self, context: MessageContext, message: str # 添加 context 参数
     ) -> Optional[Dict[str, Any]]:
         """
-        分析消息的情感、意图和社交期望
-        
+        调用 LLM 分析消息的情感、意图和社交期望。
+
         Args:
-            message: 消息文本
-            history: 历史消息列表
-            
+            context: 当前消息上下文 (用于获取历史和用户信息)
+            message: 需要分析的消息文本。
+
         Returns:
-            分析结果，包含情感、意图和社交期望
+            分析结果字典，或在失败时返回 None。
         """
         if not message.strip():
+            logger.debug("空消息，跳过分析")
             return None
-        
-        # 获取用户标识符(优先使用昵称，没有则用ID)
+
+        # 获取用户标识符(优先使用昵称，没有则用ID) - 从 context 获取
         user_identifier = context.message.get_meta("user_display_name") or str(context.user_id)
-        
-        # 构建提示词
-        prompt = self._build_analysis_prompt(message, history, user_identifier)
+        # 准备历史记录 - 从 context 获取
+        history_for_prompt = self._prepare_history(context)
+
+        # 构建提示词 - 传递 context 以便 _build_analysis_prompt 获取历史
+        prompt = self._build_analysis_prompt(context, message, user_identifier)
         
         try:
             # 调用LLM进行分析，指定任务类型为read_air以使用合适的模型
@@ -214,21 +220,24 @@ class ReadAirProcessor(BaseProcessor):
             logger.error(f"消息分析失败: {str(e)}", exc_info=True)
             return None
     
-    def _build_analysis_prompt(self, message: str, history: List[Dict[str, Any]], user_identifier: str = "用户") -> str:
+    # 移除未使用的 history 参数，添加 context 参数
+    def _build_analysis_prompt(self, context: MessageContext, message: str, user_identifier: str = "用户") -> str:
         """
-        构建分析提示词
-        
+        根据模板和当前上下文构建用于 LLM 分析的提示词。
+
         Args:
-            message: 消息文本
-            history: 历史消息列表
-            user_identifier: 用户标识符(昵称或ID)
-            
+            context: 当前消息上下文 (用于获取历史记录)。
+            message: 当前需要分析的消息文本。
+            user_identifier: 当前消息发送者的标识符。
+
         Returns:
-            分析提示词
+            构建好的分析提示词字符串。
         """
-        # 将历史消息格式化为文本(严格格式)
+        # 从 context 准备历史消息文本
+        history_list = self._prepare_history(context) # 调用内部方法获取格式化历史
         history_text = ""
-        for i, msg in enumerate(history):
+        for msg in history_list:
+            # 使用 self.name 获取机器人名字
             role = f"用户 ({msg.get('user_identifier', '用户')})" if msg["role"] == "user" else f"我 ({self.name})"
             history_text += f"{role}: {msg['content']}\n"
         
@@ -268,13 +277,22 @@ class ReadAirProcessor(BaseProcessor):
             解析后的分析结果字典，包含完整的分析结构
         """
         try:
-            # 尝试提取JSON部分
-            if "```json" in response:
-                json_content = response.split("```json")[1].split("```")[0].strip()
-            elif "```" in response:
-                json_content = response.split("```")[1].strip()
-            else:
-                json_content = response.strip()
+            # 尝试从 LLM 响应中提取 JSON 内容 (可能包含在代码块中)
+            json_content = response.strip()
+            if json_content.startswith("```json"):
+                json_content = json_content[len("```json"):].strip()
+            if json_content.startswith("```"): # 处理普通代码块
+                json_content = json_content[len("```"):].strip()
+            if json_content.endswith("```"):
+                json_content = json_content[:-len("```")].strip()
+
+            # 确保提取的内容看起来像 JSON (简单的检查)
+            if not (json_content.startswith('{') and json_content.endswith('}')):
+                 logger.warning(f"提取的分析内容不像有效的 JSON: {json_content[:100]}...")
+                 # 可以尝试直接解析，或者返回 None
+                 # return None # 如果严格要求格式
+
+            # 解析JSON
             
             # 解析JSON
             analysis = json.loads(json_content)

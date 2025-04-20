@@ -5,8 +5,8 @@
 林静机器人主类模块，作为整个机器人的核心控制器。
 """
 
-import os
-import sys
+# import os # 在此文件中未使用
+# import sys # 在此文件中未使用
 import asyncio
 import json # 导入 json 模块
 import importlib
@@ -222,7 +222,7 @@ class LinjingBot:
 
         # --- Return the reply first ---
         if final_reply:
-             # Schedule memory saving and emotion update as a background task
+             # 为了尽快响应用户，将耗时的数据库写入和情绪更新操作放入后台任务执行
              asyncio.create_task(self._save_conversation_async(context, result_context, message, final_reply))
              return final_reply
         else:
@@ -471,9 +471,10 @@ class LinjingBot:
                     processor.set_personality(self.personality)
                 
                 else:
-                    # 尝试动态导入
+                    # 尝试根据处理器名称动态导入模块 (例如 "read_air" -> linjing.processors.read_air)
                     module_path = f"linjing.processors.{name.lower()}"
                     try:
+                        # 动态导入模块
                         module = importlib.import_module(module_path)
                         # 查找处理器类
                         for _, obj in inspect.getmembers(module):
@@ -519,9 +520,10 @@ class LinjingBot:
                     from linjing.adapters.onebot_adapter import OneBotAdapter
                     adapter = OneBotAdapter(config, self.event_bus)
                 else:
-                    # 尝试动态导入
+                    # 尝试根据适配器名称动态导入模块 (例如 "myadapter" -> linjing.adapters.myadapter_adapter)
                     module_path = f"linjing.adapters.{name}_adapter"
                     try:
+                        # 动态导入模块
                         module = importlib.import_module(module_path)
                         adapter_class = getattr(module, f"{name.capitalize()}Adapter")
                         adapter = adapter_class(config, self.event_bus)
@@ -577,17 +579,18 @@ class LinjingBot:
         # 订阅错误事件
         self.event_bus.subscribe(EventType.ERROR_OCCURRED, self._on_error)
     
+    # 注意：参数 event_type 在当前实现中未使用，可以考虑移除或添加日志记录
     def _on_error(self, event_type: str, data: Dict[str, Any]) -> None:
         """
-        错误事件处理函数
-        
+        错误事件处理函数，由 EventBus 在接收到 ERROR_OCCURRED 事件时调用。
+
         Args:
-            event_type: 事件类型
-            data: 事件数据
+            event_type: 事件类型 (当前未使用)
+            data: 事件数据，应包含 "error" 和可选的 "source" 键
         """
-        error = data.get("error")
-        source = data.get("source", "unknown")
-        logger.error(f"来自 {source} 的错误: {str(error)}")
+        error = data.get("error", "未知错误") # 提供默认值
+        source = data.get("source", "未知来源") # 提供默认值
+        logger.error(f"事件总线报告来自 [{source}] 的错误: {str(error)}")
 
 
 # 创建机器人单例实例
@@ -595,16 +598,22 @@ _bot_instance = None
 
 def get_bot_instance(config: Dict[str, Any] = None) -> LinjingBot:
     """
-    获取机器人实例（单例模式）
-    
+    获取机器人实例（单例模式）。
+    确保全局只有一个 LinjingBot 实例。首次调用时必须提供 config 来创建实例。
+
     Args:
-        config: 配置字典，仅在首次调用时有效
-        
+        config: 全局配置字典，仅在首次创建实例时需要提供。
+
     Returns:
-        机器人实例
+        全局唯一的 LinjingBot 实例。如果实例尚未创建且未提供 config，则可能返回 None 或引发错误（取决于调用方）。
     """
     global _bot_instance
-    if _bot_instance is None and config is not None:
+    if _bot_instance is None:
+        if config is None:
+            # 考虑是否应该在此处引发错误，而不是依赖调用方处理 None
+            logger.warning("首次调用 get_bot_instance 时未提供配置，返回 None")
+            return None
+        logger.info("首次创建 LinjingBot 单例实例...")
         _bot_instance = LinjingBot(config)
-    
-    return _bot_instance 
+
+    return _bot_instance

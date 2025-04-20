@@ -8,18 +8,18 @@
 
 import json
 import logging
-import os
+# import os # 在此文件中未使用
 import time
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+# from datetime import datetime # 在此文件中未使用
+from typing import Any, Dict, List, Optional # <--- 移除未使用的 Tuple, Union
 
 from linjing.adapters.message_types import Message, MessageSegment # 导入 Message 类
 from linjing.storage.database import DatabaseManager
 from linjing.storage.vector_db_manager_factory import VectorDBManagerFactory
 from linjing.storage.storage_models import MemoryModel
 
-# 导入MemoryModel并重命名为Memory
-Memory = MemoryModel
+# 导入MemoryModel并重命名为Memory (当前未使用此别名)
+# Memory = MemoryModel
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +50,8 @@ class MemoryManager:
         self.vector_db_config = self.config.get("vector_db", {})
         # self.db_path = self.config.get("db_path", "data/database.db") # 不再需要单独获取 db_path
 
-        # 确保数据目录存在 (如果向量数据库需要)
-        # os.makedirs(os.path.dirname(self.db_path), exist_ok=True) # 可能不再需要，取决于向量数据库
+        # 确保数据目录存在 (如果向量数据库需要本地路径，可能需要在这里处理)
+        # 例如: if self.vector_db_config.get("type") == "local_type": os.makedirs(...)
 
         # 使用传入的数据库管理器实例
         self.db = db_manager # <--- 使用传入的实例
@@ -101,7 +101,7 @@ class MemoryManager:
                 metadata TEXT,
                 vector_id TEXT,
                 importance REAL DEFAULT 1.0,
-                embedding_generated BOOLEAN DEFAULT 0,
+                embedding_generated BOOLEAN DEFAULT FALSE, # <-- Use FALSE instead of 0
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
@@ -130,7 +130,7 @@ class MemoryManager:
                 vector_id TEXT,
                 importance REAL DEFAULT 1.0,
                 metadata TEXT,
-                embedding_generated BOOLEAN DEFAULT 0
+                embedding_generated BOOLEAN DEFAULT FALSE # <-- Use FALSE instead of 0
             )
         """)
         
@@ -505,8 +505,9 @@ class MemoryManager:
                             logger.warning(f"无法解析对话 {msg_id} 的元数据: {metadata_json}")
                             metadata = {} # 保留空字典
                 
-                # 创建 Message 对象，假设 Message 构造函数或方法支持这些参数
-                # 尝试从 content (JSON字符串) 恢复 Message 对象
+                # 创建 Message 对象
+                # 尝试将 content (可能是一个序列化的 MessageSegment 列表 JSON) 恢复为 Message 对象
+                # 如果失败或 content 不是预期的 JSON 格式，则将其视为纯文本处理
                 try:
                     if content and content.startswith('[') and content.endswith(']'): # 简单检查是否像JSON列表
                         segments_data = json.loads(content)
@@ -569,15 +570,16 @@ class MemoryManager:
             
             sessions = []
             for session_id, timestamp, content, role in results:
-                # 获取会话的消息数量
+                # --- 为每个会话获取额外信息 ---
+                # 1. 获取会话的消息总数
                 count_query = """
                     SELECT COUNT(*) FROM conversations 
                     WHERE user_id = ? AND session_id = ?
                 """
                 count_result = await self.db.execute_query(count_query, (user_id, session_id))
                 message_count = count_result[0][0] if count_result else 0
-                
-                # 获取会话的第一条消息时间
+
+                # 2. 获取会话的第一条消息时间戳，用于计算时长
                 first_query = """
                     SELECT MIN(timestamp) FROM conversations 
                     WHERE user_id = ? AND session_id = ?
@@ -650,9 +652,10 @@ class MemoryManager:
                 filter_condition=filter_conditions
             )
             
-            # 从关系数据库获取完整记录
+            # --- 从关系数据库获取向量搜索结果对应的完整记忆信息 ---
             memories = []
             for result in search_results:
+                # result 包含 'id' (向量ID), 'score', 'payload' (存储在向量库的元数据)
                 payload = result["payload"]
                 memory_id = payload.get("memory_id")
                 memory_type = payload.get("type")

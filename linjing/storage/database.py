@@ -12,8 +12,8 @@ import asyncio # <--- 导入 asyncio 模块
 import asyncpg # <--- 导入 asyncpg 用于异步操作
 import json
 # import traceback # <--- 移除不再需要的导入
-from pathlib import Path # <--- 保留 Path 用于 SQLite (如果需要)
-from typing import Any, Dict, List, Optional, Tuple, Union
+# from pathlib import Path # <--- 移除未使用的 Path
+from typing import Any, Dict, List, Optional, Tuple # <--- 移除未使用的 Union
 
 logger = logging.getLogger(__name__)
 
@@ -224,21 +224,30 @@ class DatabaseManager:
         # 确保 _initialized 总是被重置
         self._initialized = False
     
-    async def execute_query(self, query: str, params: Tuple = ()) -> List[asyncpg.Record]:
+    # 注意：此方法对于 PostgreSQL 返回 List[asyncpg.Record]，对于 SQLite 返回 List[Dict]。
+    # 调用者需要根据 db_type 处理不同的返回类型。
+    async def execute_query(self, query: str, params: Tuple = ()) -> List[Union[asyncpg.Record, Dict[str, Any]]]:
         """
-        执行查询操作 (返回 asyncpg.Record 列表)
-        
+        执行查询操作 (SELECT)。
+
         Args:
-            query: SQL查询语句 (使用 ? 作为占位符)
-            params: 查询参数元组
-            
+            query: SQL查询语句 (统一使用 ? 作为占位符)。
+            params: 查询参数元组。
+
         Returns:
-            查询结果列表，每项为 asyncpg.Record 对象
+            查询结果列表。
+            对于 PostgreSQL，列表项为 asyncpg.Record 对象。
+            对于 SQLite，列表项为字典 (通过 _dict_factory 转换)。
+            如果出错则返回空列表。
         """
         if not self._initialized:
-            await self.connect()
-            
+            # 尝试自动连接（如果尚未连接）
+            if not await self.connect():
+                 logger.error("数据库未连接，无法执行查询")
+                 return [] # 连接失败则返回空列表
+
         if self.db_type == "postgresql":
+            # --- PostgreSQL 查询逻辑 ---
             if not self.pool:
                 raise ConnectionError("PostgreSQL 连接池未初始化")
             try:
@@ -252,10 +261,13 @@ class DatabaseManager:
             except Exception as e:
                 logger.error(f"执行 PostgreSQL 查询失败: {e}", exc_info=True)
                 logger.debug(f"查询: {query}, 参数: {params}")
-                return []
+                return [] # 查询失败返回空列表
         elif self.db_type == "sqlite":
+             # --- SQLite 查询逻辑 ---
              if not self._connection:
-                 raise ConnectionError("SQLite 数据库未连接")
+                 # 理论上 connect() 应该已处理，但再次检查以防万一
+                 logger.error("SQLite 数据库未连接，无法执行查询")
+                 return []
              try:
                  # 重新导入 aiosqlite
                  import aiosqlite
@@ -272,23 +284,29 @@ class DatabaseManager:
         else:
              raise ValueError(f"不支持的数据库类型: {self.db_type}")
     
+    # 注意：此方法对于 PostgreSQL 可能返回 RETURNING 子句的值或 None，
+    # 对于 SQLite 返回 lastrowid (int) 或 -1。调用者需处理差异。
     async def execute_insert(self, query: str, params: Tuple = ()) -> Optional[Any]:
         """
-        执行插入操作
-        
+        执行插入操作 (INSERT)。
+
         Args:
-            query: SQL插入语句 (使用 ? 作为占位符)
-            params: 插入参数元组
-            
+            query: SQL插入语句 (统一使用 ? 作为占位符)。
+            params: 插入参数元组。
+
         Returns:
-            如果查询包含 RETURNING 子句 (PostgreSQL)，则返回结果。
-            对于 SQLite，返回最后插入行的 ID。
-            如果操作失败或无返回值，则返回 None 或 -1 (SQLite)。
+            - PostgreSQL: 如果查询包含 RETURNING 子句，则返回 fetchval 的结果；否则返回 None。
+            - SQLite: 返回最后插入行的 ID (lastrowid)。
+            - 操作失败时：PostgreSQL 抛出异常，SQLite 返回 -1。
         """
         if not self._initialized:
-            await self.connect()
-            
+            if not await self.connect():
+                 logger.error("数据库未连接，无法执行插入")
+                 # 对于插入操作，失败时应更明确地指示，例如抛出异常
+                 raise ConnectionError("数据库未连接，无法执行插入")
+
         if self.db_type == "postgresql":
+            # --- PostgreSQL 插入逻辑 ---
             if not self.pool:
                 raise ConnectionError("PostgreSQL 连接池未初始化")
             try:
@@ -315,8 +333,10 @@ class DatabaseManager:
                 logger.debug(f"查询: {query}, 参数: {params}")
                 raise # 重新抛出异常，让调用者处理
         elif self.db_type == "sqlite":
+             # --- SQLite 插入逻辑 ---
              if not self._connection:
-                 raise ConnectionError("SQLite 数据库未连接")
+                 logger.error("SQLite 数据库未连接，无法执行插入")
+                 return -1 # 返回 -1 表示失败
              try:
                  # 重新导入 aiosqlite
                  import aiosqlite
@@ -330,21 +350,27 @@ class DatabaseManager:
         else:
              raise ValueError(f"不支持的数据库类型: {self.db_type}")
     
+    # 注意：此方法对于 PostgreSQL 返回解析状态字符串得到的行数，可能为 0；
+    # 对于 SQLite 返回 cursor.rowcount。失败时都返回 -1。
     async def execute_update(self, query: str, params: Tuple = ()) -> int:
         """
-        执行更新或删除操作 (返回影响的行数)
-        
+        执行更新 (UPDATE) 或删除 (DELETE) 操作。
+
         Args:
-            query: SQL更新/删除语句 (使用 ? 作为占位符)
-            params: 参数元组
-            
+            query: SQL 更新/删除语句 (统一使用 ? 作为占位符)。
+            params: 参数元组。
+
         Returns:
-            受影响的行数，如果操作失败则返回 -1
+            受影响的行数。如果操作失败则返回 -1。
+            (注意：PostgreSQL 的行数是从状态字符串解析的，可能不完全精确或在某些情况下为0)。
         """
         if not self._initialized:
-            await self.connect()
-            
+            if not await self.connect():
+                 logger.error("数据库未连接，无法执行更新/删除")
+                 return -1 # 返回 -1 表示失败
+
         if self.db_type == "postgresql":
+            # --- PostgreSQL 更新/删除逻辑 ---
             if not self.pool:
                 raise ConnectionError("PostgreSQL 连接池未初始化")
             try:
@@ -370,8 +396,10 @@ class DatabaseManager:
                 logger.debug(f"查询: {query}, 参数: {params}")
                 return -1 # 返回 -1 表示失败
         elif self.db_type == "sqlite":
+             # --- SQLite 更新/删除逻辑 ---
              if not self._connection:
-                 raise ConnectionError("SQLite 数据库未连接")
+                 logger.error("SQLite 数据库未连接，无法执行更新/删除")
+                 return -1 # 返回 -1 表示失败
              try:
                  # 重新导入 aiosqlite
                  import aiosqlite
@@ -387,18 +415,21 @@ class DatabaseManager:
     
     async def execute_transaction(self, queries: List[Tuple[str, Tuple]]) -> bool:
         """
-        执行事务操作
-        
+        在单个事务中执行多个 SQL 语句。
+
         Args:
-            queries: 查询列表，每项为(query, params)元组 (查询语句使用 ? 作为占位符)
-            
+            queries: 查询列表，每项为 (query, params) 元组 (查询语句统一使用 ? 作为占位符)。
+
         Returns:
-            事务是否执行成功
+            事务是否成功提交 (True 表示成功, False 表示失败并已回滚)。
         """
         if not self._initialized:
-            await self.connect()
-            
+            if not await self.connect():
+                 logger.error("数据库未连接，无法执行事务")
+                 return False # 返回 False 表示失败
+
         if self.db_type == "postgresql":
+            # --- PostgreSQL 事务逻辑 ---
             if not self.pool:
                 raise ConnectionError("PostgreSQL 连接池未初始化")
             # 使用连接池的事务接口
@@ -420,8 +451,10 @@ class DatabaseManager:
                         # asyncpg 的 transaction() 会自动处理回滚
                         return False
         elif self.db_type == "sqlite":
+             # --- SQLite 事务逻辑 ---
              if not self._connection:
-                 raise ConnectionError("SQLite 数据库未连接")
+                 logger.error("SQLite 数据库未连接，无法执行事务")
+                 return False # 返回 False 表示失败
              try:
                  # 重新导入 aiosqlite
                  import aiosqlite
@@ -483,18 +516,26 @@ class DatabaseManager:
     
     async def execute_script(self, script: str) -> bool:
         """
-        执行SQL脚本 (注意：PostgreSQL 的 asyncpg 不直接支持 executescript)
-        
+        执行包含多条语句的 SQL 脚本。
+
+        警告: 对于 PostgreSQL，此方法尝试在单个事务中执行整个脚本。
+              如果脚本包含事务控制语句 (BEGIN, COMMIT, ROLLBACK) 或
+              不支持在事务块中执行的命令，可能会失败。
+              对于复杂的 PostgreSQL 脚本，建议手动管理事务或分步执行。
+
         Args:
-            script: SQL脚本内容 (多条语句用 ; 分隔)
-            
+            script: SQL 脚本内容 (多条语句通常用 ; 分隔)。
+
         Returns:
-            脚本是否执行成功
+            脚本是否执行成功。
         """
         if not self._initialized:
-            await self.connect()
-            
+            if not await self.connect():
+                 logger.error("数据库未连接，无法执行脚本")
+                 return False # 返回 False 表示失败
+
         if self.db_type == "postgresql":
+            # --- PostgreSQL 脚本执行逻辑 (在事务中尝试) ---
             if not self.pool:
                 raise ConnectionError("PostgreSQL 连接池未初始化")
             # asyncpg 需要手动分割和执行语句，或者在事务中执行
@@ -514,8 +555,10 @@ class DatabaseManager:
                         # 事务会自动回滚
                         return False
         elif self.db_type == "sqlite":
+             # --- SQLite 脚本执行逻辑 (使用 executescript) ---
              if not self._connection:
-                 raise ConnectionError("SQLite 数据库未连接")
+                 logger.error("SQLite 数据库未连接，无法执行脚本")
+                 return False # 返回 False 表示失败
              try:
                  # 重新导入 aiosqlite
                  import aiosqlite
@@ -536,9 +579,9 @@ class DatabaseManager:
         tables_script = ""
         if self.db_type == "postgresql":
             # PostgreSQL specific CREATE TABLE statements
-            # 使用 TEXT 作为主键，因为 ID 可能来自外部系统或 UUID
-            # 使用 TIMESTAMPTZ 存储带时区的时间戳
-            # 使用 JSONB 存储 metadata
+            # 使用 TEXT 作为主键 (例如 UUID)
+            # 使用 TIMESTAMPTZ 存储带时区的时间戳 (更精确)
+            # 使用 JSONB 存储 metadata (查询性能更好)
             memories_table = """
             CREATE TABLE IF NOT EXISTS memories (
                 id TEXT PRIMARY KEY,
@@ -602,11 +645,11 @@ class DatabaseManager:
             CREATE TABLE IF NOT EXISTS memories (
                 id TEXT PRIMARY KEY,
                 content TEXT NOT NULL,
-                memory_type TEXT NOT NULL,
-                importance REAL DEFAULT 0.5,
-                creation_time REAL, -- SQLite 使用 REAL 存储时间戳 (Unix epoch)
-                last_access_time REAL,
-                access_count INTEGER DEFAULT 0,
+                memory_type TEXT NOT NULL, -- 记忆类型 (e.g., 'conversation', 'knowledge')
+                importance REAL DEFAULT 0.5, -- 记忆重要性评分
+                creation_time REAL, -- 创建时间 (Unix epoch)
+                last_access_time REAL, -- 最后访问时间 (Unix epoch)
+                access_count INTEGER DEFAULT 0, -- 访问次数
                 user_id TEXT,
                 session_id TEXT,
                 metadata TEXT, -- SQLite 使用 TEXT 存储 JSON
@@ -693,7 +736,7 @@ class DatabaseManager:
             for idx, col_info in enumerate(cursor.description):
                 col_name = col_info[0]
                 value = row[idx]
-                # 尝试解析可能的 JSON 字符串 (主要用于 metadata 或 mood_data)
+                # 尝试将 metadata 和 mood_data 列的值解析为 JSON (如果它们是字符串)
                 if col_name in ['metadata', 'mood_data'] and isinstance(value, str):
                     try:
                         # 只有非空字符串才尝试解析
