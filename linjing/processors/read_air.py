@@ -255,9 +255,9 @@ class ReadAirProcessor(BaseProcessor):
         if hasattr(self, "_format_relationship") and hasattr(self, "memory_manager") and self.memory_manager is not None:
             try:
                 relation_info = await self._format_relationship(context)
-                logger.debug(f"为读空气分析获取到关系信息: {{relation_info}}") # Use f-string
+                logger.debug(f"为读空气分析获取到关系信息: {relation_info}") # Corrected f-string
             except Exception as e:
-                logger.error(f"获取关系信息失败: {{e}}", exc_info=True) # Use f-string
+                logger.error(f"获取关系信息失败: {e}", exc_info=True) # Corrected f-string
                 relation_info = "关系信息获取失败" # Keep error message if failed
         else:
              logger.debug("未获取关系信息: memory_manager 不可用")

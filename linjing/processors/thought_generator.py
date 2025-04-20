@@ -193,6 +193,8 @@ class ThoughtGenerator(BaseProcessor):
         Returns:
             思考提示词
         """
+        import json # Import json module here
+        
         # 获取消息文本
         message_text = context.message.extract_plain_text()
         
@@ -203,7 +205,7 @@ class ThoughtGenerator(BaseProcessor):
         memories_text = self._format_memories(context)
         # 格式化当前情绪状态 (用于 mood_prompt)
         mood_prompt = self._format_emotion(context) # 注意: _format_emotion 可能需要调整以输出更适合 Prompt 的格式
-        # 格式化 ReadAir 的分析结果 (JSON 字符串)
+        # 格式化 ReadAir 的分析结果 (获取 Python 对象)
         air_analysis = self._format_air_analysis(context)
         # 获取人格原则文本 (由 LinjingBot 注入到 self.config)
         personality_text = self.config.get("personality_text", "错误：人格原则文本未在配置中找到！")
@@ -212,6 +214,20 @@ class ThoughtGenerator(BaseProcessor):
 
         # 获取关系信息摘要 (确认已修改)
         relation_prompt_all = await self._format_relationship(context)
+
+        # --- 新增：将 air_analysis 对象转换为 JSON 字符串 ---
+        air_analysis_json_str = "{}" # Default to empty JSON object string
+        if isinstance(air_analysis, dict):
+            try:
+                # Convert the Python dict to a JSON string
+                air_analysis_json_str = json.dumps(air_analysis, ensure_ascii=False, indent=2)
+            except TypeError as e:
+                 logger.error(f"无法将 air_analysis 字典转换为 JSON 字符串: {e}")
+                 air_analysis_json_str = f'{{"error": "Failed to serialize air_analysis: {str(e)}"}}'
+        elif air_analysis: # If it's not a dict but not None/empty, log a warning
+            logger.warning(f"_format_air_analysis 返回的不是字典，而是: {type(air_analysis)}")
+            air_analysis_json_str = f'{{"error": "Invalid air_analysis type: {type(air_analysis).__name__}"}}'
+        # --- JSON 转换结束 ---
 
         # 构建思考提示词
         depth_description = ["简单", "一般", "详细", "深入", "非常深入"][min(self.thinking_depth, 4)]
@@ -234,7 +250,7 @@ class ThoughtGenerator(BaseProcessor):
                 memories_text=memories_text,
                 mood_prompt=mood_prompt,
                 relation_prompt_all=relation_prompt_all,
-                air_analysis=air_analysis,
+                air_analysis=air_analysis_json_str, # 使用 JSON 字符串
                 personality_text=personality_text,
                 depth_description=depth_description
             )
