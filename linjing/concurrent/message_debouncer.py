@@ -25,7 +25,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
-from linjing.types.message_types import Message
+from linjing.adapters.message_types import Message
 from linjing.utils.logger import get_logger
 
 # 获取日志记录器
