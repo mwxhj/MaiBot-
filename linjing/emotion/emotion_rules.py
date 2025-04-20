@@ -7,7 +7,7 @@
 import re
 # import asyncio # 不再需要
 import random
-from typing import Dict, Any, Callable # <--- 移除未使用的 List, Optional, Pattern, Tuple
+from typing import Dict, Any, Callable, Optional # <--- 重新加入 Optional
 
 from ..utils.logger import get_logger
 
