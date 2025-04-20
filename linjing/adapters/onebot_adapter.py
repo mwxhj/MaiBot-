@@ -313,7 +313,16 @@ class OneBotAdapter(Bot):
                      # 尝试从 /get_login_info 获取 self_id
                      try:
                          login_info = await self.call_api("get_login_info")
-                         fetched_self_id = str(login_info.get("user_id"))
+                         
+                         # --- 修正 self_id 提取逻辑 ---
+                         fetched_self_id = None # Initialize
+                         data = login_info.get("data") # 先获取 'data' 字典
+                         if data and isinstance(data, dict):
+                             user_id_val = data.get("user_id") # 获取 user_id 的值
+                             if user_id_val is not None: # 确保 user_id 存在且不为 None
+                                 fetched_self_id = str(user_id_val) # 再从 'data' 中获取 'user_id' 并转为字符串
+                         # --- 修正结束 ---
+
                          if fetched_self_id:
                              if not self.self_id:
                                  self.self_id = fetched_self_id

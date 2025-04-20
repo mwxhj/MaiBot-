@@ -377,27 +377,19 @@ class ThoughtGenerator(BaseProcessor):
             context: 当前消息上下文。
 
         Returns:
-            格式化后的分析结果 JSON 字符串，或在出错时返回错误提示。
+            分析结果字典，或在出错时返回 None 或空字典。
         """
         # 从 context state 获取由 ReadAirProcessor 设置的分析结果字典
         analysis = context.get_state("read_air_analysis")
         logger.debug(f"获取到的'读空气'分析结果: {analysis}")
         
-        # 定义无法分析的标记
-        UNANALYZABLE_CONTENT_MARKER = "内容无法分析（可能是图片等非文本内容）"
-        
+        # 只返回获取到的字典，或者在无效时返回 None 或空字典
         if not analysis or not isinstance(analysis, dict):
-            logger.warning(f"无效的'读空气'分析结果类型: {type(analysis)}，使用占位符")
-            return UNANALYZABLE_CONTENT_MARKER
+            logger.warning(f"无效的'读空气'分析结果类型: {type(analysis)}，返回 None")
+            return None # 或者 return {} 如果下游期望字典
 
-        try:
-            # 直接将分析结果转换为JSON字符串
-            import json
-            result = json.dumps(analysis, ensure_ascii=False, indent=2)
-            return result
-        except Exception as e:
-            logger.error(f"格式化分析结果为JSON时出错: {str(e)}", exc_info=True)
-            return UNANALYZABLE_CONTENT_MARKER
+        # 直接返回获取到的字典对象
+        return analysis
     
     # --- 新增：格式化关系信息 ---
     # 修改为 async def (确认已修改)
