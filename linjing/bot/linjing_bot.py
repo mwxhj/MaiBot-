@@ -772,6 +772,18 @@ class LinjingBot:
                 # **新增：初始化 WillingnessChecker**
                 elif name == ProcessorName.WILLINGNESS_CHECKER: # 使用常量
                     from linjing.processors.willingness_checker import WillingnessChecker
+                    # --- 注入 bot_qq 到 WillingnessChecker 配置 ---
+                    # 尝试从全局配置获取 bot_qq (优先级：bot.self_qq > adapters.onebot.self_id)
+                    bot_qq_from_config = self.config.get("bot", {}).get("self_qq") or \
+                                         self.config.get("adapters", {}).get("onebot", {}).get("self_id")
+                    if bot_qq_from_config:
+                        processor_config["bot_qq"] = str(bot_qq_from_config)
+                        logger.debug(f"已将 bot_qq ({processor_config['bot_qq']}) 注入到 WillingnessChecker 配置。")
+                    else:
+                        # 如果配置中没有，尝试使用 self.self_id (可能为 None)
+                        processor_config["bot_qq"] = self.self_id
+                        logger.warning(f"未在配置中找到 bot_qq/self_id，尝试使用 self.self_id ({self.self_id}) 注入 WillingnessChecker。")
+                    # --- 注入结束 ---
                     processor = WillingnessChecker(name=name, config=processor_config)
                     processor.set_llm_manager(self.llm_manager)
                     # processor.set_personality(self.personality) # 移除旧的调用
