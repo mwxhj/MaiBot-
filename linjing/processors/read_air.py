@@ -250,8 +250,21 @@ class ReadAirProcessor(BaseProcessor):
         if contains_image and image_urls:
             message = f"{message}\n[注意:此消息包含 {len(image_urls)} 张图片]"
 
-        # 构建提示词 - 传递 context 以便 _build_analysis_prompt 获取历史
-        prompt = self._build_analysis_prompt(context, message, user_identifier)
+        # --- 新增：在此处异步获取关系信息 ---
+        relation_info = "关系信息: 未知 (记忆系统未就绪)" # Default value
+        if hasattr(self, "_format_relationship") and hasattr(self, "memory_manager") and self.memory_manager is not None:
+            try:
+                relation_info = await self._format_relationship(context)
+                logger.debug(f"为读空气分析获取到关系信息: {{relation_info}}") # Use f-string
+            except Exception as e:
+                logger.error(f"获取关系信息失败: {{e}}", exc_info=True) # Use f-string
+                relation_info = "关系信息获取失败" # Keep error message if failed
+        else:
+             logger.debug("未获取关系信息: memory_manager 不可用")
+        # --- 关系信息获取结束 ---
+
+        # 构建提示词 - 传递 context, message, user_identifier 和获取到的 relation_info
+        prompt = self._build_analysis_prompt(context, message, user_identifier, relation_info)
         
         # --- 添加调试日志：打印最终的 Prompt ---
         logger.debug(f"最终构建的 ReadAir Prompt:\n---\n{prompt}\n---")
@@ -287,43 +300,35 @@ class ReadAirProcessor(BaseProcessor):
             logger.error(f"消息分析失败: {str(e)}", exc_info=True)
             return None
     
-    def _build_analysis_prompt(self, context: MessageContext, message: str, user_identifier: str = "用户") -> str:
+    def _build_analysis_prompt(self, context: MessageContext, message: str, user_identifier: str, relation_info: str) -> str:
         """
         根据模板和当前上下文构建用于 LLM 分析的提示词。
 
         Args:
             context: 当前消息上下文 (用于获取历史记录)。
             message: 当前需要分析的消息文本。
-            user_identifier: 当前消息发送者的标识符。
+            user_identifier: 用户标识符。
+            relation_info: 已获取的关系信息字符串。
 
         Returns:
-            构建好的分析提示词字符串。
+            构建好的 Prompt 字符串。
         """
-        # 从 context 准备历史消息文本
-        history_list = self._prepare_history(context) # 调用内部方法获取格式化历史
+        # 准备历史记录文本
         history_text = ""
-        for msg in history_list:
-            # 使用 self.name 获取机器人名字
-            role = f"用户 ({msg.get('user_identifier', '用户')})" if msg["role"] == "user" else f"我 ({self.name})"
-            history_text += f"{role}: {msg['content']}\n"
-        
-        # 获取关系信息（异步调用转同步调用）
-        relation_info = ""
-        # 更安全地检查 memory_manager 属性是否存在
-        if hasattr(self, "_format_relationship") and hasattr(self, "memory_manager") and self.memory_manager is not None:
-            try:
-                import asyncio
-                # 使用事件循环执行异步调用
-                loop = asyncio.get_event_loop() if asyncio.get_event_loop().is_running() else asyncio.new_event_loop()
-                relation_info = loop.run_until_complete(self._format_relationship(context))
-                logger.debug(f"为读空气分析获取到关系信息: {relation_info}")
-            except Exception as e:
-                logger.error(f"获取关系信息失败: {e}", exc_info=True)
-                relation_info = "关系信息获取失败"
+        # 访问格式化后的历史记录 (如果需要的话，可以从 _analyze_message 传递过来，或者在这里重新调用 _prepare_history)
+        history = self._prepare_history(context) # Re-call here or pass from caller
+        if history:
+            # 将历史记录格式化为字符串
+            formatted_history = []
+            for entry in history:
+                role = entry["role"]
+                name = entry["user_identifier"] or ("Bot" if role == "bot" else "User")
+                content = entry["content"]
+                formatted_history.append(f"{name} ({role}): {content}")
+            history_text = "\n".join(formatted_history)
         else:
-            logger.debug("未获取关系信息: memory_manager 不可用")
-            relation_info = "关系信息: 未知 (记忆系统未就绪)"
-        
+            history_text = "(无相关对话历史)"
+
         # 从配置加载模板并格式化
         try:
             # 修复：直接使用 self.prompt_template，该值已在 __init__ 中从配置加载
@@ -335,7 +340,7 @@ class ReadAirProcessor(BaseProcessor):
                 history_text=history_text,
                 user_identifier=user_identifier,
                 message_content=message,
-                relation_info=relation_info,
+                relation_info=relation_info, # 使用传入的 relation_info
                 group_context="暂无群体背景信息"  # 目前未实现，预留接口
             )
             # YAML 加载时会处理 {{ 和 }}，所以不需要额外转义
