@@ -65,6 +65,10 @@ class DatabaseManager:
         self.connection_config = self.config.get("connection", {})
         self.create_tables = self.config.get("create_tables_on_connect", True)
         self._initialized = False
+        # --- 添加日志：确认 __init__ 结束时的值 ---
+        if self.db_type == "postgresql":
+            logger.critical(f"!!! DB MANAGER INIT DONE: host={self.db_host}, port={self.db_port}, user={self.db_user}, db={self.db_name}")
+        # --- 日志结束 ---
     
     async def connect(self) -> bool:
         """
