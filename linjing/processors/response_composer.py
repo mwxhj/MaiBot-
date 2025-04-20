@@ -357,13 +357,28 @@ class ResponseComposer(BaseProcessor):
 
     # 使用与 ThoughtGenerator 和 WillingnessChecker 统一的格式化逻辑
     def _format_history(self, history_list: List[Message]) -> str:
-        """格式化历史消息列表，包含用户昵称和 ID"""
+        """
+        格式化历史消息列表，包含用户昵称和 ID
+        """
         history_text = ""
+        # --- 添加调试日志 ---\n        logger.debug(f\"--- ENTERING _format_history ---\")\n        logger.debug(f\"_format_history received history_list type: {type(history_list)}\")\n        if isinstance(history_list, list):\n            logger.debug(f\"_format_history history_list length: {len(history_list)}\")\n            try:\n                items_to_log = min(len(history_list), 2) # 只记录前几个，避免日志过长\n                for i in range(items_to_log):\n                    item = history_list[i]\n                    logger.debug(f\"_format_history item {i} type: {type(item)}\")\n            except Exception as log_err:\n                 logger.error(f\"Error logging history items: {log_err}\")\n        else:\n             logger.warning(f\"_format_history received non-list: {str(history_list)[:200]}...\")\n        # --- 调试日志结束 ---\n\n        # 使用 ResponseComposer 自身的 max_history 配置\n        # 这是 traceback 指向的行 (或附近)\n        try:\n             recent_history = history_list[-self.max_history:] if history_list else []\n             logger.debug(f\"Successfully sliced history_list (line 364 area)\") # 确认这行能成功执行\n        except AttributeError as e:\n             logger.error(f\"AttributeError occurred exactly at slicing (line 364 area)! history_list type: {type(history_list)}\", exc_info=True)\n             raise e # 重新抛出异常以便看到原始traceback\n        except Exception as e:\n             logger.error(f\"Unexpected error at slicing (line 364 area)! history_list type: {type(history_list)}\", exc_info=True)\n             raise e\n\n        for i, msg in enumerate(recent_history): # Add enumerate\n            # --- 添加循环内日志 ---\n            logger.debug(f\"_format_history loop {i}: msg type: {type(msg)}\")\n            # --- 循环内日志结束 ---
+
         # 使用 ResponseComposer 自身的 max_history 配置
-        # max_history_length = self.config.get("max_history_for_response", 5) # 或者直接用 self.max_history
-        recent_history = history_list[-self.max_history:] if history_list else [] # <-- 修正：操作 history_list，使用 self.max_history
-        
-        for msg in recent_history:
+        # 这是 traceback 指向的行 (或附近)
+        try:
+             recent_history = history_list[-self.max_history:] if history_list else []
+             logger.debug(f"Successfully sliced history_list (line 364 area)") # 确认这行能成功执行
+        except AttributeError as e:
+             logger.error(f"AttributeError occurred exactly at slicing (line 364 area)! history_list type: {type(history_list)}", exc_info=True)
+             raise e # 重新抛出异常以便看到原始traceback
+        except Exception as e:
+             logger.error(f"Unexpected error at slicing (line 364 area)! history_list type: {type(history_list)}", exc_info=True)
+             raise e
+
+        for i, msg in enumerate(recent_history): # Add enumerate
+            # --- 添加循环内日志 ---\n            logger.debug(f\"_format_history loop {i}: msg type: {type(msg)}\")\n            # --- 循环内日志结束 ---
+            logger.debug(f"_format_history loop {i}: msg type: {type(msg)}")
+            # --- 循环内日志结束 ---
             is_user = msg.get_meta("is_user", False)
             try:
                  content = msg.extract_plain_text()
