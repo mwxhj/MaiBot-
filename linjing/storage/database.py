@@ -7,6 +7,7 @@
 
 import logging
 import os # <--- 导入 os 用于读取环境变量
+import asyncio # <--- 导入 asyncio 模块
 # import aiosqlite # <-- 不再需要 aiosqlite
 import asyncpg # <--- 导入 asyncpg 用于异步操作
 import json
