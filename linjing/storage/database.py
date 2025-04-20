@@ -127,15 +127,15 @@ class DatabaseManager:
                     # --- 移除结束 ---
                     self.pool = await asyncpg.create_pool(
                         host=host_to_use, # <--- 使用配置文件中的主机名
-                        port=final_port,
-                        user=final_user,
-                        password=final_password, # 直接传递密码
-                        database=final_database,
-                        ssl=final_ssl, # 明确禁用 SSL (使用 False 而不是 None)
-                        timeout=final_timeout, # 连接超时
-                        command_timeout=final_command_timeout, # 命令超时
-                        min_size=final_min_size,
-                        max_size=final_max_size,
+                        port=port_to_use, # <--- 修正变量名
+                        user=self.db_user, # <--- 修正变量名
+                        password=self.db_password, # <--- 修正变量名 (直接传递密码)
+                        database=self.db_name, # <--- 修正变量名
+                        ssl=False, # <--- 修正变量名 (明确禁用 SSL)
+                        timeout=connection_timeout, # <--- 修正变量名 (连接超时)
+                        command_timeout=self.connection_config.get("timeout", 30), # <--- 修正变量名 (命令超时)
+                        min_size=self.connection_config.get("min_size", 1), # <--- 修正变量名
+                        max_size=self.connection_config.get("max_size", 5), # <--- 修正变量名
                         max_cached_statement_lifetime=self.connection_config.get("max_cached_statement_lifetime", 0), # 保留原始获取方式
                         max_queries=self.connection_config.get("max_queries", 50000), # 保留原始获取方式
                         max_inactive_connection_lifetime=self.connection_config.get("max_inactive_connection_lifetime", 300), # 保留原始获取方式
