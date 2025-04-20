@@ -12,7 +12,7 @@ from enum import Enum, auto
 from typing import Dict, Any, Set, Optional
 from contextlib import asynccontextmanager
 
-from linjing.utils.logger import get_logger
+from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
 
