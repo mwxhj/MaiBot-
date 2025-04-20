@@ -384,8 +384,8 @@ class OneBotAdapter(Bot):
                 if message_obj and self._message_handler:
                     logger.debug(f"调用主消息处理函数: {self._message_handler.__name__}")
                     reply = await self._message_handler(message_obj)
-                    if reply:
-                        print("!!! DEBUG PRINT: Inside 'if reply' block !!!", flush=True) # 新增
+                    if reply is not None: 
+                        print("!!! DEBUG PRINT: Inside 'if reply is not None' block !!!", flush=True)
                         # 如果主处理函数返回了回复，则发送回复
                         logger.debug(f"主处理函数返回回复: {reply}")
                         # 确定回复目标和消息类型
