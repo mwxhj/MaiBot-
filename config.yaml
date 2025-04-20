@@ -385,7 +385,7 @@ adapters:
       rate_limit: 5.0  # 默认API速率限制
       burst_limit: 10  # 默认API突发限制
     burst_limit: 10    # 突发请求限制
-    expected_self_id: "123456789"  # 预期机器人QQ号
+    expected_self_id: "2458449279"  # 预期机器人QQ号
     verify_self_id: true
     
     # QQ机器人功能设置 (这些设置可能需要在具体实现中添加)
