@@ -24,7 +24,7 @@ from linjing.storage.database import DatabaseManager
 from linjing.storage.vector_db_manager_factory import VectorDBManagerFactory
 
 # 导入并发控制组件
-from linjing.concurrent import (
+from linjing.linjing_concurrent import (
     QueueManager, MessageDebouncer, 
     ResourceLockManager, EasyResourceLock, ResourceType
 )
