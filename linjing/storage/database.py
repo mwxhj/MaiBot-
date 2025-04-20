@@ -123,7 +123,7 @@ class DatabaseManager:
                         user=self.db_user,
                         password=self.db_password, # 直接传递密码
                         database=self.db_name,
-                        ssl=None, # 明确禁用 SSL (如果需要，可以从配置读取)
+                        ssl=False, # 明确禁用 SSL (使用 False 而不是 None)
                         timeout=connection_timeout, # 连接超时
                         command_timeout=self.connection_config.get("timeout", 30), # 命令超时
                         min_size=self.connection_config.get("min_size", 1),
