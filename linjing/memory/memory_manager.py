@@ -11,7 +11,7 @@ import logging
 # import os # 在此文件中未使用
 import time
 # from datetime import datetime # 在此文件中未使用
-from typing import Dict, List, Optional, Union # <--- 重新添加 Union (用于 get_user_info 返回类型)
+from typing import Dict, List, Optional, Union, Any # <--- 添加 Any
 
 from linjing.adapters.message_types import Message, MessageSegment # 导入 Message 类
 from linjing.storage.database import DatabaseManager
