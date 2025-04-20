@@ -42,7 +42,8 @@ RUN pip install --no-cache-dir \
     websockets>=11.0.3 \
     aiosqlite \
     asyncpg==0.27.0 \
-    psycopg2-binary
+    psycopg2-binary \
+    urllib3==2.0.3
 
 # 复制应用代码
 COPY --chown=linjing:linjing . /app/

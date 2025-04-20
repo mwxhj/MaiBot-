@@ -100,10 +100,20 @@ class DatabaseManager:
                     
                     self.pool = await asyncpg.create_pool(
                         dsn=final_dsn,
-                        # 强制网络配置
-                        family=4,  # 强制使用IPv4
-                        host=host_to_use,
+                        # 网络配置
+                        family=4,  # 强制IPv4
+                        host=host_to_use,  # 保留原始host用于日志
                         port=port_to_use,
+                        # 增强的连接稳定性配置
+                        max_cached_statement_lifetime=0,
+                        max_queries=50000,
+                        max_inactive_connection_lifetime=300,
+                        # 自动重连配置
+                        reconnect=True,
+                        reconnect_retries=3,
+                        reconnect_timeout=5,
+                        # 添加事件循环引用
+                        loop=asyncio.get_event_loop(),
                         # 连接池配置
                         min_size=1,
                         max_size=5,
