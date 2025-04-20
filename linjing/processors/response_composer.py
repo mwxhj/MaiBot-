@@ -379,11 +379,11 @@ class ResponseComposer(BaseProcessor):
                     nickname = getattr(msg.sender, 'nickname', None)
                 
                 if nickname and user_id:
-                    role = f"用户 {nickname} ({user_id})"
+                    role = f"{nickname}({user_id})"
                 elif nickname:
-                    role = f"用户 {nickname}"
+                    role = f"{nickname}"
                 elif user_id:
-                    role = f"用户 ({user_id})"
+                    role = f"({user_id})"
                 else:
                     role = "未知用户"
             else:
