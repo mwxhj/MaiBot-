@@ -237,27 +237,26 @@ class V12TriggerRule(EmotionRule):
 class EmotionRules:
     """情绪规则管理器"""
 
-    def __init__(self):
-        """初始化情绪规则管理器"""
+    # 修改 __init__ 以接收配置
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """
+        初始化情绪规则管理器
+
+        Args:
+            config: 情绪相关的配置字典 (来自 config.yaml 的 emotion 部分)
+        """
+        self.config = config or {} # 存储配置
         self.rules: List[EmotionRule] = [] # 明确类型
-        self._initialize_v12_rules() # 调用新的初始化方法
+        self._initialize_v12_rules() # 调用初始化方法
 
     def _initialize_v12_rules(self):
-        """初始化 V12 情绪规则"""
-        logger.info("初始化 V12 情绪规则...")
-        # 定义 V12 触发器及其对 VAD 的影响 (示例值，需要根据人设文档调整)
-        # V: Valence (愉悦度), A: Arousal (激动度), D: Dominance (控制感)
-        # 范围 [-1, 1] 或 [0, 1]，这里假设变化量是加到 [0, 1] 的 VAD 值上
-        # 注意：影响值的大小和符号需要仔细设计
-        v12_trigger_effects = {
-            "triggers_linjing_disrespect_sensitivity": {"valence": -0.3, "arousal": 0.2, "dominance": -0.1},
-            "triggers_linjing_logical_fallacy_sensitivity": {"valence": -0.1, "arousal": 0.1, "dominance": 0.2},
-            "triggers_linjing_provocation_sensitivity": {"valence": -0.4, "arousal": 0.4, "dominance": 0.0},
-            "triggers_linjing_personal_attack_sensitivity": {"valence": -0.5, "arousal": 0.3, "dominance": -0.2},
-            "triggers_linjing_misinformation_sensitivity": {"valence": -0.1, "arousal": 0.1, "dominance": 0.1},
-            "triggers_linjing_fairness_sensitivity": {"valence": -0.2, "arousal": 0.2, "dominance": -0.1},
-            "triggers_linjing_ai_identity_sensitivity": {"valence": 0.1, "arousal": -0.1, "dominance": 0.1}, # 对 AI 身份的强调可能增加冷静和控制感
-        }
+        """初始化 V12 情绪规则 (从配置加载)"""
+        logger.info("初始化 V12 情绪规则 (从配置加载)...")
+
+        # 从配置中读取 V12 触发器效果
+        v12_trigger_effects = self.config.get("v12_trigger_effects", {})
+        if not v12_trigger_effects:
+             logger.warning("配置中未找到 'v12_trigger_effects'，无法加载 V12 触发器规则！")
 
         for trigger_key, changes in v12_trigger_effects.items():
             rule_name = f"v12_{trigger_key.split('_')[-2]}" # e.g., v12_disrespect
@@ -271,20 +270,42 @@ class EmotionRules:
             )
             logger.debug(f"已添加 V12 情绪规则: {rule_name}")
 
-        # 可以保留一些通用的、与 V12 不冲突的旧规则，例如基于阈值的平衡规则
-        # 但需要确保它们操作的是 VAD 维度
-        self.rules.extend([
-            ThresholdRule(
-                name="valence_too_high", dimension="valence", threshold=0.9, comparison="gt",
-                emotion_changes={"valence": -0.05}, description="过高的愉悦度自动降低"
-            ),
-            ThresholdRule(
-                name="valence_too_low", dimension="valence", threshold=0.1, comparison="lt",
-                emotion_changes={"valence": 0.05}, description="过低的愉悦度自动提升"
-            ),
-            # 可以为 Arousal 和 Dominance 添加类似规则
-        ])
-        logger.debug("已添加情绪平衡规则 (基于 VAD)")
+        # 从配置中读取情绪平衡规则
+        balance_rules_config = self.config.get("balance_rules", {})
+        if not balance_rules_config:
+             logger.warning("配置中未找到 'balance_rules'，无法加载情绪平衡规则！")
+        else:
+             logger.debug(f"加载情绪平衡规则: {balance_rules_config}")
+
+        # 为 VAD 三个维度创建平衡规则
+        for dim in ["valence", "arousal", "dominance"]:
+            # 处理过高的情况
+            high_rule_config = balance_rules_config.get(f"{dim}_high")
+            if isinstance(high_rule_config, dict):
+                threshold = high_rule_config.get("threshold")
+                change = high_rule_config.get("change")
+                if isinstance(threshold, (int, float)) and isinstance(change, (int, float)):
+                    self.rules.append(ThresholdRule(
+                        name=f"{dim}_too_high", dimension=dim, threshold=threshold, comparison="gt",
+                        emotion_changes={dim: change}, description=f"过高的 {dim} 自动调整"
+                    ))
+                    logger.debug(f"已添加平衡规则: {dim}_too_high (阈值>{threshold}, 变化:{change})")
+                else:
+                     logger.warning(f"平衡规则 '{dim}_high' 配置无效: {high_rule_config}")
+
+            # 处理过低的情况
+            low_rule_config = balance_rules_config.get(f"{dim}_low")
+            if isinstance(low_rule_config, dict):
+                threshold = low_rule_config.get("threshold")
+                change = low_rule_config.get("change")
+                if isinstance(threshold, (int, float)) and isinstance(change, (int, float)):
+                    self.rules.append(ThresholdRule(
+                        name=f"{dim}_too_low", dimension=dim, threshold=threshold, comparison="lt",
+                        emotion_changes={dim: change}, description=f"过低的 {dim} 自动调整"
+                    ))
+                    logger.debug(f"已添加平衡规则: {dim}_too_low (阈值<{threshold}, 变化:{change})")
+                else:
+                     logger.warning(f"平衡规则 '{dim}_low' 配置无效: {low_rule_config}")
 
         # 移除所有旧的 PatternMatchRule 和 ConditionalRule
         # logger.info("旧的模式匹配和条件规则已被移除，由 V12 触发器规则替代。")

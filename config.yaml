@@ -232,56 +232,80 @@ memory:
     max_connections: 10  # 数据库连接池的最大连接数 (如果适用)
     default_query_limit: 100  # 默认数据库查询限制
 
-# 情感系统设置 (V12 适配版)
+# 情感系统设置 (V12 适配版 - 配置化)
 emotion:
   enabled: true
   update_interval: 60  # 背景情绪 (Mood) 衰减/更新间隔 (秒)
   max_history: 50     # 存储的情绪状态历史记录数 (用于调试或分析)
 
-  # 定义机器人能够内部感受和在 current_mind_info 中使用的情绪词汇
-  # 需要与 prompts.yaml 中 thought_generator 部分的 emotion 类型保持一致
-  emotion_vocabulary:
-    - 平静
-    - 好奇
-    - 愉悦
-    - 烦躁
-    - 愤怒
-    - 轻蔑
-    - 困惑
-    - 警惕
-    - 受伤
-    # 可以根据 V12 原则和需要添加更多具体情绪
+  # VAD 模型配置
+  vad_model:
+    baseline_vad: [0.5, 0.3, 0.5] # 基线 VAD 值 [Valence, Arousal, Dominance] (趋向平静、略微顺从)
+    decay_rate: 0.05             # VAD 值向基线衰减的速率 (每次更新间隔，0-1)
+    significant_threshold: 0.3   # 判断情绪是否显著以便在 Prompt 中提及的阈值 (针对 VAD 值与基线的偏差)
 
-  # 背景情绪模型 (Mood Model) 参数 - 控制 mood_prompt 的动态变化
+  # MoodModel 参数 (用于计算基础变化，如果启用)
   mood_model:
-    decay_rate: 0.05       # 背景情绪强度向基线衰减的速率 (每次更新间隔，0-1)
-    baseline_mood: "平静" # 默认的、中性的背景情绪状态
-    # 可以添加更多参数来控制情绪如何累积和衰减
+    base_change_rate: 0.05 # 基础变化率 (MoodModel 使用)
+    inertia_factor: 0.3    # 情绪惯性因子 (MoodModel 使用)
+    # 维度相关性 (示例，可根据需要扩展)
+    dimension_correlations:
+      valence:
+        arousal: 0.2 # 愉悦度增加可能轻微增加激动度
+      arousal:
+        valence: 0.1 # 激动度增加可能轻微增加愉悦度
 
-  # 事件对背景情绪的影响因子 (Event Impact Factors) - 定义不同事件如何影响背景情绪
-  # 具体逻辑在 MoodModel 中实现，这里提供参数
-  event_impact:
-    # 示例：正面/负面交互对背景情绪的基准影响值 (+/-)
-    positive_interaction_base_impact: 0.1
-    negative_interaction_base_impact: -0.2
-    # 示例：V12 触发器对背景情绪的负面影响权重 (乘以基准负面影响)
-    v12_trigger_impact_multiplier:
-      disrespect: 1.5
-      logical_fallacy: 0.5
-      provocation: 1.2
-      personal_attack: 2.5
-      # ... 其他触发器 ...
-    # 可以添加更多事件类型及其影响参数
+  # V12 触发器对 VAD 的影响效果
+  # 定义每个触发器被激活时，对 VAD 三个维度的直接加/减值
+  v12_trigger_effects:
+    triggers_linjing_disrespect_sensitivity:    {"valence": -0.3, "arousal": 0.2, "dominance": -0.1}
+    triggers_linjing_logical_fallacy_sensitivity: {"valence": -0.1, "arousal": 0.1, "dominance": 0.2}
+    triggers_linjing_provocation_sensitivity:   {"valence": -0.4, "arousal": 0.4, "dominance": 0.0}
+    triggers_linjing_personal_attack_sensitivity: {"valence": -0.5, "arousal": 0.3, "dominance": -0.2}
+    triggers_linjing_misinformation_sensitivity: {"valence": -0.1, "arousal": 0.1, "dominance": 0.1}
+    triggers_linjing_fairness_sensitivity:      {"valence": -0.2, "arousal": 0.2, "dominance": -0.1}
+    triggers_linjing_ai_identity_sensitivity:   {"valence": 0.1, "arousal": -0.1, "dominance": 0.1}
 
-  # 情绪表达控制参数 (Expression Control) - 主要供代码逻辑参考
-  expression_control:
-    # 定义 current_mind_info 中使用的情绪强度等级
-    intensity_levels: ["low", "medium", "high", "extreme"]
-    # 可选：如果内部需要数值映射，可以在这里定义阈值
-    # intensity_thresholds:
-    #   low: 0.2
-    #   medium: 0.5
-    #   high: 0.8
+  # 情绪平衡规则配置 (用于 EmotionRules 中的 ThresholdRule)
+  balance_rules:
+    valence_high: {threshold: 0.9, change: -0.05} # 愉悦度过高时降低
+    valence_low:  {threshold: 0.1, change: 0.05}  # 愉悦度过低时提升
+    arousal_high: {threshold: 0.9, change: -0.05} # 激动度过高时降低
+    arousal_low:  {threshold: 0.1, change: 0.05}  # 激动度过低时提升
+    # dominance 规则可以类似添加
+
+  # 情绪描述配置 (用于 EmotionManager.mood_to_text)
+  mood_description:
+    # 定义 VAD 值到描述词的映射阈值
+    valence_map:
+      - {threshold: 0.8, word: "极其愉悦"}
+      - {threshold: 0.65, word: "非常愉悦"}
+      - {threshold: 0.55, word: "有点愉悦"}
+      - {threshold: 0.45, word: "平静"} # 中性区间
+      - {threshold: 0.35, word: "有点不悦"}
+      - {threshold: 0.2, word: "非常不悦"}
+      - {threshold: 0.0, word: "极其不悦"} # 低于 0.2
+    arousal_map:
+      - {threshold: 0.8, word: "极其激动"}
+      - {threshold: 0.65, word: "非常激动"}
+      - {threshold: 0.55, word: "有点激动"}
+      - {threshold: 0.45, word: "平静"} # 中性区间
+      - {threshold: 0.35, word: "有点冷静"}
+      - {threshold: 0.2, word: "非常冷静"}
+      - {threshold: 0.0, word: "极其冷静"}
+    dominance_map:
+      - {threshold: 0.8, word: "极其主导"}
+      - {threshold: 0.65, word: "非常主导"}
+      - {threshold: 0.55, word: "有点主导"}
+      - {threshold: 0.45, word: "中立"} # 中性区间
+      - {threshold: 0.35, word: "有点顺从"}
+      - {threshold: 0.2, word: "非常顺从"}
+      - {threshold: 0.0, word: "极其顺从"}
+
+  # --- 以下为旧配置，将被忽略或移除 ---
+  # emotion_vocabulary: ... (这个可能仍被 Prompt 使用，暂时保留)
+  # event_impact: ... (旧的单维度影响因子，已废弃)
+  # expression_control: ... (旧的强度等级，已废弃)
 
 # 处理器配置
 processors:
@@ -291,7 +315,7 @@ processors:
   # 处理器配置
   read_air:
     enabled: true
-    llm_max_tokens: 1000  # LLM分析最大Token数
+    llm_max_tokens: 4096  # LLM分析最大Token数
     description: "理解用户输入和环境信息的处理器"
     confidence_threshold: 0.6
     max_history: 10
@@ -301,7 +325,7 @@ processors:
   thought_generator:
     enabled: true
     description: "生成内部思考过程的处理器"
-    max_tokens: 1000
+    max_tokens: 4096
     temperature: 0.7
     top_p: 0.9
     show_reasoning: true
@@ -309,7 +333,7 @@ processors:
   response_composer:
     enabled: true
     description: "生成最终回复的处理器"
-    max_tokens: 1000
+    max_tokens: 4096
     temperature: 0.7
     max_length: 500
     format_response: true

@@ -114,11 +114,20 @@ class EmotionManager:
         self.config = config.get("emotion", {}) # 直接获取 emotion 配置块
         self.db_manager = db_manager
         self.mood_model = MoodModel(self.config) # 传递 emotion 配置块
-        self.emotion_rules = EmotionRules() # EmotionRules 目前不依赖配置
+        # 传递 emotion 配置块给 EmotionRules
+        self.emotion_rules = EmotionRules(self.config)
 
-        # 情绪衰减配置
-        self.decay_rate = config.get("emotion_decay_rate", 0.05)
-        self.decay_interval = config.get("emotion_decay_interval", 3600)  # 默认1小时
+        # 情绪衰减配置 (从 vad_model 配置块读取)
+        vad_config = self.config.get("vad_model", {})
+        self.decay_rate = vad_config.get("decay_rate", 0.05)
+        self.decay_interval = self.config.get("update_interval", 3600)  # 使用顶层的 update_interval
+        self.baseline_vad = tuple(vad_config.get("baseline_vad", [0.5, 0.3, 0.5])) # 读取基线 VAD
+        if len(self.baseline_vad) != 3:
+             logger.warning(f"配置中的 baseline_vad 格式无效，使用默认值 [0.5, 0.3, 0.5]: {self.baseline_vad}")
+             self.baseline_vad = (0.5, 0.3, 0.5)
+
+        # 加载情绪描述配置
+        self.mood_description_config = self.config.get("mood_description", {})
         
         # 用户情绪缓存 {user_id: MoodState} # 修正类型注释
         self.emotion_cache: Dict[str, MoodState] = {} # 使用类型提示
@@ -142,13 +151,10 @@ class EmotionManager:
     
     async def _apply_emotion_decay(self):
         """应用情绪衰减"""
-        # 从配置获取基线 VAD 值
-        baseline_vad_config = self.config.get("baseline_vad", [0.5, 0.3, 0.5])
-        baseline_vad = tuple(baseline_vad_config) if len(baseline_vad_config) == 3 else (0.5, 0.3, 0.5)
-
+        # 使用从 __init__ 加载的 self.baseline_vad 和 self.decay_rate
         for user_id, mood in list(self.emotion_cache.items()): # 使用 emotion_cache
             # 应用衰减
-            updated_mood = mood.apply_decay(self.decay_rate, baseline_vad) # 传递基线 VAD
+            updated_mood = mood.apply_decay(self.decay_rate, self.baseline_vad) # 传递基线 VAD
             self.emotion_cache[user_id] = updated_mood # 更新 emotion_cache
             
             # 保存到数据库
@@ -267,36 +273,41 @@ class EmotionManager:
         except Exception as e:
             logger.error(f"保存用户背景情绪失败: {e}")
     
+    def _get_vad_description(self, value: float, mapping_key: str) -> str:
+        """根据 VAD 值和配置的映射规则获取描述词"""
+        mapping = self.mood_description_config.get(mapping_key, [])
+        if not mapping:
+            return "" # 如果没有配置映射，返回空
+
+        # 映射规则通常按阈值降序排列
+        for rule in mapping:
+            threshold = rule.get("threshold")
+            word = rule.get("word")
+            if isinstance(threshold, (int, float)) and word and value >= threshold:
+                return word
+        return "" # 如果没有匹配的规则
+
     def mood_to_text(self, mood: MoodState) -> str:
         """
-        将背景情绪状态转换为文本描述
-        
+        将 VAD 情绪状态转换为文本描述 (基于配置)。
+
         Args:
-            mood: 背景情绪状态对象
-            
+            mood: MoodState 对象。
+
         Returns:
-            情绪的文本描述
+            情绪的文本描述，例如 "有点愉悦且非常激动"。
         """
-        intensity_map = {
-            "extreme": "极其",
-            "high": "非常",
-            "medium": "相当",
-            "low": "有些"
-        }
-        
-        # 根据强度值确定描述词
-        if mood.intensity > 0.8:
-            intensity = intensity_map.get("extreme", "极其")
-        elif mood.intensity > 0.65:
-            intensity = intensity_map.get("high", "非常")
-        elif mood.intensity > 0.5:
-            intensity = intensity_map.get("medium", "相当")
-        elif mood.intensity > 0.35:
-            intensity = intensity_map.get("low", "有些")
-        else:
-            intensity = ""
-            
-        return f"{intensity}{mood.mood_type}" if intensity else mood.mood_type
+        valence_desc = self._get_vad_description(mood.valence, "valence_map")
+        arousal_desc = self._get_vad_description(mood.arousal, "arousal_map")
+        dominance_desc = self._get_vad_description(mood.dominance, "dominance_map")
+
+        # 组合描述，可以根据需要调整逻辑
+        parts = [desc for desc in [valence_desc, arousal_desc, dominance_desc] if desc and desc not in ["平静", "中立"]]
+
+        if not parts:
+            return "平静" # 如果所有维度都接近中性
+
+        return "且".join(parts) # 例如 "有点不悦且非常冷静且有点顺从"
     
     async def initialize_tables(self) -> None:
         """初始化数据库表 (已弃用)"""

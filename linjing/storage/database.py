@@ -13,7 +13,7 @@ import asyncpg # <--- 导入 asyncpg 用于异步操作
 import json
 # import traceback # <--- 移除不再需要的导入
 # from pathlib import Path # <--- 移除未使用的 Path
-from typing import Any, Dict, List, Optional, Tuple # <--- 移除未使用的 Union
+from typing import Any, Dict, List, Optional, Tuple, Union # <--- 重新添加 Union
 
 logger = logging.getLogger(__name__)
 

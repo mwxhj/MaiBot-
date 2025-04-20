@@ -198,13 +198,33 @@ class WillingnessChecker(BaseProcessor):
         emotion_dict = context.get_state("emotion")
         if not emotion_dict or not isinstance(emotion_dict, dict):
             return "情绪平静"
-        emotion_text = ""
-        dimensions = emotion_dict.get("dimensions")
-        if isinstance(dimensions, dict):
-            for emotion, intensity in dimensions.items():
-                if isinstance(intensity, (int, float)) and intensity > 0.3:
-                    emotion_text += f"{emotion}: {intensity:.2f}, "
-        return emotion_text.strip(", ") or "情绪平静"
+
+        # 从全局配置中获取情绪显著性阈值
+        # global_config 是在 LinjingBot._init_processors 中注入的
+        global_config = self.config.get("global_config", {})
+        significant_threshold = global_config.get("emotion", {}).get("vad_model", {}).get("significant_threshold", 0.3)
+        logger.debug(f"使用情绪显著性阈值: {significant_threshold}")
+
+        # 从字典中获取 VAD 维度值
+        valence = emotion_dict.get("valence", 0.5)
+        arousal = emotion_dict.get("arousal", 0.5)
+        dominance = emotion_dict.get("dominance", 0.5)
+        baseline_vad = global_config.get("emotion", {}).get("vad_model", {}).get("baseline_vad", [0.5, 0.3, 0.5])
+        if len(baseline_vad) != 3: baseline_vad = [0.5, 0.3, 0.5] # 确保基线有效
+
+        # 检查每个维度与基线的偏差是否超过阈值
+        significant_emotions = []
+        if abs(valence - baseline_vad[0]) > significant_threshold:
+            significant_emotions.append(f"Valence={valence:.2f}")
+        if abs(arousal - baseline_vad[1]) > significant_threshold:
+            significant_emotions.append(f"Arousal={arousal:.2f}")
+        if abs(dominance - baseline_vad[2]) > significant_threshold:
+            significant_emotions.append(f"Dominance={dominance:.2f}")
+
+        if significant_emotions:
+            return ", ".join(significant_emotions)
+        else:
+            return "情绪平静"
 
     # TODO: 考虑将此方法与 ThoughtGenerator 中的版本统一到工具类，或确保差异是故意的
     def _format_air_analysis(self, context: MessageContext) -> str:

@@ -12,28 +12,31 @@ logger = get_logger(__name__)
 class MoodModel:
     """情绪模型，负责计算背景情绪变化"""
     
-    def __init__(self, config):
-        """初始化情绪模型
-        
-        Args:
-            config: 配置字典，包含 emotion 相关配置
+    # 修改 __init__ 以接收 emotion 配置块
+    def __init__(self, emotion_config: Optional[Dict[str, Any]] = None):
         """
-        self.config = config.get("emotion", {})
-        
-        # 从配置中获取情绪参数
-        self.event_impact = self.config.get("event_impact", {})
-        self.mood_model_config = self.config.get("mood_model", {}) # 重命名以示区分
+        初始化情绪模型
 
-        # 基础参数
-        self.decay_rate = self.mood_model_config.get("decay_rate", 0.05)
-        self.baseline_mood = self.mood_model_config.get("baseline_mood", "平静")
-        # 新增：加载缺失的参数
-        self.base_change_rate = self.mood_model_config.get("base_change_rate", 0.05) # 基础变化率
-        self.inertia_factor = self.mood_model_config.get("inertia_factor", 0.3) # 惯性因子
-        # 维度相关性，默认为空字典
+        Args:
+            emotion_config: 情绪相关的配置字典 (来自 config.yaml 的 emotion 部分)
+        """
+        self.config = emotion_config or {} # 存储 emotion 配置块
+
+        # 从 mood_model 子配置块获取参数
+        self.mood_model_config = self.config.get("mood_model", {})
+        self.base_change_rate = self.mood_model_config.get("base_change_rate", 0.05)
+        self.inertia_factor = self.mood_model_config.get("inertia_factor", 0.3)
         self.dimension_correlations = self.mood_model_config.get("dimension_correlations", {})
-        # 获取情绪维度列表 (如果配置中定义了)
-        self.emotion_dimensions = list(self.mood_model_config.get("dimensions", ["valence", "arousal", "dominance"])) # 默认为 VAD
+
+        # 获取情绪维度列表 (从 vad_model 配置块读取，如果存在)
+        vad_config = self.config.get("vad_model", {})
+        # 假设 VAD 维度是固定的或由其他地方定义，这里不再需要单独配置 dimensions
+        self.emotion_dimensions = ["valence", "arousal", "dominance"] # 固定为 VAD
+
+        # 移除旧的/未使用的参数加载
+        # self.event_impact = self.config.get("event_impact", {}) # 旧的事件影响配置
+        # self.decay_rate = self.mood_model_config.get("decay_rate", 0.05) # 衰减由 EmotionManager 处理
+        # self.baseline_mood = self.mood_model_config.get("baseline_mood", "平静") # 基线由 EmotionManager 处理
     
     def compute_changes(self, current_emotion, factors: Dict[str, Any], message_text: str = "") -> Dict[str, float]:
         """
