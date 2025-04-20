@@ -38,7 +38,8 @@ COPY --chown=linjing:linjing . /app/
 # 自动生成Linux环境适用的requirements.txt
 RUN cd /app && \
     python -c "import pkg_resources; print('\n'.join(['%s==%s' % (i.key, i.version) for i in pkg_resources.working_set]))" > requirements_base.txt && \
-    pip install --no-cache-dir -r /app/linjing/requirements.txt || echo "使用已安装的基础包" && \
+    # 如果 pip install 失败，让构建过程直接报错停止，而不是忽略错误
+    pip install --no-cache-dir -r /app/linjing/requirements.txt && \
     python -c "import pkg_resources; print('\n'.join(['%s==%s' % (i.key, i.version) for i in pkg_resources.working_set]))" > requirements_linux.txt
 
 # 切换到非root用户
