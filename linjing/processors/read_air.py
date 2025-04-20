@@ -181,7 +181,9 @@ class ReadAirProcessor(BaseProcessor):
         
         # 格式化历史消息
         for msg in recent_history:
-            user_identifier = msg.get_meta("user_display_name") or str(msg.user_id)
+            # 修复：使用get_user_id方法或get_meta获取user_id
+            user_id = msg.get_user_id() if hasattr(msg, 'get_user_id') else msg.get_meta("user_id", "unknown")
+            user_identifier = msg.get_meta("user_display_name") or str(user_id)
             history.append({
                 "role": "user" if msg.get_meta("is_user", False) else "bot",
                 "content": msg.extract_plain_text(),

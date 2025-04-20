@@ -348,7 +348,11 @@ class ResponseComposer(BaseProcessor):
             if isinstance(msg, Message): # 优先处理 Message 对象
                  is_user = msg.get_meta("is_user", False)
                  role = "用户" if is_user else f"我 ({self.character_name})" # 使用 character_name
-                 user_identifier = msg.get_meta("user_display_name") or str(msg.user_id)
+                 
+                 # 修复：使用get_user_id方法或get_meta获取user_id
+                 user_id = msg.get_user_id() if hasattr(msg, 'get_user_id') else msg.get_meta("user_id", "unknown")
+                 user_identifier = msg.get_meta("user_display_name") or str(user_id)
+                 
                  if is_user:
                      role = f"用户 ({user_identifier})"
                  content = msg.extract_plain_text()

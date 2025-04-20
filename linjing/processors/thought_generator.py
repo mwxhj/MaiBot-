@@ -254,7 +254,9 @@ class ThoughtGenerator(BaseProcessor):
         # 格式化历史消息
         for msg in recent_history:
             if msg.get_meta("is_user", False):
-                user_identifier = msg.get_meta("user_display_name") or str(msg.user_id)
+                # 修复：使用get_user_id方法或get_meta获取user_id
+                user_id = msg.get_user_id() if hasattr(msg, 'get_user_id') else msg.get_meta("user_id", "unknown")
+                user_identifier = msg.get_meta("user_display_name") or str(user_id)
                 role = f"用户 ({user_identifier})"
             else:
                 role = f"我 ({self.name})"
