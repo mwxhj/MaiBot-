@@ -92,17 +92,21 @@ class DatabaseManager:
                     # 修正后的连接配置（优先使用DSN并强制IPv4）
                     # 不再需要 asyncpg.URI 来处理密码，直接在 DSN 中使用原始密码
                     # encoded_password = asyncpg.URI(self.db_password).password # <--- 移除或注释掉此行
+                    # 移除 DSN 中的 connect_timeout，它不是标准的 PostgreSQL 参数
                     final_dsn = (
-                        f"postgresql://{self.db_user}:{self.db_password}@" # <--- 直接使用 self.db_password
+                        f"postgresql://{self.db_user}:{self.db_password}@"
                         f"{host_to_use}:{port_to_use}/{self.db_name}"
-                        "?sslmode=disable&connect_timeout=10"
+                        "?sslmode=disable" # <--- 移除 connect_timeout=10
                     )
-                    
+
                     logger.debug(f"最终连接DSN: {final_dsn.split('@')[0]}@[host]:{port_to_use}/[dbname]")
-                    
+
                     # 简化 create_pool 调用，主要依赖 DSN，移除冲突或无效参数
+                    # 将连接超时(timeout)和命令超时(command_timeout)都设置为配置中的值
+                    connection_timeout = self.connection_config.get("timeout", 30)
                     self.pool = await asyncpg.create_pool(
                         dsn=final_dsn,
+                        timeout=connection_timeout, # <--- 添加连接超时参数
                         # family, host, port 通常由 DSN 提供，移除以避免冲突
                         # loop 参数通常不需要显式传递
                         # reconnect 相关参数可能已弃用或内置处理
