@@ -459,33 +459,61 @@ class ThoughtGenerator(BaseProcessor):
             return "关系信息：未知"
 
         try:
-            # 注意：get_user_relationship_summary 是异步的，但我们在同步方法中调用
-            # 这通常意味着我们需要将 _build_thinking_prompt 改为异步，或者使用 asyncio.run
-            # 为了保持简单，暂时使用 asyncio.run，但这在生产环境中可能不是最佳实践
-            # TODO: 考虑将 _build_thinking_prompt 改为异步
-            # 调用 self.memory_manager 的方法
-            # 注意：这里仍然存在同步调用异步的问题，后续可能需要重构 (注释保留，但代码已修正)
-            # 现在可以直接 await 调用异步方法
+            # 从 MemoryManager 获取基本关系摘要
             relationship_summary = await self.memory_manager.get_user_relationship_summary(context.user_id)
-
-            if not relationship_summary:
-                return "关系信息：暂无"
-
+            
+            # 准备关系信息组件
             parts = []
+            
+            # 1. 基本交互信息
             count = relationship_summary.get("interaction_count", 0)
             first_ts = relationship_summary.get("first_interaction_ts")
             last_ts = relationship_summary.get("last_interaction_ts")
             tags = relationship_summary.get("tags", [])
 
             parts.append(f"交互次数: {count}")
+            
+            if first_ts:
+                 import datetime
+                 first_dt = datetime.datetime.fromtimestamp(first_ts).strftime('%Y-%m-%d')
+                 parts.append(f"初次交互: {first_dt}")
+                 
             if last_ts:
                  import datetime
                  last_dt = datetime.datetime.fromtimestamp(last_ts).strftime('%Y-%m-%d %H:%M')
                  parts.append(f"上次交互: {last_dt}")
+                 
             if tags:
                  parts.append(f"用户标签: {', '.join(tags)}")
-
-            return "关系信息：" + "; ".join(parts)
+                 
+            # 2. 交互频率（如果数据足够）
+            if first_ts and last_ts and count > 3:
+                duration_days = max(1, (last_ts - first_ts) / (24 * 3600))
+                if duration_days > 1:  # 至少有超过一天的交互历史
+                    frequency = count / duration_days
+                    if frequency > 10:
+                        parts.append("互动频率: 非常频繁")
+                    elif frequency > 5:
+                        parts.append("互动频率: 频繁")
+                    elif frequency > 1:
+                        parts.append("互动频率: 一般")
+                    else:
+                        parts.append("互动频率: 偶尔")
+            
+            # 3. 关系紧密度（基于互动频率和总次数的综合评估）
+            if count > 0:
+                if count > 50:
+                    parts.append("关系评估: 密切")
+                elif count > 20:
+                    parts.append("关系评估: 熟悉")
+                elif count > 5:
+                    parts.append("关系评估: 认识")
+                else:
+                    parts.append("关系评估: 初步接触")
+            
+            # 组合所有信息
+            relationship_str = "关系信息：" + "; ".join(parts)
+            return relationship_str
 
         except Exception as e:
             logger.error(f"获取或格式化用户 {context.user_id} 关系信息失败: {e}", exc_info=True)

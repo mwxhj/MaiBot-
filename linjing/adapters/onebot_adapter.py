@@ -68,6 +68,17 @@ class OneBotAdapter(Bot):
         # 注册适配器
         from linjing.adapters.adapter_utils import AdapterRegistry
         AdapterRegistry.register("onebot")(self.__class__)
+        
+        # 存储机器人自身ID
+        self.self_id = config.get("self_id", "")
+        
+        # 自身ID验证配置
+        self.expected_self_id = config.get("expected_self_id", "")
+        self.verify_self_id = config.get("verify_self_id", False)
+        if self.expected_self_id and self.verify_self_id:
+            logger.info(f"已启用机器人ID验证，预期ID: {self.expected_self_id}")
+        elif self.expected_self_id:
+            logger.info(f"预期机器人ID: {self.expected_self_id}，但未启用严格验证")
 
     def register_message_handler(self, handler: Callable[[Message], Awaitable[Optional[Any]]]): # 参数类型改为 Message
         """注册用于处理接收到的消息的主处理函数"""
@@ -287,12 +298,37 @@ class OneBotAdapter(Bot):
              logger.info(f"消息监听循环已结束 (迭代 {loop_count})") # 添加结束日志
              self.connected = False # 确保状态更新
 
-
     async def _handle_event(self, event: Dict[str, Any]):
         """处理OneBot事件"""
         event_type = event.get("post_type")
         if not event_type:
             logger.warning(f"收到缺少 'post_type' 的事件: {event}")
+            return
+
+        # 检查事件中是否包含self_id，更新适配器的self_id
+        if "self_id" in event and event["self_id"]:
+            old_id = self.self_id
+            new_id = str(event["self_id"])
+            
+            # 验证self_id
+            if self.expected_self_id and self.verify_self_id and new_id != self.expected_self_id:
+                logger.warning(f"收到意外的self_id: {new_id}，预期: {self.expected_self_id}，此事件将被忽略")
+                return
+            
+            self.self_id = new_id
+            if old_id and old_id != self.self_id:
+                logger.debug(f"收到不同的self_id: {self.self_id}，原来: {old_id}")
+            elif not old_id:
+                logger.info(f"从事件获取到self_id: {self.self_id}")
+                # 发布适配器连接事件，确保在获取到self_id后通知LinjingBot
+                await self.event_bus.publish(
+                    "adapter_connected", 
+                    {"adapter_name": "onebot", "adapter": self}
+                )
+        
+        # 检查消息是否由机器人自己发送
+        if event_type == "message" and str(event.get("user_id", "")) == self.self_id:
+            logger.debug(f"跳过机器人自己发送的消息，self_id: {self.self_id}, user_id: {event.get('user_id')}")
             return
 
         # 只对消息事件打印详细的 INFO 日志
@@ -588,3 +624,12 @@ class OneBotAdapter(Bot):
             except Exception as e:
                 logger.error(f"通过 WebSocket 调用 API 失败: {e}", exc_info=True)
                 raise
+
+    def get_self_id(self) -> str:
+        """
+        获取机器人自身ID
+        
+        Returns:
+            机器人自身ID
+        """
+        return self.self_id

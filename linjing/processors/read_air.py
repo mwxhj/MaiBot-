@@ -75,32 +75,50 @@ class ReadAirProcessor(BaseProcessor):
     
     async def process(self, context: MessageContext) -> MessageContext:
         """
-        处理消息上下文，分析对话语境和隐含意图
+        处理消息，分析情感、意图和社交期望，并添加到上下文。
+        注意：自V12起，此方法返回更详细的分析结果。
         
         Args:
-            context: 消息上下文
+            context: 消息上下文，包含当前消息和历史记录。
             
         Returns:
-            处理后的消息上下文
+            添加了分析结果的消息上下文。
         """
-        # 检查LLM管理器是否已设置
-        if not self.llm_manager:
-            logger.warning("LLM管理器未设置，跳过读空气处理")
-            return context
+        # 获取消息对象
+        message = context.message
         
-        # 获取消息文本和历史
-        message_text = context.message.extract_plain_text()
+        # 提取明文文本
+        message_text = message.extract_plain_text() if hasattr(message, 'extract_plain_text') else str(message)
+        
+        # 检查消息是否包含图片
+        contains_image = False
+        image_urls = []
+        if hasattr(message, 'segments') and isinstance(message.segments, list):
+            for segment in message.segments:
+                segment_type = getattr(segment, 'type', None)
+                segment_data = getattr(segment, 'data', {})
+                # 检查是否为图片类型
+                if segment_type and segment_type.name == "IMAGE":
+                    contains_image = True
+                    if "url" in segment_data:
+                        image_urls.append(segment_data["url"])
+                    logger.debug(f"读空气处理器检测到图片: {segment_data.get('url', '无URL')}")
+        
+        # 记录图片信息
+        if contains_image:
+            context.set_state("contains_image", True)
+            context.set_state("image_urls", image_urls)
+            logger.info(f"消息包含图片，总数: {len(image_urls)}")
+            # 如果消息只有图片没有文本，添加提示信息
+            if not message_text.strip():
+                message_text = "[用户发送了一张图片，无文字说明]"
+        
+        # 获取历史消息用于分析
         history = self._prepare_history(context)
-        
-        # 记录处理信息
-        context.log_processor(
-            self.name, 
-            f"分析消息: '{message_text[:50]}{'...' if len(message_text) > 50 else ''}'"
-        )
         
         try:
             # 分析消息的情感、意图和社交期望
-            analysis = await self._analyze_message(message_text, history)
+            analysis = await self._analyze_message(context, message_text)
             
             # 如果分析成功，将结果添加到上下文
             if analysis:
@@ -173,9 +191,8 @@ class ReadAirProcessor(BaseProcessor):
         
         return history
     
-    # 移除未使用的 history 参数
     async def _analyze_message(
-        self, context: MessageContext, message: str # 添加 context 参数
+        self, context: MessageContext, message: str
     ) -> Optional[Dict[str, Any]]:
         """
         调用 LLM 分析消息的情感、意图和社交期望。
@@ -196,6 +213,14 @@ class ReadAirProcessor(BaseProcessor):
         # 准备历史记录 - 从 context 获取
         history_for_prompt = self._prepare_history(context)
 
+        # 检查消息是否包含图片
+        contains_image = context.get_state("contains_image", False)
+        image_urls = context.get_state("image_urls", [])
+        
+        # 添加图片信息到消息文本
+        if contains_image and image_urls:
+            message = f"{message}\n[注意:此消息包含 {len(image_urls)} 张图片]"
+
         # 构建提示词 - 传递 context 以便 _build_analysis_prompt 获取历史
         prompt = self._build_analysis_prompt(context, message, user_identifier)
         
@@ -214,13 +239,21 @@ class ReadAirProcessor(BaseProcessor):
                 logger.debug(f"读空气分析使用模型: {model_id}")
             
             # 解析JSON响应
-            return self._parse_analysis_response(response)
+            analysis = self._parse_analysis_response(response)
+            
+            # 如果包含图片，添加图片分析标记
+            if contains_image and analysis:
+                if "metadata" not in analysis:
+                    analysis["metadata"] = {}
+                analysis["metadata"]["contains_image"] = True
+                analysis["metadata"]["image_count"] = len(image_urls)
+            
+            return analysis
         
         except Exception as e:
             logger.error(f"消息分析失败: {str(e)}", exc_info=True)
             return None
     
-    # 移除未使用的 history 参数，添加 context 参数
     def _build_analysis_prompt(self, context: MessageContext, message: str, user_identifier: str = "用户") -> str:
         """
         根据模板和当前上下文构建用于 LLM 分析的提示词。
@@ -349,3 +382,80 @@ class ReadAirProcessor(BaseProcessor):
             logger.error(f"解析分析响应时发生意外错误: {type(e).__name__}\nError: {str(e)}\nResponse: {response}")
             
         return None
+
+    # --- 新增：格式化关系信息 ---
+    async def _format_relationship(self, context: MessageContext) -> str:
+        """
+        从 MemoryManager 获取关系摘要并格式化为 Prompt 字符串。
+
+        Args:
+            context: 当前消息上下文。
+
+        Returns:
+            格式化后的关系信息字符串，或在出错/无信息时返回提示。
+        """
+        # 直接使用 self.memory_manager
+        if not self.memory_manager:
+            logger.warning("无法获取关系信息：memory_manager 未设置。")
+            return "关系信息：未知"
+
+        try:
+            # 从 MemoryManager 获取基本关系摘要
+            relationship_summary = await self.memory_manager.get_user_relationship_summary(context.user_id)
+            
+            # 准备关系信息组件
+            parts = []
+            
+            # 1. 基本交互信息
+            count = relationship_summary.get("interaction_count", 0)
+            first_ts = relationship_summary.get("first_interaction_ts")
+            last_ts = relationship_summary.get("last_interaction_ts")
+            tags = relationship_summary.get("tags", [])
+
+            parts.append(f"交互次数: {count}")
+            
+            if first_ts:
+                 import datetime
+                 first_dt = datetime.datetime.fromtimestamp(first_ts).strftime('%Y-%m-%d')
+                 parts.append(f"初次交互: {first_dt}")
+                 
+            if last_ts:
+                 import datetime
+                 last_dt = datetime.datetime.fromtimestamp(last_ts).strftime('%Y-%m-%d %H:%M')
+                 parts.append(f"上次交互: {last_dt}")
+                 
+            if tags:
+                 parts.append(f"用户标签: {', '.join(tags)}")
+                 
+            # 2. 交互频率（如果数据足够）
+            if first_ts and last_ts and count > 3:
+                duration_days = max(1, (last_ts - first_ts) / (24 * 3600))
+                if duration_days > 1:  # 至少有超过一天的交互历史
+                    frequency = count / duration_days
+                    if frequency > 10:
+                        parts.append("互动频率: 非常频繁")
+                    elif frequency > 5:
+                        parts.append("互动频率: 频繁")
+                    elif frequency > 1:
+                        parts.append("互动频率: 一般")
+                    else:
+                        parts.append("互动频率: 偶尔")
+            
+            # 3. 关系紧密度（基于互动频率和总次数的综合评估）
+            if count > 0:
+                if count > 50:
+                    parts.append("关系评估: 密切")
+                elif count > 20:
+                    parts.append("关系评估: 熟悉")
+                elif count > 5:
+                    parts.append("关系评估: 认识")
+                else:
+                    parts.append("关系评估: 初步接触")
+            
+            # 组合所有信息
+            relationship_str = "关系信息：" + "; ".join(parts)
+            return relationship_str
+
+        except Exception as e:
+            logger.error(f"获取或格式化用户 {context.user_id} 关系信息失败: {e}", exc_info=True)
+            return "关系信息：获取失败"

@@ -7,12 +7,14 @@
 
 import logging
 import random
-from typing import Any, Dict, List, Optional # <--- 移除未使用的 Union
+from typing import Any, Dict, List, Optional, Tuple
 
 from linjing.adapters.message_types import Message, MessageSegment
 from linjing.processors.base_processor import BaseProcessor
 from linjing.processors.message_context import MessageContext
 from linjing.processors.processor_registry import ProcessorRegistry
+from linjing.llm.llm_manager import LLMManager
+from linjing.memory.memory_manager import MemoryManager
 # from linjing.processors.base_processor import BaseProcessor as Processor # <--- 别名 Processor 未使用
 
 logger = logging.getLogger(__name__)
@@ -45,7 +47,8 @@ class ResponseComposer(BaseProcessor):
         """
         # 调用父类的 __init__，并传递 name 和 config
         super().__init__(name=name, config=config) # 显式传递 name 和 config
-        self.llm_manager = None
+        self.llm_manager: Optional[LLMManager] = None
+        self.memory_manager: Optional[MemoryManager] = None
         self.personality = None # 预期由 LinjingBot 设置 (当前未实现)
 
         # --- 从处理器配置 (self.config) 加载参数 ---
@@ -69,6 +72,12 @@ class ResponseComposer(BaseProcessor):
         self.response_template = self.config.get("response_template", "{response}") # 回复包装模板
         self.use_multimodal = self.config.get("use_multimodal", True) # 是否处理多模态内容
         self.style_factor = self.config.get("style_factor", 0.8) # 添加风格元素的概率因子
+        self.max_tokens = self.config.get("max_tokens", 4096)
+        self.temperature = self.config.get("temperature", 0.7)
+        self.max_length = self.config.get("max_length", 500)
+        self.format_response = self.config.get("format_response", True)
+        self.filter_sensitive = self.config.get("filter_sensitive", True)
+        logger.info(f"{name} 响应生成器已初始化，最大回复长度: {self.max_length} 字符")
 
         # 获取角色名 (优先从处理器配置获取，其次尝试从全局配置，最后默认)
         # TODO: 确认 character_name 的最佳获取方式 (全局配置 vs 处理器配置)
@@ -87,7 +96,7 @@ class ResponseComposer(BaseProcessor):
         logger.debug(f"{name} max_history 设置为: {self.max_history}")
 
 
-    def set_llm_manager(self, llm_manager: Any) -> None:
+    def set_llm_manager(self, llm_manager: LLMManager) -> None:
         """
         设置LLM管理器。
 
@@ -95,6 +104,12 @@ class ResponseComposer(BaseProcessor):
             llm_manager: 语言模型管理器实例
         """
         self.llm_manager = llm_manager
+        logger.debug(f"{self.name} LLM管理器已设置到 {self.name}")
+
+    def set_memory_manager(self, memory_manager: MemoryManager) -> None:
+        """设置记忆管理器"""
+        self.memory_manager = memory_manager
+        logger.debug(f"{self.name} 记忆管理器已设置到 {self.name}")
 
     # 已移除 set_personality 方法
 
@@ -186,7 +201,8 @@ class ResponseComposer(BaseProcessor):
                 response, metadata = await self.llm_manager.generate_text(
                     prompt,
                     task="chat",  # 回复生成是对话任务
-                    max_tokens=self.config.get("max_tokens", 1000) # 从配置读取 token 限制
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature
                 )
                 # **新增：记录从 LLM (chat 任务) 返回的原始响应**
                 logger.debug(f"LLM 返回的原始回复文本: {repr(response)}")
@@ -459,7 +475,8 @@ class ResponseComposer(BaseProcessor):
                 response, metadata = await self.llm_manager.generate_text(
                     prompt,
                     task="chat",  # 备用回复也是对话任务
-                    max_tokens=self.config.get("max_tokens", 1000) # 从配置读取 token 限制
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature
                 )
                 
                 # 记录使用的模型信息
@@ -540,3 +557,80 @@ class ResponseComposer(BaseProcessor):
                 message.append(MessageSegment.location(content_data))
             elif content_type == "at":
                 message.append(MessageSegment.at(content_data))
+
+    # --- 新增：格式化关系信息 ---
+    async def _format_relationship(self, context: MessageContext) -> str:
+        """
+        从 MemoryManager 获取关系摘要并格式化为 Prompt 字符串。
+
+        Args:
+            context: 当前消息上下文。
+
+        Returns:
+            格式化后的关系信息字符串，或在出错/无信息时返回提示。
+        """
+        # 直接使用 self.memory_manager
+        if not self.memory_manager:
+            logger.warning("无法获取关系信息：memory_manager 未设置。")
+            return "关系信息：未知"
+
+        try:
+            # 从 MemoryManager 获取基本关系摘要
+            relationship_summary = await self.memory_manager.get_user_relationship_summary(context.user_id)
+            
+            # 准备关系信息组件
+            parts = []
+            
+            # 1. 基本交互信息
+            count = relationship_summary.get("interaction_count", 0)
+            first_ts = relationship_summary.get("first_interaction_ts")
+            last_ts = relationship_summary.get("last_interaction_ts")
+            tags = relationship_summary.get("tags", [])
+
+            parts.append(f"交互次数: {count}")
+            
+            if first_ts:
+                 import datetime
+                 first_dt = datetime.datetime.fromtimestamp(first_ts).strftime('%Y-%m-%d')
+                 parts.append(f"初次交互: {first_dt}")
+                 
+            if last_ts:
+                 import datetime
+                 last_dt = datetime.datetime.fromtimestamp(last_ts).strftime('%Y-%m-%d %H:%M')
+                 parts.append(f"上次交互: {last_dt}")
+                 
+            if tags:
+                 parts.append(f"用户标签: {', '.join(tags)}")
+                 
+            # 2. 交互频率（如果数据足够）
+            if first_ts and last_ts and count > 3:
+                duration_days = max(1, (last_ts - first_ts) / (24 * 3600))
+                if duration_days > 1:  # 至少有超过一天的交互历史
+                    frequency = count / duration_days
+                    if frequency > 10:
+                        parts.append("互动频率: 非常频繁")
+                    elif frequency > 5:
+                        parts.append("互动频率: 频繁")
+                    elif frequency > 1:
+                        parts.append("互动频率: 一般")
+                    else:
+                        parts.append("互动频率: 偶尔")
+            
+            # 3. 关系紧密度（基于互动频率和总次数的综合评估）
+            if count > 0:
+                if count > 50:
+                    parts.append("关系评估: 密切")
+                elif count > 20:
+                    parts.append("关系评估: 熟悉")
+                elif count > 5:
+                    parts.append("关系评估: 认识")
+                else:
+                    parts.append("关系评估: 初步接触")
+            
+            # 组合所有信息
+            relationship_str = "关系信息：" + "; ".join(parts)
+            return relationship_str
+
+        except Exception as e:
+            logger.error(f"获取或格式化用户 {context.user_id} 关系信息失败: {e}", exc_info=True)
+            return "关系信息：获取失败"

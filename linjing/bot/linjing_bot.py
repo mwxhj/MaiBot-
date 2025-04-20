@@ -360,6 +360,9 @@ class LinjingBot:
         current_ts = time.time()
         session_id = message.get_session_id() if hasattr(message, 'get_session_id') else "default"
 
+        # 添加日志记录确认机器人ID
+        logger.debug(f"检查消息触发条件，当前机器人ID: {self.self_id}, 机器人名字列表: {self.bot_names}")
+        
         # --- 从数据库获取当前会话状态 ---
         if not self.storage_manager:
             logger.warning("StorageManager 未初始化，无法检查会话状态，默认不处理。")
@@ -397,20 +400,43 @@ class LinjingBot:
         # 2. 名字检查 (仅在未被 @ 时检查)
         if not mentioned_or_named and self.name_trigger_enabled:
             message_text = message.extract_plain_text() if hasattr(message, 'extract_plain_text') else str(message)
+            logger.debug(f"检查名字触发，消息文本: '{message_text}'")
             for name in self.bot_names:
-                if (f" {name} " in f" {message_text} " or
-                    message_text.startswith(name + " ") or
-                    message_text.endswith(" " + name) or
-                    message_text == name):
-                    logger.debug(f"检测到机器人名字提及: {name}")
+                # 完整匹配 (消息等于名字)
+                if message_text == name:
+                    logger.debug(f"检测到完全匹配机器人名字: {name}")
                     mentioned_or_named = True
                     break
-
+                # 开头匹配 (消息以名字开头，后跟空格)
+                if message_text.startswith(name + " "):
+                    logger.debug(f"检测到开头匹配机器人名字: {name}")
+                    mentioned_or_named = True
+                    break
+                # 结尾匹配 (消息以空格加名字结尾)
+                if message_text.endswith(" " + name):
+                    logger.debug(f"检测到结尾匹配机器人名字: {name}")
+                    mentioned_or_named = True
+                    break
+                # 中间包含 (消息中包含空格+名字+空格)
+                if f" {name} " in f" {message_text} ":
+                    logger.debug(f"检测到中间包含机器人名字: {name}")
+                    mentioned_or_named = True
+                    break
+        
+        # --- 特殊情况处理：始终在高戒备模式下处理 ---
+        is_high_alert = session_state["is_high_alert"]
+        # 当调试或开发时，可以开启此选项使机器人始终处于高戒备状态
+        always_high_alert = getattr(self, 'always_high_alert', False) or self.config.get("debug", {}).get("always_high_alert", False)
+        if always_high_alert:
+            logger.debug("开发调试模式：始终保持高戒备状态")
+            is_high_alert = True
+            session_state["is_high_alert"] = True
+            update_payload["is_high_alert"] = True
+            
         # --- 检查是否应该处理消息 ---
         should_trigger_processing = False # 默认不处理
 
         # 1. 检查是否处于高戒备状态
-        is_high_alert = session_state["is_high_alert"]
         alert_count = session_state["high_alert_counter"]
         if is_high_alert:
             if alert_count < self.high_alert_duration:
@@ -456,6 +482,9 @@ class LinjingBot:
         # --- 统一更新数据库状态 ---
         if needs_db_update or is_new_session:
              await self.storage_manager.update_session_state(session_id, **update_payload)
+             
+        # 添加最终决策日志
+        logger.debug(f"消息处理决策: should_trigger_processing={should_trigger_processing}, mentioned_or_named={mentioned_or_named}")
 
         return should_trigger_processing, mentioned_or_named # 返回是否处理和是否被提及
 
@@ -617,6 +646,8 @@ class LinjingBot:
                     from linjing.processors.read_air import ReadAirProcessor
                     processor = ReadAirProcessor(name=name, config=processor_config)
                     processor.set_llm_manager(self.llm_manager)
+                    if hasattr(processor, 'set_memory_manager') and self.memory_manager:
+                         processor.set_memory_manager(self.memory_manager)
                 elif name == ProcessorName.THOUGHT_GENERATOR:
                     from linjing.processors.thought_generator import ThoughtGenerator
                     processor = ThoughtGenerator(name=name, config=processor_config)
@@ -635,10 +666,14 @@ class LinjingBot:
                         logger.warning(f"未在配置中找到 bot_qq/self_id，尝试使用 self.self_id ({self.self_id}) 注入 WillingnessChecker。")
                     processor = WillingnessChecker(name=name, config=processor_config)
                     processor.set_llm_manager(self.llm_manager)
+                    if hasattr(processor, 'set_memory_manager') and self.memory_manager:
+                         processor.set_memory_manager(self.memory_manager)
                 elif name == ProcessorName.RESPONSE_COMPOSER:
                     from linjing.processors.response_composer import ResponseComposer
                     processor = ResponseComposer(name=name, config=processor_config)
                     processor.set_llm_manager(self.llm_manager)
+                    if hasattr(processor, 'set_memory_manager') and self.memory_manager:
+                         processor.set_memory_manager(self.memory_manager)
                 else:
                     module_path = f"linjing.processors.{name.lower()}"
                     try:
@@ -651,6 +686,11 @@ class LinjingBot:
                         else:
                             raise ImportError(f"在模块 {module_path} 中找不到处理器类")
                         processor = processor_class(name=name, config=processor_config)
+                        # 为其他处理器也注入 LLM 和 Memory 管理器
+                        if hasattr(processor, 'set_llm_manager') and self.llm_manager:
+                            processor.set_llm_manager(self.llm_manager)
+                        if hasattr(processor, 'set_memory_manager') and self.memory_manager:
+                            processor.set_memory_manager(self.memory_manager)
                     except (ImportError, AttributeError) as e:
                         logger.error(f"无法导入处理器 {name}: {str(e)}")
                         continue

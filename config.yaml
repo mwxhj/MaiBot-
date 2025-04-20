@@ -17,6 +17,11 @@ system:
   network:
     default_download_timeout: 30.0  # 默认文件下载超时(秒)
 
+# 调试配置
+debug:
+  always_high_alert: true  # 开发模式：始终处于高戒备状态，回复所有消息
+  log_all_events: true     # 记录所有接收到的事件
+
 # 机器人核心设置
 bot:
   # 基本配置
@@ -353,11 +358,11 @@ processors:
     format_response: true
     filter_sensitive: true
   
-  # **新增：WillingnessChecker 配置**
+  # **更新：WillingnessChecker 配置**
   willingness_checker:
     enabled: true
     description: "判断是否适合表达内心想法的处理器"
-    skip_on_mention: true # 修改为 true，使得被 @ 时跳过意愿检查
+    skip_on_mention: false # 修改为 false，确保任何情况下都检查意愿
     default_willingness: true # LLM 调用失败时的默认行为
     max_history_for_willingness: 3 # 用于判断意愿时参考的历史消息数量
     llm_max_tokens: 100  # LLM判断意愿最大Token数
@@ -380,6 +385,8 @@ adapters:
       rate_limit: 5.0  # 默认API速率限制
       burst_limit: 10  # 默认API突发限制
     burst_limit: 10    # 突发请求限制
+    expected_self_id: "123456789"  # 预期机器人QQ号
+    verify_self_id: true
     
     # QQ机器人功能设置 (这些设置可能需要在具体实现中添加)
     qq:

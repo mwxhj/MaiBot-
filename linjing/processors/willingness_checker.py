@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 class WillingnessChecker(BaseProcessor):
     """
     意愿检查器，判断是否适合表达生成的内心想法。
-    相当于对机器人自己进行一次“读空气”。
+    相当于对机器人自己进行一次"读空气"。
     """
 
     name = "willingness_checker"
@@ -43,8 +43,6 @@ class WillingnessChecker(BaseProcessor):
         if not self.prompt_template:
              logger.error(f"未能从配置 {self.name} 中加载 prompts.check_prompt 模板！")
              self.prompt_template = "错误：缺少 {self.name} Prompt 模板。"
-        # 是否在被 @ 时跳过检查的配置
-        self.skip_on_mention = self.config.get("skip_on_mention", True)
         # 默认意愿（如果 LLM 调用失败或解析失败）
         self.default_willingness = self.config.get("default_willingness", True)
         # 获取机器人QQ号用于判断 @ (从处理器配置获取，需要确保配置中存在)
@@ -62,34 +60,27 @@ class WillingnessChecker(BaseProcessor):
 
     async def process(self, context: MessageContext) -> MessageContext:
         """
-        处理消息上下文，判断表达意愿
+        检查是否愿意表达内心想法（回复消息）
+        当前检查因素：1) 消息文本, 2) 思考过程, 3) 当前情绪, 4) 读空气分析
+        
+        Args:
+            context: 消息上下文
+            
+        Returns:
+            更新后的消息上下文
         """
-        if not self.llm_manager:
-            logger.warning("LLM管理器未设置，跳过意愿检查")
-            context.set_state("is_willing_to_reply", self.default_willingness)
-            return context
-
+        # 获取已生成的思考结果
         thought = context.get_state("thought")
         if not thought:
-            logger.debug("未找到思考结果，跳过意愿检查")
-            context.set_state("is_willing_to_reply", self.default_willingness) # 没有思考，默认愿意（或根据需要调整）
-            return context
-
-        # --- 检查是否需要跳过意愿检查 ---
-        # 1. 如果配置了 skip_on_mention 且机器人被直接 @
-        is_mentioned = False
-        if self.skip_on_mention and self.bot_qq != "unknown" and hasattr(context.message, 'segments'):
-             for segment in context.message.segments:
-                 # 检查消息段是否是 at 类型，并且 at 的 QQ 号是机器人自己
-                 if segment.type == "at" and str(segment.data.get("qq")) == self.bot_qq:
-                     is_mentioned = True
-                     logger.info(f"检测到机器人被提及 (QQ: {self.bot_qq})。")
-                     break
-        
-        if is_mentioned:
-            logger.info("机器人被直接提及，跳过意愿检查。")
+            logger.error("未找到思考结果，无法判断回复意愿，默认为愿意回复。")
             context.set_state("is_willing_to_reply", True)
             return context
+            
+        # 检查是否包含图片 (仅记录信息，不影响判断流程)
+        contains_image = context.get_state("contains_image", False)
+        if contains_image:
+            image_count = len(context.get_state("image_urls", []))
+            logger.info(f"检测到图片消息 ({image_count} 张图片)，将进行标准意愿检查。")
 
         # --- 获取构建 Prompt 所需的信息 ---
         # 格式化当前情绪状态
@@ -238,6 +229,82 @@ class WillingnessChecker(BaseProcessor):
          
          return f"初步分析：意图({intent}), 情感({emotion_summary}), 社交期望({expectation})"
 
+    # --- 新增：格式化关系信息 ---
+    async def _format_relationship(self, context: MessageContext) -> str:
+        """
+        从 MemoryManager 获取关系摘要并格式化为 Prompt 字符串。
+
+        Args:
+            context: 当前消息上下文。
+
+        Returns:
+            格式化后的关系信息字符串，或在出错/无信息时返回提示。
+        """
+        # 直接使用 self.memory_manager
+        if not self.memory_manager:
+            logger.warning("无法获取关系信息：memory_manager 未设置。")
+            return "关系信息：未知"
+
+        try:
+            # 从 MemoryManager 获取基本关系摘要
+            relationship_summary = await self.memory_manager.get_user_relationship_summary(context.user_id)
+            
+            # 准备关系信息组件
+            parts = []
+            
+            # 1. 基本交互信息
+            count = relationship_summary.get("interaction_count", 0)
+            first_ts = relationship_summary.get("first_interaction_ts")
+            last_ts = relationship_summary.get("last_interaction_ts")
+            tags = relationship_summary.get("tags", [])
+
+            parts.append(f"交互次数: {count}")
+            
+            if first_ts:
+                 import datetime
+                 first_dt = datetime.datetime.fromtimestamp(first_ts).strftime('%Y-%m-%d')
+                 parts.append(f"初次交互: {first_dt}")
+                 
+            if last_ts:
+                 import datetime
+                 last_dt = datetime.datetime.fromtimestamp(last_ts).strftime('%Y-%m-%d %H:%M')
+                 parts.append(f"上次交互: {last_dt}")
+                 
+            if tags:
+                 parts.append(f"用户标签: {', '.join(tags)}")
+                 
+            # 2. 交互频率（如果数据足够）
+            if first_ts and last_ts and count > 3:
+                duration_days = max(1, (last_ts - first_ts) / (24 * 3600))
+                if duration_days > 1:  # 至少有超过一天的交互历史
+                    frequency = count / duration_days
+                    if frequency > 10:
+                        parts.append("互动频率: 非常频繁")
+                    elif frequency > 5:
+                        parts.append("互动频率: 频繁")
+                    elif frequency > 1:
+                        parts.append("互动频率: 一般")
+                    else:
+                        parts.append("互动频率: 偶尔")
+            
+            # 3. 关系紧密度（基于互动频率和总次数的综合评估）
+            if count > 0:
+                if count > 50:
+                    parts.append("关系评估: 密切")
+                elif count > 20:
+                    parts.append("关系评估: 熟悉")
+                elif count > 5:
+                    parts.append("关系评估: 认识")
+                else:
+                    parts.append("关系评估: 初步接触")
+            
+            # 组合所有信息
+            relationship_str = "关系信息：" + "; ".join(parts)
+            return relationship_str
+
+        except Exception as e:
+            logger.error(f"获取或格式化用户 {context.user_id} 关系信息失败: {e}", exc_info=True)
+            return "关系信息：获取失败"
 
     # 移除此方法，因为 personality_text 应从配置获取
     # def _format_personality(self) -> str:

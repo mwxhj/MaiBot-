@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional, List, Type, ClassVar
 
 from linjing.processors.message_context import MessageContext
 from linjing.utils.logger import get_logger
+from linjing.memory.memory_manager import MemoryManager
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -32,6 +33,9 @@ class BaseProcessor(ABC):
     # 处理器版本，子类应覆盖
     version: ClassVar[str] = "1.0.0"
     
+    # 类型别名
+    JsonDict = Dict[str, Any]
+    
     def __init__(self, name: str, config: Optional[Dict[str, Any]] = None, priority: Optional[int] = None): # 添加 name 参数
         """
         初始化处理器
@@ -45,6 +49,9 @@ class BaseProcessor(ABC):
         self.config = config or {}
         self.enabled = self.config.get("enabled", True)
         self.priority = priority
+        # 可以在初始化时设置，也可以由LinjingBot注入
+        self.memory_manager: Optional[MemoryManager] = None
+        # 注意：可能还需要添加其他管理器，如知识图谱等
     
     @abstractmethod
     async def process(self, context: MessageContext) -> MessageContext:
@@ -167,17 +174,15 @@ class BaseProcessor(ABC):
             "class": cls.__name__
         }
     
-    def update_config(self, config: Dict[str, Any]) -> None:
+    def update_config(self, new_config: Dict[str, Any]) -> None:
         """
         更新处理器配置
         
         Args:
-            config: 新配置
+            new_config: 新的配置字典
         """
-        self.config.update(config)
-        # 更新启用状态
-        if "enabled" in config:
-            self.enabled = config["enabled"]
+        self.config.update(new_config)
+        logger.debug(f"处理器 {self.name} 配置已更新")
     
     def get_config(self) -> Dict[str, Any]:
         """
@@ -187,6 +192,26 @@ class BaseProcessor(ABC):
             处理器配置
         """
         return self.config.copy()
+
+    def set_llm_manager(self, llm_manager: Any) -> None:
+        """
+        设置语言模型管理器实例
+        
+        Args:
+            llm_manager: 语言模型管理器实例
+        """
+        self.llm_manager = llm_manager
+        logger.debug(f"语言模型管理器已设置到处理器: {self.name}")
+    
+    def set_memory_manager(self, memory_manager: Any) -> None:
+        """
+        设置记忆管理器实例
+        
+        Args:
+            memory_manager: 记忆管理器实例
+        """
+        self.memory_manager = memory_manager
+        logger.debug(f"记忆管理器已设置到处理器: {self.name}")
 
 
 # 处理器类型别名
