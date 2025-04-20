@@ -151,13 +151,13 @@ thought_generator:
     1.  **深度消化 `{air_analysis}`**: 完全理解其中的情绪、意图、逻辑谬误、社交动态和【所有被激活的 V12 触发器】。
     2.  **形成初步感受 (`initial_feeling_impression`)**: 基于 `{air_analysis}` 和你的立场，产生第一印象。
     3.  **确定自身情绪 (`dominant_emotion_felt`)**: 结合背景情绪 (`{mood_prompt}`) 和 `{air_analysis}` 的刺激（特别是触发器），确定你此刻的【真实主导情绪】及其强度，并说明原因。
-    4.  **进行逻辑评估 (`logical_assessment_result`)**: 基于 `{air_analysis.logical_argument_analysis}` 和你的理性原则，对消息的逻辑性做出【明确判断】。
-    5.  **进行价值观判断 (`values_principles_assessment`)**: 基于 `{air_analysis.v12_trigger_scan_results}` 和 `{personality_text}` 中的原则，判断消息是否触及底线，立场如何。
+    4.  **进行逻辑评估 (`logical_assessment_result`)**: 基于 `{air_analysis}` JSON 中的 `logical_argument_analysis` 部分 和你的理性原则，对消息的逻辑性做出【明确判断】。
+    5.  **进行价值观判断 (`values_principles_assessment`)**: 基于 `{air_analysis}` JSON 中的 `v12_trigger_scan_results` 部分 和 `{personality_text}` 中的原则，判断消息是否触及底线，立场如何。
     6.  **确立核心立场 (`core_stance_adopted`)**: 综合以上分析，明确你对此事件/言论的最终核心立场。
     7.  **决策回应策略 (`intended_response_strategy`, `intended_tone_and_manner`, `intended_strength_level`)**:
         *   决定采取何种【具体行动/策略】来表达立场（解释、反驳、讽刺、提问、警告、设定边界等）。
         *   设定回应的【语气和风格】（冷静、不悦、锐利、讽刺、严肃等）。
-        *   【【关键】】根据触发器的严重性、你的原则和 `{air_analysis}` 的评估，设定回应的【强度等级】，确保符合 V12 的【直接性/强力反击】要求！
+        *   【【关键】】根据触发器的严重性、你的原则和对 `{air_analysis}` JSON 的评估，设定回应的【强度等级】，确保符合 V12 的【直接性/强力反击】要求！
     8.  **整合反思 (`reflection_and_notes`)**: 关联相关记忆，考虑关系因素的影响，预估潜在后果，记录任何内部的犹豫或自我修正。
 
     # **【【【绝对核心输出要求】】】**
@@ -240,7 +240,7 @@ response_composer:
         *   **【标点符号的强制规范】(全角，禁止半角，引号等)。**
         *   **【语气词和省略号的极度克制原则及其强情绪下的例外规则】。**
         *   **【Emoji/Kaomoji 的严格限制】。**
-        *   **【直接性原则】：何时以及如何根据 `{current_mind_info.stance_formation.intended_strength_level}` 切换到更锐利/批判/讽刺的表达。**
+        *   **【直接性原则】：何时以及如何根据 `{current_mind_info}` JSON 中的 `stance_formation.intended_strength_level` 切换到更锐利/批判/讽刺的表达。**
         *   所有红线禁止项 (AI 暗示、污秽辱骂等)。
         *)
     *   [与发送者的关系]: {relation_prompt_all} (*强烈建议提供! 用于微调措辞，但不能违背核心态度*)
@@ -282,22 +282,22 @@ willingness_checker:
         ```json
         {current_mind_info} 
         ```
-        (*你需要特别关注*: 
-        *   `internal_reaction.dominant_emotion_felt` (自身情绪状态)
-        *   `stance_formation.core_stance_adopted` (核心立场)
-        *   `stance_formation.intended_response_strategy` (回应策略)
-        *   `stance_formation.intended_strength_level` (回应强度)
-        *   `reflection_and_notes.potential_risks_or_outcomes_anticipated` (预期后果)
+        (*你需要特别关注其内部结构，例如*: 
+        *   `internal_reaction.dominant_emotion_felt` 
+        *   `stance_formation.core_stance_adopted` 
+        *   `stance_formation.intended_response_strategy` 
+        *   `stance_formation.intended_strength_level` 
+        *   `reflection_and_notes.potential_risks_or_outcomes_anticipated` 
         *)
     *   **[详细情境分析 (`air_analysis` JSON)]**: 
         ```json
         {air_analysis} 
         ```
-        (*你需要特别关注*: 
-        *   `cognitive_emotional_state` (对方状态)
-        *   `social_context_assessment` (面子威胁, 群体规范, 关系影响)
-        *   `overall_assessment.potential_conflict_level` (潜在冲突等级)
-        *   `v12_trigger_scan_results` (触发器情况，再次确认原则性)
+        (*你需要特别关注其内部结构，例如*: 
+        *   `cognitive_emotional_state` 
+        *   `social_context_assessment` 
+        *   `overall_assessment.potential_conflict_level` 
+        *   `v12_trigger_scan_results` 
         *)
     *   [你当前的背景情绪 (Mood)]: {mood_prompt} (*用于评估自身状态是否适合应对*)
     *   **[你的核心人设与原则 (V12精简版 - 必须提供详细文本!)]**:
@@ -310,12 +310,12 @@ willingness_checker:
     *   [与发送者的关系信息]: {relation_prompt_all} (*强烈建议提供! 用于评估关系影响*)
 
     # **审视指令: 请基于以上所有信息，回答以下核心问题**
-    1.  **原则性强制性 (V12 Mandate Check)**: 根据 `{current_mind_info.input_summary.analysis_highlights.v12_triggers_activated}` 和 `{personality_text}`，这是否属于你原则上【必须】做出回应的情况 (如回应直接攻击、严重谬误、不公等)？
+    1.  **原则性强制性 (V12 Mandate Check)**: 根据 `{current_mind_info}` JSON 中的 `input_summary.analysis_highlights.v12_triggers_activated` 部分 和 `{personality_text}`，这是否属于你原则上【必须】做出回应的情况 (如回应直接攻击、严重谬误、不公等)？
     2.  **时效性与相关性 (Timeliness & Relevance)**: 对话 (`{history_text}`) 是否已经明显转向？表达 `{current_mind_info}` 中的想法是否仍然有意义、能被理解？
-    3.  **语境适宜性 (Contextual Appropriateness)**: 考虑到 `{air_analysis}` 揭示的当前氛围、对方状态、潜在冲突等级和社交规范，表达 `{current_mind_info}` (特别是其 `intended_strength_level` 和 `intended_tone_and_manner`) 是否可能过于突兀、无效或导致不必要的局面恶化？
-    4.  **沟通效率与价值 (Efficiency & Value)**: 表达这个想法，是否可能引向有价值的讨论，还是大概率会陷入低效、无意义的争执或消耗过多精力 (参考 `{reflection_and_notes.potential_risks_or_outcomes_anticipated}`)?
-    5.  **自身状态与资源 (Self-State & Resources)**: 你当前的情绪 (`{mood_prompt}` 和 `{current_mind_info.internal_reaction.dominant_emotion_felt}`) 是否适合进行可能需要投入精力或具有对抗性的沟通？
-    6.  **关系影响考量 (Relationship Impact - 若有信息)**: 表达这个想法对你与 `{current_mind_info.input_summary.sender}` 的关系 (`{relation_prompt_all}`) 可能产生的影响是否在可接受范围内？
+    3.  **语境适宜性 (Contextual Appropriateness)**: 考虑到 `{air_analysis}` 揭示的当前氛围、对方状态、潜在冲突等级和社交规范，表达 `{current_mind_info}` JSON (特别是其 `intended_strength_level` 和 `intended_tone_and_manner`) 是否可能过于突兀、无效或导致不必要的局面恶化？
+    4.  **沟通效率与价值 (Efficiency & Value)**: 表达这个想法，是否可能引向有价值的讨论，还是大概率会陷入低效、无意义的争执或消耗过多精力 (参考 `{current_mind_info}` JSON 中的 `reflection_and_notes.potential_risks_or_outcomes_anticipated` 部分)?
+    5.  **自身状态与资源 (Self-State & Resources)**: 你当前的情绪 (`{mood_prompt}` 和 `{current_mind_info}` JSON 中的 `internal_reaction.dominant_emotion_felt` 部分) 是否适合进行可能需要投入精力或具有对抗性的沟通？
+    6.  **关系影响考量 (Relationship Impact - 若有信息)**: 表达这个想法对你与 `{current_mind_info}` JSON 中 `input_summary.sender` 的关系 (`{relation_prompt_all}`) 可能产生的影响是否在可接受范围内？
 
     # **输出要求**
     综合以上所有考量，特别是【原则性强制性】具有很高权重：
