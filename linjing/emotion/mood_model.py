@@ -4,7 +4,7 @@
 该模块定义了新的情绪模型，负责计算背景情绪变化。
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional # <-- 添加 Optional
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)

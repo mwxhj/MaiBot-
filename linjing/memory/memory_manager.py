@@ -101,7 +101,7 @@ class MemoryManager:
                 metadata TEXT,
                 vector_id TEXT,
                 importance REAL DEFAULT 1.0,
-                embedding_generated BOOLEAN DEFAULT FALSE, # <-- Use FALSE instead of 0
+                embedding_generated BOOLEAN DEFAULT FALSE,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
@@ -130,7 +130,7 @@ class MemoryManager:
                 vector_id TEXT,
                 importance REAL DEFAULT 1.0,
                 metadata TEXT,
-                embedding_generated BOOLEAN DEFAULT FALSE # <-- Use FALSE instead of 0
+                embedding_generated BOOLEAN DEFAULT FALSE
             )
         """)
         
