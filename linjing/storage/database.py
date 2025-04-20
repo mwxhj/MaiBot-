@@ -89,9 +89,10 @@ class DatabaseManager:
                     logger.debug(f"DatabaseManager.connect attempting to create pool with host: {host_to_use}, port: {port_to_use}") # 打印将要使用的值
                     # --- DEBUG LOGGING END ---
                     # 修正后的连接配置（优先使用DSN并强制IPv4）
-                    encoded_password = asyncpg.URI(self.db_password).password
+                    # 不再需要 asyncpg.URI 来处理密码，直接在 DSN 中使用原始密码
+                    # encoded_password = asyncpg.URI(self.db_password).password # <--- 移除或注释掉此行
                     final_dsn = (
-                        f"postgresql://{self.db_user}:{encoded_password}@"
+                        f"postgresql://{self.db_user}:{self.db_password}@" # <--- 直接使用 self.db_password
                         f"{host_to_use}:{port_to_use}/{self.db_name}"
                         "?sslmode=disable&connect_timeout=10"
                     )
