@@ -56,8 +56,9 @@ class WillingnessChecker(BaseProcessor):
     def set_llm_manager(self, llm_manager: Any) -> None:
         self.llm_manager = llm_manager
 
-    def set_personality(self, personality: Any) -> None:
-        self.personality = personality
+    # 移除 set_personality 方法，人格原则文本现在通过 config 注入
+    # def set_personality(self, personality: Any) -> None:
+    #     self.personality = personality
 
     async def process(self, context: MessageContext) -> MessageContext:
         """
@@ -95,9 +96,10 @@ class WillingnessChecker(BaseProcessor):
         emotion_text = self._format_emotion(context)
         # 格式化 ReadAir 分析结果 (简化版)
         air_analysis = self._format_air_analysis(context)
-        # 获取人格原则文本 (依赖于 LinjingBot 正确加载并传递)
-        # TODO: 修复 LinjingBot 中的配置加载逻辑
-        personality_text = self.config.get("personality_text", "错误：人格原则文本未加载！")
+        # 获取人格原则文本 (由 LinjingBot 注入到 self.config)
+        personality_text = self.config.get("personality_text", "错误：人格原则文本未在配置中找到！")
+        if "错误：" in personality_text:
+             logger.error("未能从配置中获取 personality_text！Prompt 将不完整。")
         # 格式化近期对话历史
         history_text = self._format_history(context)
 
@@ -148,8 +150,9 @@ class WillingnessChecker(BaseProcessor):
                  logger.error(f"WillingnessChecker Prompt 模板无效或未加载，无法构建 Prompt。")
                  return f"错误：{self.name} Prompt 模板无效。"
 
-            # 获取角色名
-            character_name = getattr(self.personality, 'name', '林静') if self.personality else '林静'
+            # 获取角色名 (尝试从 global_config 获取)
+            global_config = self.config.get("global_config", {})
+            character_name = global_config.get("bot", {}).get("name", "林静") # 默认 '林静'
 
             # 使用 .format 填充模板占位符
             # 注意：确保模板中的占位符名称与这里的关键字参数完全匹配

@@ -80,14 +80,12 @@ class ThoughtGenerator(BaseProcessor):
         """
         self.llm_manager = llm_manager
     
-    def set_personality(self, personality: Any) -> None:
-        """
-        设置人格系统
-        
-        Args:
-            personality: 人格系统实例
-        """
-        self.personality = personality
+    # 移除 set_personality 方法，人格原则文本现在通过 config 注入
+    # def set_personality(self, personality: Any) -> None:
+    #     """
+    #     设置人格系统
+    #     """
+    #     self.personality = personality
     
     async def process(self, context: MessageContext) -> MessageContext:
         """
@@ -189,13 +187,13 @@ class ThoughtGenerator(BaseProcessor):
         mood_prompt = self._format_emotion(context) # 注意: _format_emotion 可能需要调整以输出更适合 Prompt 的格式
         # 格式化 ReadAir 的分析结果 (JSON 字符串)
         air_analysis = self._format_air_analysis(context)
-        # 获取人格原则文本 (依赖于 LinjingBot 正确加载并传递)
-        # TODO: 修复 LinjingBot 中的配置加载逻辑，确保 personality_text 被正确传递
-        personality_text = self.config.get("personality_text", "错误：人格原则文本未加载！")
-        # 获取关系信息 (当前为 TODO)
-        
-        # 获取关系信息 (暂时使用空字符串，待实现)
-        relation_prompt_all = ""  # TODO: 从 MemoryManager 获取
+        # 获取人格原则文本 (由 LinjingBot 注入到 self.config)
+        personality_text = self.config.get("personality_text", "错误：人格原则文本未在配置中找到！")
+        if "错误：" in personality_text:
+             logger.error("未能从配置中获取 personality_text！Prompt 将不完整。")
+
+        # 获取关系信息摘要
+        relation_prompt_all = self._format_relationship(context)
         
         # 构建思考提示词
         depth_description = ["简单", "一般", "详细", "深入", "非常深入"][min(self.thinking_depth, 4)]
@@ -209,8 +207,9 @@ class ThoughtGenerator(BaseProcessor):
                  logger.error("ThoughtGenerator Prompt 模板无效或未加载，无法构建 Prompt。")
                  return "错误：ThoughtGenerator Prompt 模板无效。"
 
-            # 获取角色名
-            character_name = getattr(self.personality, 'name', '林静') if self.personality else '林静'
+            # 获取角色名 (尝试从 global_config 获取，如果 LinjingBot 传递了的话)
+            global_config = self.config.get("global_config", {})
+            character_name = global_config.get("bot", {}).get("name", "林静") # 默认 '林静'
 
             prompt = self.thinking_template.format(
                 character_name=character_name,
@@ -422,30 +421,79 @@ class ThoughtGenerator(BaseProcessor):
 
         return result.strip() or "无详细分析结果"
     
-    # 已移除弃用的 _format_personality 方法
-    
+    # --- 新增：格式化关系信息 ---
+    def _format_relationship(self, context: MessageContext) -> str:
+        """
+        从 MemoryManager 获取关系摘要并格式化为 Prompt 字符串。
+
+        Args:
+            context: 当前消息上下文。
+
+        Returns:
+            格式化后的关系信息字符串，或在出错/无信息时返回提示。
+        """
+        if not hasattr(context, "memory_manager") or not context.memory_manager:
+            logger.warning("无法获取关系信息：未在上下文中找到 memory_manager。")
+            return "关系信息：未知"
+
+        try:
+            # 注意：get_user_relationship_summary 是异步的，但我们在同步方法中调用
+            # 这通常意味着我们需要将 _build_thinking_prompt 改为异步，或者使用 asyncio.run
+            # 为了保持简单，暂时使用 asyncio.run，但这在生产环境中可能不是最佳实践
+            # TODO: 考虑将 _build_thinking_prompt 改为异步
+            import asyncio
+            relationship_summary = asyncio.run(
+                context.memory_manager.get_user_relationship_summary(context.user_id)
+            )
+
+            if not relationship_summary:
+                return "关系信息：暂无"
+
+            parts = []
+            count = relationship_summary.get("interaction_count", 0)
+            first_ts = relationship_summary.get("first_interaction_ts")
+            last_ts = relationship_summary.get("last_interaction_ts")
+            tags = relationship_summary.get("tags", [])
+
+            parts.append(f"交互次数: {count}")
+            if last_ts:
+                 import datetime
+                 last_dt = datetime.datetime.fromtimestamp(last_ts).strftime('%Y-%m-%d %H:%M')
+                 parts.append(f"上次交互: {last_dt}")
+            if tags:
+                 parts.append(f"用户标签: {', '.join(tags)}")
+
+            return "关系信息：" + "; ".join(parts)
+
+        except Exception as e:
+            logger.error(f"获取或格式化用户 {context.user_id} 关系信息失败: {e}", exc_info=True)
+            return "关系信息：获取失败"
+
     async def _save_thought_to_memory(self, context: MessageContext, thought: str) -> None:
         """
-        将生成的思考内容保存到记忆库 (如果配置允许)。
-        注意：当前 MemoryManager 没有通用的 store_memory 方法，此功能可能未完全实现。
+        将生成的思考内容 (current_mind_info JSON) 保存为知识记忆。
 
         Args:
             context: 当前消息上下文 (需要包含 memory_manager)。
-            thought: 生成的思考内容字符串。
+            thought: 生成的思考内容字符串 (预期为 JSON)。
         """
         try:
-            # 检查 context 是否有关联的 memory_manager
             if hasattr(context, "memory_manager") and context.memory_manager:
-                logger.warning("尝试调用 context.memory_manager.store_memory，但该方法可能不存在。")
-                # TODO: 实现或替换为正确的记忆存储方法，例如 add_knowledge_memory
-                # 可能需要将 thought 视为一种特殊的 knowledge
-                # await context.memory_manager.add_knowledge_memory(
-                #     content=thought,
-                #     category="internal_thought",
-                #     importance=self.thought_importance,
-                #     metadata={"user_id": context.user_id, "session_id": context.session_id}
-                # )
-                # logger.debug("思考已尝试保存到记忆 (使用 add_knowledge_memory)")
+                # 使用 add_knowledge_memory 存储思考
+                await context.memory_manager.add_knowledge_memory(
+                    content=thought, # 直接存储 JSON 字符串
+                    category="internal_thought", # 指定类别
+                    source=self.name, # 来源是本处理器
+                    importance=self.thought_importance, # 使用配置的重要性
+                    # 可以添加更多元数据，例如关联的消息 ID
+                    metadata={
+                        "user_id": context.user_id,
+                        "session_id": context.session_id,
+                        "message_id": context.message.get_id() if hasattr(context.message, 'get_id') else None
+                    }
+                    # 思考通常不需要向量化，所以不传递 embedding
+                )
+                logger.debug("思考已保存到记忆 (类型: knowledge, 类别: internal_thought)")
             else:
                  logger.warning("无法保存思考：未在上下文中找到 memory_manager。")
         except Exception as e:

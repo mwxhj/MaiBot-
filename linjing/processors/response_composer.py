@@ -96,14 +96,7 @@ class ResponseComposer(BaseProcessor):
         """
         self.llm_manager = llm_manager
 
-    def set_personality(self, personality: Any) -> None:
-        """
-        设置人格配置。
-
-        Args:
-            personality: 人格配置实例
-        """
-        self.personality = personality
+    # 已移除 set_personality 方法
 
     async def process(self, context: MessageContext) -> MessageContext:
         """
@@ -228,15 +221,17 @@ class ResponseComposer(BaseProcessor):
         # 获取用户消息文本
         user_message_text = context.message.extract_plain_text() if hasattr(context, 'message') else ""
 
-        # 获取风格指南 (依赖于 LinjingBot 正确加载并传递)
-        # TODO: 修复 LinjingBot 中的配置加载逻辑
-        v12_style_guide = self.config.get("v12_style_guide", "错误：风格指南未加载！")
+        # 获取风格指南 (由 LinjingBot 注入到 self.config)
+        v12_style_guide = self.config.get("v12_style_guide", "错误：风格指南未在配置中找到！")
+        if "错误：" in v12_style_guide:
+             logger.error("未能从配置中获取 v12_style_guide！Prompt 将不完整。")
 
         # 获取关系信息 (当前为 TODO)
         relation_prompt_all = ""  # TODO: 从 MemoryManager 获取
 
-        # 获取当前情绪状态 (当前为 TODO)
-        mood_prompt = self._format_emotion(context) # 复用格式化方法，可能需要调整
+        # 获取当前情绪状态 (复用格式化方法)
+        # TODO: 确认此格式是否适合 Prompt
+        mood_prompt = self._format_emotion(context)
         
         try:
             # 确保从 self.config 获取最新的 prompts 数据
@@ -254,7 +249,7 @@ class ResponseComposer(BaseProcessor):
                 current_mind_info=thought,  # 现在传入完整的 JSON 字符串
                 v12_style_guide=v12_style_guide,       # 对应 {v12_style_guide}
                 relation_prompt_all=relation_prompt_all, # 对应 {relation_prompt_all} (TODO)
-                mood_prompt=mood_prompt,               # 对应 {mood_prompt} (TODO)
+                mood_prompt=mood_prompt,               # 对应 {mood_prompt}
                 character_name=self.character_name     # 对应 {character_name}
             )
         except KeyError as e:
@@ -266,52 +261,40 @@ class ResponseComposer(BaseProcessor):
 
         return prompt
 
-    def _format_history(self, history: List[Dict[str, Any]]) -> str:
+    # 使用与 ThoughtGenerator 和 WillingnessChecker 统一的格式化逻辑
+    def _format_history(self, context: MessageContext) -> str:
         """
-        格式化历史对话记录，确保与read_air和thought_generator格式一致。
-        
+        从 MessageContext 中提取并格式化最近的对话历史记录，用于 Prompt。
+
         Args:
-            history: 历史对话列表
-            
+            context: 当前消息上下文。
+
         Returns:
-            格式化后的历史对话文本
+            格式化后的历史对话字符串，如果无历史则返回 "无历史对话"。
         """
-        if not history:
-            return "无历史对话"
-        
-        formatted_history = []
-        # 使用 self.max_history 限制历史记录长度
-        for msg in history[-self.max_history:]:
-            # 统一处理 Message 对象
-            if isinstance(msg, Message):
+        history_text = ""
+        # 使用 ResponseComposer 自己的 max_history 配置
+        recent_history = context.history[-self.max_history:] if context.history else []
+        for msg in recent_history:
+            if isinstance(msg, Message): # 优先处理 Message 对象
                  is_user = msg.get_meta("is_user", False)
-                 role = "用户" if is_user else f"我 ({self.character_name})"
+                 role = "用户" if is_user else f"我 ({self.character_name})" # 使用 character_name
                  user_identifier = msg.get_meta("user_display_name") or str(msg.user_id)
                  if is_user:
                      role = f"用户 ({user_identifier})"
                  content = msg.extract_plain_text()
-                 formatted_history.append(f"{role}: {content}")
-            # 兼容旧的字典格式 (以防万一)
-            elif isinstance(msg, dict):
-                 if "user" in msg:
+                 history_text += f"{role}: {content}\n"
+            elif isinstance(msg, dict): # 兼容旧格式
+                 # ... (保留旧的兼容逻辑，或者移除如果确定历史总是 Message 对象)
+                 if msg.get("role") == "user":
                      user_identifier = msg.get("user_identifier", "用户")
-                     formatted_history.append(f"用户 ({user_identifier}): {msg['user']}")
-                 elif msg.get("role") == "user":
-                     user_identifier = msg.get("user_identifier", "用户")
-                     formatted_history.append(f"用户 ({user_identifier}): {msg['content']}")
-                 elif "bot" in msg:
-                     formatted_history.append(f"我 ({self.character_name}): {msg['bot']}")
+                     history_text += f"用户 ({user_identifier}): {msg.get('content', '')}\n"
                  elif msg.get("role") == "bot":
-                     formatted_history.append(f"我 ({self.character_name}): {msg['content']}")
-        
-        return "\n".join(formatted_history)
+                     history_text += f"我 ({self.character_name}): {msg.get('content', '')}\n"
 
-    # 移除已弃用的 _format_personality_traits 方法
-    # def _format_personality_traits(self) -> str:
-    #     """
-    #     格式化人格特质 (已弃用)。
-    #     """
-    #     return "友好、乐于助人"
+        return history_text.strip() or "无历史对话"
+
+    # 已移除弃用的 _format_personality_traits 方法
 
     def _format_response(self, response: str) -> str:
         """
@@ -330,28 +313,17 @@ class ResponseComposer(BaseProcessor):
         formatted_response = self.response_template.format(response=response)
         
         # --- 添加风格化元素 (基于概率和配置) ---
-        # 注意：当前 self.personality 为 None，此部分逻辑无效。
-        # 需要修复 LinjingBot 中的配置加载和传递。
-        # 假设 personality 对象未来会提供 get_preference 方法。
+        # 注意：此处的风格化逻辑 (如添加 emoji) 依赖于 self.personality 对象，
+        # 但目前 LinjingBot 未能正确加载和设置 self.personality。
+        # 因此，这部分逻辑当前不会生效。
+        # TODO: 在修复 LinjingBot 的 personality 加载后，重新审视此处的风格化逻辑，
+        #       确保它与 V12 风格指南的严格要求 (特别是 Emoji 的极度克制原则) 一致。
         if self.personality and random.random() < self.style_factor:
-            try:
-                # 获取 emoji 使用倾向 (假设方法存在)
-                emoji_tendency = self.personality.get_preference("emoji_usage", 0.0)
-                # 根据倾向随机决定是否添加表情 (乘以 0.5 降低频率)
-                if emoji_tendency > 0.1 and random.random() < (emoji_tendency * 0.5):
-                     # 使用配置的默认表情
-                     formatted_response += f" {self.default_emoji}"
-
-                # TODO: 实现或移除添加短语的逻辑 (当前 personality 无此功能)
-                # phrase_tendency = self.personality.get_preference("phrase_usage", 0.0)
-                # if phrase_tendency > 0.1 and random.random() < phrase_tendency:
-                #     phrases = self.personality.get_phrases() # 假设方法存在
-                #     if phrases:
-                #         formatted_response += f" {random.choice(phrases)}"
-            except AttributeError as e:
-                 logger.warning(f"尝试访问 personality 对象的属性或方法失败: {e}。跳过风格化。")
-            except Exception as e:
-                 logger.error(f"添加风格化元素时出错: {e}", exc_info=True)
+             logger.warning("尝试添加风格化元素，但 self.personality 未设置或相关逻辑需要根据 V12 风格指南重构。")
+             # 示例：如果未来 personality 对象可用，且 V12 允许在特定温和情绪下使用 Emoji
+             # if should_add_emoji_based_on_mind_info_and_style_guide: # 需要额外的判断逻辑
+             #    if random.random() < 0.2: # 降低概率
+             #        formatted_response += f" {self.default_emoji}"
         
         return formatted_response
 
@@ -452,29 +424,29 @@ class ResponseComposer(BaseProcessor):
 
     def _generate_fallback_response_sync(self) -> str:
         """
-        同步方式从预定义的列表中随机选择一个备用回复。
+        同步方式从配置的列表中随机选择一个备用回复。
 
         Returns:
             备用回复文本。
         """
-        # 使用从配置中读取的 fallback_responses 列表
+        # 使用从 self.config 加载的 self.fallback_responses 列表
         if not self.fallback_responses:
-             # 如果配置为空，提供一个硬编码的默认值
-             logger.warning("配置中未找到 fallback_responses，使用硬编码的默认回复。")
+             # 如果配置列表为空，提供一个最终的硬编码默认值
+             logger.warning("配置中 fallback_responses 为空，使用硬编码的默认回复。")
              return "抱歉，我不太明白您的意思。"
         return random.choice(self.fallback_responses)
 
     def _generate_error_response(self) -> str:
         """
-        发生技术错误时生成错误回复。
+        发生技术错误时从配置的列表中随机选择一个错误回复。
 
         Returns:
-            错误回复文本
+            错误回复文本。
         """
-        # 使用从配置中读取的 error_responses 列表
+        # 使用从 self.config 加载的 self.error_responses 列表
         if not self.error_responses:
-             # 如果配置为空，提供一个硬编码的默认值
-             logger.warning("配置中未找到 error_responses，使用硬编码的默认回复。")
+             # 如果配置列表为空，提供一个最终的硬编码默认值
+             logger.warning("配置中 error_responses 为空，使用硬编码的默认回复。")
              return "抱歉，处理时遇到问题。"
         return random.choice(self.error_responses)
 

@@ -22,11 +22,18 @@ class MoodModel:
         
         # 从配置中获取情绪参数
         self.event_impact = self.config.get("event_impact", {})
-        self.mood_model = self.config.get("mood_model", {})
-        
+        self.mood_model_config = self.config.get("mood_model", {}) # 重命名以示区分
+
         # 基础参数
-        self.decay_rate = self.mood_model.get("decay_rate", 0.05)
-        self.baseline_mood = self.mood_model.get("baseline_mood", "平静")
+        self.decay_rate = self.mood_model_config.get("decay_rate", 0.05)
+        self.baseline_mood = self.mood_model_config.get("baseline_mood", "平静")
+        # 新增：加载缺失的参数
+        self.base_change_rate = self.mood_model_config.get("base_change_rate", 0.05) # 基础变化率
+        self.inertia_factor = self.mood_model_config.get("inertia_factor", 0.3) # 惯性因子
+        # 维度相关性，默认为空字典
+        self.dimension_correlations = self.mood_model_config.get("dimension_correlations", {})
+        # 获取情绪维度列表 (如果配置中定义了)
+        self.emotion_dimensions = list(self.mood_model_config.get("dimensions", ["valence", "arousal", "dominance"])) # 默认为 VAD
     
     def compute_changes(self, current_emotion, factors: Dict[str, Any], message_text: str = "") -> Dict[str, float]:
         """
@@ -58,9 +65,10 @@ class MoodModel:
         dimension_effects = self._apply_dimension_correlations(event_changes)
         
         # 合并所有变化
-        for dim in current_emotion.dimensions:
-            changes[dim] = 0
-            
+        # 使用 self.emotion_dimensions 获取当前模型关注的维度
+        for dim in self.emotion_dimensions:
+            changes[dim] = 0.0 # 初始化为浮点数
+
             # 添加各种变化
             if dim in event_changes:
                 changes[dim] += event_changes[dim] 
@@ -159,6 +167,17 @@ class MoodModel:
         
         return changes
     
+    # 添加缺失的方法
+    def _compute_text_changes(self, message_text: str) -> Dict[str, float]:
+        """
+        计算基于消息文本的情绪变化 (占位符)
+        TODO: 实现基于文本分析的情绪变化逻辑，例如使用情感分析库。
+              当前返回空字典，表示文本不直接影响基础情绪模型。
+              V12 的主要文本影响通过 ReadAir 分析和 EmotionRules 处理。
+        """
+        logger.debug(f"MoodModel._compute_text_changes (占位符) for text: {message_text[:50]}...")
+        return {}
+
     def _get_base_impact(self, event_type: str) -> float:
         """获取事件的基础影响值"""
         # 从配置中获取事件影响因子
@@ -192,13 +211,8 @@ class MoodModel:
         """
         changes = {}
         
-        # 为每个情绪维度添加小幅随机波动
-        emotion_dimensions = [
-            "happiness", "excitement", "confidence", 
-            "friendliness", "curiosity", "patience", "trust"
-        ]
-        
-        for dim in emotion_dimensions:
+        # 为配置中定义的每个情绪维度添加小幅随机波动
+        for dim in self.emotion_dimensions:
             # 随机波动范围为 ±0.5 * base_change_rate
             random_factor = (random.random() - 0.5) * self.base_change_rate
             changes[dim] = random_factor
@@ -217,10 +231,19 @@ class MoodModel:
             情绪惯性影响系数
         """
         inertia_factors = {}
-        
-        for dim, value in current_emotion.dimensions.items():
-            if dim in changes:
-                # 如果当前情绪处于极值附近，则减缓变化速度
+        # 假设 current_emotion 有一个 dimensions 属性或方法返回维度字典
+        current_dims = getattr(current_emotion, 'dimensions', {})
+        if not isinstance(current_dims, dict):
+             logger.warning(f"无法从 current_emotion 获取 dimensions 字典: {current_emotion}")
+             current_dims = {} # 避免下面出错
+
+        for dim in self.emotion_dimensions: # 遍历模型定义的维度
+            value = current_dims.get(dim, 0.5) # 获取当前维度的值，默认为中性 0.5
+            change = changes.get(dim, 0.0) # 获取该维度的变化量
+
+            # 如果当前情绪处于极值附近，则减缓变化速度
+            # 注意：这里的 0.8 和 0.2 是硬编码的阈值，可能需要配置
+            if (value > 0.8 and change > 0) or (value < 0.2 and change < 0):
                 if (value > 0.8 and changes[dim] > 0) or (value < 0.2 and changes[dim] < 0):
                     inertia_factors[dim] = 1 - self.inertia_factor
                 else:

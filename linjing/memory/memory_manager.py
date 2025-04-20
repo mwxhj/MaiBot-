@@ -11,12 +11,12 @@ import logging
 # import os # 在此文件中未使用
 import time
 # from datetime import datetime # 在此文件中未使用
-from typing import Any, Dict, List, Optional # <--- 移除未使用的 Tuple, Union
+from typing import Dict, List, Optional, Union # <--- 重新添加 Union (用于 get_user_info 返回类型)
 
 from linjing.adapters.message_types import Message, MessageSegment # 导入 Message 类
 from linjing.storage.database import DatabaseManager
 from linjing.storage.vector_db_manager_factory import VectorDBManagerFactory
-from linjing.storage.storage_models import MemoryModel
+# from linjing.storage.storage_models import MemoryModel # 未使用
 
 # 导入MemoryModel并重命名为Memory (当前未使用此别名)
 # Memory = MemoryModel
@@ -254,19 +254,19 @@ class MemoryManager:
         id: str = None
     ) -> str:
         """
-        添加知识记忆
-        
+        添加知识记忆 (也可用于存储内部思考等非对话文本)。
+
         Args:
-            content: 知识内容
-            category: 知识类别
-            source: 知识来源
-            metadata: 附加元数据
-            embedding: 内容的向量嵌入，如不提供则不生成向量索引
-            importance: 重要性分数
-            id: 记忆ID，默认自动生成
-            
+            content: 知识或思考内容 (字符串)。
+            category: 类别 (e.g., 'general', 'faq', 'internal_thought')。
+            source: 来源 (e.g., 'manual', 'web_scrape', 'thought_generator')。
+            metadata: 附加元数据 (字典)。
+            embedding: 内容的向量嵌入 (可选, 用于向量搜索)。
+            importance: 重要性分数 (影响检索和遗忘)。
+            id: 记忆ID (可选, 默认自动生成)。
+
         Returns:
-            记忆ID
+            成功则返回记忆ID，失败则返回空字符串。
         """
         if not self._initialized:
             await self.initialize()
@@ -882,6 +882,62 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"更新记忆向量失败: {e}", exc_info=True)
             return False
+
+    async def get_user_relationship_summary(self, user_id: str) -> Dict[str, Any]:
+        """
+        获取与用户的关系摘要信息。
+
+        Args:
+            user_id: 用户ID。
+
+        Returns:
+            包含关系信息的字典，例如：
+            {
+                "interaction_count": 15,
+                "first_interaction_ts": 1678886400,
+                "last_interaction_ts": 1678972800,
+                "average_sentiment": 0.2, # (需要额外计算或存储)
+                "tags": ["vip", "developer"] # (来自 user_info)
+            }
+            如果出错或用户不存在，则返回空字典。
+        """
+        if not self._initialized:
+            await self.initialize()
+
+        summary = {}
+        try:
+            # 1. 查询交互次数和时间戳
+            query_conv = """
+            SELECT
+                COUNT(*) as interaction_count,
+                MIN(timestamp) as first_interaction_ts,
+                MAX(timestamp) as last_interaction_ts
+            FROM conversations
+            WHERE user_id = ?
+            """
+            conv_stats = await self.db.execute_query(query_conv, (user_id,))
+            if conv_stats and conv_stats[0]:
+                stats = conv_stats[0]
+                # 确保键存在且不为 None
+                summary["interaction_count"] = stats.get("interaction_count", 0) or 0
+                summary["first_interaction_ts"] = stats.get("first_interaction_ts") # 可能为 None
+                summary["last_interaction_ts"] = stats.get("last_interaction_ts") # 可能为 None
+
+            # 2. 查询用户标签 (示例，假设标签存储在 user_info 中以 'tag:' 开头的键)
+            query_tags = "SELECT value FROM user_info WHERE user_id = ? AND key LIKE 'tag:%'"
+            tag_results = await self.db.execute_query(query_tags, (user_id,))
+            summary["tags"] = [row[0] for row in tag_results] if tag_results else []
+
+            # 3. (可选) 计算平均情感等更复杂指标 (需要额外逻辑)
+            # summary["average_sentiment"] = await self._calculate_average_sentiment(user_id)
+
+            logger.debug(f"为用户 {user_id} 生成的关系摘要: {summary}")
+
+        except Exception as e:
+            logger.error(f"获取用户 {user_id} 关系摘要失败: {e}", exc_info=True)
+            return {} # 出错时返回空字典
+
+        return summary
 
     async def ensure_user_exists(
         self,

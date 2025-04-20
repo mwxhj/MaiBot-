@@ -5,9 +5,9 @@
 """
 
 import re
-import asyncio
+# import asyncio # 不再需要
 import random
-from typing import Dict, Any, List, Optional, Pattern, Callable, Tuple
+from typing import Dict, Any, Callable # <--- 移除未使用的 List, Optional, Pattern, Tuple
 
 from ..utils.logger import get_logger
 
@@ -26,20 +26,21 @@ class EmotionRule:
         """
         self.name = name
         self.description = description
-    
-    async def evaluate(self, current_emotion, message_text: str, factors: Dict[str, Any]) -> Dict[str, float]:
+
+    # 改为同步方法
+    def evaluate(self, current_emotion, message_text: str, factors: Dict[str, Any]) -> Dict[str, float]:
         """
-        评估规则并返回情绪变化
-        
+        评估规则并返回情绪变化 (同步版本)
+
         Args:
-            current_emotion: 当前情绪状态
-            message_text: 消息文本
-            factors: 影响因素
-            
+            current_emotion: 当前情绪状态 (可能包含 VAD 等维度)
+            message_text: 消息文本 (可能用于某些规则)
+            factors: 影响因素, 预期包含 read_air_analysis
+
         Returns:
-            情绪变化字典
+            情绪变化字典 (例如 {'valence': -0.2, 'arousal': 0.1})
         """
-        return {}
+        raise NotImplementedError # 基类方法应被子类覆盖
 
 
 class PatternMatchRule(EmotionRule):
@@ -66,16 +67,17 @@ class PatternMatchRule(EmotionRule):
         super().__init__(name, description)
         self.pattern = re.compile(pattern, flags)
         self.emotion_changes = emotion_changes
-    
-    async def evaluate(self, current_emotion, message_text: str, factors: Dict[str, Any]) -> Dict[str, float]:
+
+    # 改为同步方法
+    def evaluate(self, current_emotion, message_text: str, factors: Dict[str, Any]) -> Dict[str, float]:
         """
-        评估规则并返回情绪变化
-        
+        评估规则并返回情绪变化 (同步版本)
+
         Args:
             current_emotion: 当前情绪状态
             message_text: 消息文本
             factors: 影响因素
-            
+
         Returns:
             情绪变化字典
         """
@@ -111,19 +113,22 @@ class ConditionalRule(EmotionRule):
         super().__init__(name, description)
         self.condition_func = condition_func
         self.emotion_changes = emotion_changes
-    
-    async def evaluate(self, current_emotion, message_text: str, factors: Dict[str, Any]) -> Dict[str, float]:
+
+    # 改为同步方法
+    def evaluate(self, current_emotion, message_text: str, factors: Dict[str, Any]) -> Dict[str, float]:
         """
-        评估规则并返回情绪变化
-        
+        评估规则并返回情绪变化 (同步版本)
+
         Args:
             current_emotion: 当前情绪状态
             message_text: 消息文本
             factors: 影响因素
-            
+
         Returns:
             情绪变化字典
         """
+        # 检查 condition_func 是否需要 await (如果它是 async lambda)
+        # 但通常条件函数是同步的
         if self.condition_func(factors):
             logger.debug(f"情绪规则 '{self.name}' 条件满足，应用情绪变化: {self.emotion_changes}")
             return self.emotion_changes.copy()
@@ -168,23 +173,26 @@ class ThresholdRule(EmotionRule):
             "lte": lambda x, y: x <= y,
             "eq": lambda x, y: abs(x - y) < 0.01
         }
-    
-    async def evaluate(self, current_emotion, message_text: str, factors: Dict[str, Any]) -> Dict[str, float]:
+
+    # 改为同步方法
+    def evaluate(self, current_emotion, message_text: str, factors: Dict[str, Any]) -> Dict[str, float]:
         """
-        评估规则并返回情绪变化
-        
+        评估规则并返回情绪变化 (同步版本)
+
         Args:
             current_emotion: 当前情绪状态
             message_text: 消息文本
             factors: 影响因素
-            
+
         Returns:
             情绪变化字典
         """
-        if self.dimension not in current_emotion.dimensions:
+        # 假设 current_emotion 有 dimensions 属性
+        current_dims = getattr(current_emotion, 'dimensions', {})
+        if self.dimension not in current_dims:
             return {}
             
-        current_value = current_emotion.dimensions[self.dimension]
+        current_value = current_dims[self.dimension]
         compare_func = self.compare_funcs.get(self.comparison)
         
         if compare_func and compare_func(current_value, self.threshold):
@@ -194,118 +202,92 @@ class ThresholdRule(EmotionRule):
         return {}
 
 
+# --- 新增 V12 触发器规则 ---
+class V12TriggerRule(EmotionRule):
+    """基于 V12 触发器扫描结果的情绪规则"""
+    def __init__(
+        self,
+        name: str,
+        trigger_key: str, # factors['read_air_analysis']['v12_trigger_scan_results'] 中的键名
+        emotion_changes: Dict[str, float], # 对 VAD 维度的影响
+        description: str = ""
+    ):
+        super().__init__(name, description)
+        self.trigger_key = trigger_key
+        self.emotion_changes = emotion_changes
+
+    def evaluate(self, current_emotion, message_text: str, factors: Dict[str, Any]) -> Dict[str, float]:
+        """评估 V12 触发器是否激活"""
+        read_air_analysis = factors.get("read_air_analysis", {})
+        if not isinstance(read_air_analysis, dict):
+             logger.warning(f"规则 '{self.name}' 无法评估：read_air_analysis 不是字典或不存在。")
+             return {}
+
+        trigger_results = read_air_analysis.get("v12_trigger_scan_results", {})
+        if not isinstance(trigger_results, dict):
+             logger.warning(f"规则 '{self.name}' 无法评估：v12_trigger_scan_results 不是字典或不存在。")
+             return {}
+
+        if trigger_results.get(self.trigger_key, False) is True:
+            logger.info(f"V12 情绪规则 '{self.name}' (触发器: {self.trigger_key}) 激活，应用情绪变化: {self.emotion_changes}")
+            return self.emotion_changes.copy()
+
+        return {}
+
 class EmotionRules:
     """情绪规则管理器"""
-    
+
     def __init__(self):
         """初始化情绪规则管理器"""
-        self.rules = []
-        self._initialize_rules()
-    
-    def _initialize_rules(self):
-        """初始化预定义规则"""
-        # 添加模式匹配规则
+        self.rules: List[EmotionRule] = [] # 明确类型
+        self._initialize_v12_rules() # 调用新的初始化方法
+
+    def _initialize_v12_rules(self):
+        """初始化 V12 情绪规则"""
+        logger.info("初始化 V12 情绪规则...")
+        # 定义 V12 触发器及其对 VAD 的影响 (示例值，需要根据人设文档调整)
+        # V: Valence (愉悦度), A: Arousal (激动度), D: Dominance (控制感)
+        # 范围 [-1, 1] 或 [0, 1]，这里假设变化量是加到 [0, 1] 的 VAD 值上
+        # 注意：影响值的大小和符号需要仔细设计
+        v12_trigger_effects = {
+            "triggers_linjing_disrespect_sensitivity": {"valence": -0.3, "arousal": 0.2, "dominance": -0.1},
+            "triggers_linjing_logical_fallacy_sensitivity": {"valence": -0.1, "arousal": 0.1, "dominance": 0.2},
+            "triggers_linjing_provocation_sensitivity": {"valence": -0.4, "arousal": 0.4, "dominance": 0.0},
+            "triggers_linjing_personal_attack_sensitivity": {"valence": -0.5, "arousal": 0.3, "dominance": -0.2},
+            "triggers_linjing_misinformation_sensitivity": {"valence": -0.1, "arousal": 0.1, "dominance": 0.1},
+            "triggers_linjing_fairness_sensitivity": {"valence": -0.2, "arousal": 0.2, "dominance": -0.1},
+            "triggers_linjing_ai_identity_sensitivity": {"valence": 0.1, "arousal": -0.1, "dominance": 0.1}, # 对 AI 身份的强调可能增加冷静和控制感
+        }
+
+        for trigger_key, changes in v12_trigger_effects.items():
+            rule_name = f"v12_{trigger_key.split('_')[-2]}" # e.g., v12_disrespect
+            self.rules.append(
+                V12TriggerRule(
+                    name=rule_name,
+                    trigger_key=trigger_key,
+                    emotion_changes=changes,
+                    description=f"基于 V12 触发器 {trigger_key} 的情绪反应"
+                )
+            )
+            logger.debug(f"已添加 V12 情绪规则: {rule_name}")
+
+        # 可以保留一些通用的、与 V12 不冲突的旧规则，例如基于阈值的平衡规则
+        # 但需要确保它们操作的是 VAD 维度
         self.rules.extend([
-            # 表情符号规则
-            PatternMatchRule(
-                name="emoji_happy",
-                pattern=r"[😀😁😂🤣😃😄😊😍🥰😘]",
-                emotion_changes={"happiness": 0.03, "excitement": 0.02},
-                description="检测快乐表情"
-            ),
-            PatternMatchRule(
-                name="emoji_sad",
-                pattern=r"[😢😭😞😔😟😕🙁☹️😩😫]",
-                emotion_changes={"happiness": -0.03},
-                description="检测悲伤表情"
-            ),
-            PatternMatchRule(
-                name="emoji_angry",
-                pattern=r"[😠😡🤬👿😤]",
-                emotion_changes={"patience": -0.04, "friendliness": -0.02},
-                description="检测愤怒表情"
-            ),
-            
-            # 亲密称呼规则
-            PatternMatchRule(
-                name="intimate_nickname",
-                pattern=r"\b(亲爱的|宝贝|亲|小可爱|小林|小猪|林酱)\b",
-                emotion_changes={"happiness": 0.04, "friendliness": 0.05},
-                description="检测亲密称呼"
-            ),
-            
-            # 负面态度规则
-            PatternMatchRule(
-                name="negative_attitude",
-                pattern=r"\b(滚|傻|蠢|笨|废物|无用|useless|闭嘴|shut up)\b",
-                emotion_changes={"happiness": -0.06, "friendliness": -0.05, "confidence": -0.04},
-                description="检测负面态度"
-            ),
-            
-            # 连续问题规则
-            PatternMatchRule(
-                name="continuous_questions",
-                pattern=r".*\?.*\?.*(\?|？)",  # 三个或更多问号
-                emotion_changes={"patience": -0.03},
-                description="检测连续问题"
-            ),
-            
-            # 表扬规则
-            PatternMatchRule(
-                name="praise",
-                pattern=r"\b(好棒|真棒|厉害|聪明|smart|clever|brilliant|优秀|best|最佳)\b",
-                emotion_changes={"happiness": 0.05, "confidence": 0.05},
-                description="检测表扬"
-            ),
-            
-            # 冒犯或伤害规则
-            PatternMatchRule(
-                name="offend",
-                pattern=r"\b(讨厌你|hate you|烦死你|恨你|恶心|滚开|去死)\b",
-                emotion_changes={"happiness": -0.08, "trust": -0.05, "friendliness": -0.06},
-                description="检测冒犯或伤害"
-            ),
-        ])
-        
-        # 添加阈值规则
-        self.rules.extend([
-            # 情绪极值自动平衡规则
             ThresholdRule(
-                name="happiness_too_high",
-                dimension="happiness",
-                threshold=0.9,
-                comparison="gt",
-                emotion_changes={"happiness": -0.02},
-                description="过高的快乐会自动降低"
+                name="valence_too_high", dimension="valence", threshold=0.9, comparison="gt",
+                emotion_changes={"valence": -0.05}, description="过高的愉悦度自动降低"
             ),
             ThresholdRule(
-                name="happiness_too_low",
-                dimension="happiness",
-                threshold=0.1,
-                comparison="lt",
-                emotion_changes={"happiness": 0.02},
-                description="过低的快乐会自动提升"
+                name="valence_too_low", dimension="valence", threshold=0.1, comparison="lt",
+                emotion_changes={"valence": 0.05}, description="过低的愉悦度自动提升"
             ),
-            # 其他阈值规则...
+            # 可以为 Arousal 和 Dominance 添加类似规则
         ])
-        
-        # 添加条件规则
-        self.rules.extend([
-            # 高频互动规则
-            ConditionalRule(
-                name="high_frequency_interaction",
-                condition_func=lambda factors: factors.get("interaction_frequency", 0) > 0.8,
-                emotion_changes={"trust": 0.03, "friendliness": 0.02},
-                description="高频互动增加信任和友好度"
-            ),
-            # 长时间无回应规则
-            ConditionalRule(
-                name="long_no_response",
-                condition_func=lambda factors: factors.get("time_since_last_message", 0) > 86400,  # 24小时
-                emotion_changes={"friendliness": -0.02},
-                description="长时间无回应降低友好度"
-            ),
-        ])
+        logger.debug("已添加情绪平衡规则 (基于 VAD)")
+
+        # 移除所有旧的 PatternMatchRule 和 ConditionalRule
+        # logger.info("旧的模式匹配和条件规则已被移除，由 V12 触发器规则替代。")
     
     def add_rule(self, rule: EmotionRule) -> None:
         """
@@ -332,26 +314,28 @@ class EmotionRules:
                 return True
         return False
     
-    async def apply_rules(self, current_emotion, message_text: str, factors: Dict[str, Any]) -> Dict[str, float]:
+    # 改为同步方法
+    def apply_rules(self, current_emotion, message_text: str, factors: Dict[str, Any]) -> Dict[str, float]:
         """
-        应用所有规则并返回情绪变化
-        
+        应用所有规则并返回合并后的情绪变化 (同步版本)
+
         Args:
             current_emotion: 当前情绪状态
             message_text: 消息文本
-            factors: 影响因素
-            
+            factors: 影响因素 (应包含 read_air_analysis)
+
         Returns:
-            情绪变化字典
+            合并后的情绪变化字典 (VAD 变化)
         """
-        combined_changes = {}
-        
+        combined_changes: Dict[str, float] = {} # 明确类型
+
         # 评估所有规则
         for rule in self.rules:
             try:
-                rule_changes = await rule.evaluate(current_emotion, message_text, factors)
-                
-                # 合并变化
+                # 调用同步的 evaluate 方法
+                rule_changes = rule.evaluate(current_emotion, message_text, factors)
+
+                # 合并变化 (累加)
                 for dim, value in rule_changes.items():
                     combined_changes[dim] = combined_changes.get(dim, 0) + value
             except Exception as e:

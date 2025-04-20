@@ -11,6 +11,7 @@ import asyncio
 import json # 导入 json 模块
 import importlib
 import inspect
+import os # <--- 重新导入 os 用于文件路径操作
 from typing import Dict, List, Any, Optional, Tuple, Type, Callable
 
 from linjing.utils.logger import get_logger
@@ -47,7 +48,10 @@ class LinjingBot:
         self.llm_manager = None
         self.plugin_manager = None
         self.running = False
-        
+        # 新增：存储加载的配置文本
+        self.personality_principles_text: str = ""
+        self.style_guide_text: str = ""
+
         # 注册事件处理器
         self._register_event_handlers()
     
@@ -61,9 +65,10 @@ class LinjingBot:
         logger.info("正在初始化林静机器人...")
         
         try:
-            # 初始化人格系统
-            await self._init_personality()
-            
+            # 加载人格和风格指南文本
+            await self._load_personality_principles()
+            await self._load_style_guide()
+
             # 初始化LLM管理器
             await self._init_llm_manager()
             
@@ -198,20 +203,73 @@ class LinjingBot:
             {"message": message, "context": context}
         )
         
-        # 通过消息管道处理消息
-        result_context = await self.message_pipeline.process(context)
-        
+        # --- V12 重构：在管道中处理情绪更新 ---
+        processed_context = context # 使用新变量，避免覆盖初始 context
+
+        # 1. 手动执行 ReadAirProcessor (如果存在)
+        read_air_processor = self.get_processor(ProcessorName.READ_AIR)
+        if read_air_processor:
+            logger.debug("手动执行 ReadAirProcessor...")
+            processed_context = await read_air_processor.process(processed_context)
+            logger.debug("ReadAirProcessor 执行完毕。")
+        else:
+            logger.warning(f"处理器管道中未找到 {ProcessorName.READ_AIR}，无法执行读空气分析。")
+
+        # 2. 更新情绪状态 (基于 ReadAir 分析结果)
+        if self.emotion_manager:
+            logger.debug("开始更新情绪状态...")
+            read_air_analysis = processed_context.get_state("read_air_analysis")
+            message_text = message.extract_plain_text() if hasattr(message, 'extract_plain_text') else str(message)
+            # 将 read_air_analysis 包装在 factors 字典中传递
+            factors = {"read_air_analysis": read_air_analysis if isinstance(read_air_analysis, dict) else {}}
+
+            try:
+                updated_emotion = await self.emotion_manager.update_emotion(
+                    processed_context.user_id,
+                    factors,
+                    message_text
+                )
+                # 将更新后的情绪状态设置回上下文
+                processed_context.with_emotion(updated_emotion.to_dict())
+                logger.debug(f"情绪状态已更新并设置回上下文: {updated_emotion}")
+            except Exception as e:
+                 logger.error(f"更新情绪状态时出错 (UserID: {processed_context.user_id}): {e}", exc_info=True)
+                 # 即使情绪更新失败，也继续处理
+
+        # 3. 执行管道中剩余的处理器
+        logger.debug("开始执行剩余的消息处理器...")
+        pipeline_order = self.config.get("bot", {}).get("processor_pipeline", [])
+        try:
+            read_air_index = pipeline_order.index(ProcessorName.READ_AIR)
+            start_index = read_air_index + 1
+        except ValueError:
+            logger.warning(f"管道顺序中未找到 {ProcessorName.READ_AIR}，将从头开始执行所有处理器。")
+            start_index = 0 # 如果没有 ReadAir，从头执行
+
+        for i in range(start_index, len(pipeline_order)):
+            processor_name = pipeline_order[i]
+            processor = self.get_processor(processor_name)
+            if processor:
+                logger.debug(f"执行处理器: {processor_name}...")
+                try:
+                    processed_context = await processor.process(processed_context)
+                    logger.debug(f"处理器 {processor_name} 执行完毕。")
+                except Exception as e:
+                     logger.error(f"执行处理器 {processor_name} 时出错: {e}", exc_info=True)
+                     # 可以选择在这里中断处理或继续下一个处理器
+                     # break # 如果希望出错时中断
+            else:
+                 logger.warning(f"在管道顺序中找到但在实例中未找到处理器: {processor_name}")
+
+        result_context = processed_context # 最终的处理结果上下文
+        logger.debug("所有剩余处理器执行完毕。")
+
         # 从处理后的上下文中获取最终回复
         final_reply = result_context.get_state("reply")
 
-        # --- Defer memory saving and emotion update until after returning ---
-        # (Alternatively, run these in background tasks)
+        # --- 移除延迟的情绪更新，因为它已在管道中处理 ---
 
-        # 更新情绪状态 (Defer this)
-        # if final_reply and self.emotion_manager:
-        #     # 假设从上下文中提取情绪因素
-        #     emotion_factors = result_context.get_state("emotion_factors", {})
-        #     await self.emotion_manager.update_emotion(context.user_id, emotion_factors)
+        # (情绪更新逻辑已移到管道处理中)
 
         # 发布消息发送事件
         if final_reply:
@@ -272,15 +330,12 @@ class LinjingBot:
             except Exception as e:
                 logger.error(f"后台存储机器人回复失败 (UserID: {context.user_id}): {e}", exc_info=True)
 
-        # Update emotion state (Also deferred)
-        if bot_reply and self.emotion_manager:
-            try:
-                # 从处理后的上下文中提取情绪因素
-                emotion_factors = result_context.get_state("emotion_factors", {})
-                if emotion_factors: # Only update if factors are present
-                     await self.emotion_manager.update_emotion(context.user_id, emotion_factors)
-            except Exception as e:
-                 logger.error(f"后台更新情绪状态失败 (UserID: {context.user_id}): {e}", exc_info=True)
+        # 移除后台情绪更新逻辑
+        # if bot_reply and self.emotion_manager:
+        #     try:
+        #         # ... (旧代码已移除) ...
+        #     except Exception as e:
+        #          logger.error(f"后台更新情绪状态失败 (UserID: {context.user_id}): {e}", exc_info=True)
 
         # Note: MESSAGE_SENT event is already published in handle_message before this task runs.
         # No need to publish it again here.
@@ -310,10 +365,52 @@ class LinjingBot:
         """
         return self.message_pipeline.get_processor(name)
     
-    async def _init_personality(self) -> None:
-        """初始化人格系统（已迁移到 personality_principles.md）"""
-        logger.info("人格系统已迁移到配置文件，跳过初始化")
-        self.personality = None  # 保留属性但设为None
+    async def _load_personality_principles(self) -> None:
+        """加载人格原则文件内容"""
+        # 注意：这里的路径是相对于项目根目录还是当前文件？假设是相对于 linjing 包
+        # 需要确认实际运行时的 CWD 或使用绝对路径/更可靠的相对路径
+        # 假设 config.yaml 所在的目录是项目根目录
+        # TODO: 确认配置文件的准确路径加载方式
+        principles_path = self.config.get("paths", {}).get("personality_principles", "linjing/config/personality_principles.md")
+        logger.info(f"尝试从 '{principles_path}' 加载人格原则...")
+        try:
+            # 假设 Bot 实例在项目根目录创建，或者路径是绝对的
+            # 如果在 Docker 中，路径可能是 /app/linjing/config/...
+            # 尝试构建相对于 /app 的路径 (如果适用)
+            if not os.path.isabs(principles_path) and os.getenv("APP_HOME"): # 检查是否在容器内
+                 principles_path = os.path.join(os.getenv("APP_HOME", "/app"), principles_path)
+
+            if os.path.exists(principles_path):
+                 with open(principles_path, "r", encoding="utf-8") as f:
+                     self.personality_principles_text = f.read()
+                 logger.info(f"成功加载人格原则 ({len(self.personality_principles_text)} 字符)")
+            else:
+                 logger.error(f"人格原则文件未找到: {principles_path}")
+                 self.personality_principles_text = "错误：人格原则文件未找到！"
+        except Exception as e:
+            logger.error(f"加载人格原则文件失败: {e}", exc_info=True)
+            self.personality_principles_text = "错误：加载人格原则文件失败！"
+        # self.personality = None # 移除旧的逻辑
+
+    async def _load_style_guide(self) -> None:
+        """加载沟通风格指南文件内容"""
+        style_guide_path = self.config.get("paths", {}).get("style_guide", "linjing/config/style_guide.md")
+        logger.info(f"尝试从 '{style_guide_path}' 加载风格指南...")
+        try:
+            # 同样处理路径问题
+            if not os.path.isabs(style_guide_path) and os.getenv("APP_HOME"):
+                 style_guide_path = os.path.join(os.getenv("APP_HOME", "/app"), style_guide_path)
+
+            if os.path.exists(style_guide_path):
+                 with open(style_guide_path, "r", encoding="utf-8") as f:
+                     self.style_guide_text = f.read()
+                 logger.info(f"成功加载风格指南 ({len(self.style_guide_text)} 字符)")
+            else:
+                 logger.error(f"风格指南文件未找到: {style_guide_path}")
+                 self.style_guide_text = "错误：风格指南文件未找到！"
+        except Exception as e:
+            logger.error(f"加载风格指南文件失败: {e}", exc_info=True)
+            self.style_guide_text = "错误：加载风格指南文件失败！"
     
     async def _init_llm_manager(self) -> None:
         """初始化LLM管理器"""
@@ -443,8 +540,20 @@ class LinjingBot:
         # 导入并初始化处理器
         for name in pipeline_order:
             try:
-                processor_config = processor_configs.get(name, {"enabled": True})
-                
+                # 获取该处理器的特定配置
+                processor_config = processor_configs.get(name, {}).copy() # 使用 copy 避免修改原始配置
+                processor_config["enabled"] = processor_config.get("enabled", True) # 确保 enabled 存在
+
+                # --- 将加载的文本注入到需要它们的处理器的配置中 ---
+                if name in [ProcessorName.THOUGHT_GENERATOR, ProcessorName.WILLINGNESS_CHECKER]:
+                    processor_config["personality_text"] = self.personality_principles_text
+                    logger.debug(f"已为人格原则注入到处理器 '{name}' 的配置中")
+                if name == ProcessorName.RESPONSE_COMPOSER:
+                    processor_config["v12_style_guide"] = self.style_guide_text
+                    logger.debug(f"已为风格指南注入到处理器 '{name}' 的配置中")
+                # 将全局配置传递给处理器，以便它们可以访问 bot.name 等信息
+                processor_config["global_config"] = self.config
+
                 # 根据处理器名称导入相应模块
                 if name == ProcessorName.READ_AIR:
                     from linjing.processors.read_air import ReadAirProcessor
@@ -455,20 +564,20 @@ class LinjingBot:
                     from linjing.processors.thought_generator import ThoughtGenerator
                     processor = ThoughtGenerator(name=name, config=processor_config) # 传递 name 参数
                     processor.set_llm_manager(self.llm_manager)
-                    # 不再需要设置 personality
+                    # processor.set_personality(self.personality) # 移除旧的调用
 
                 # **新增：初始化 WillingnessChecker**
                 elif name == ProcessorName.WILLINGNESS_CHECKER: # 使用常量
                     from linjing.processors.willingness_checker import WillingnessChecker
                     processor = WillingnessChecker(name=name, config=processor_config)
                     processor.set_llm_manager(self.llm_manager)
-                    # 不再需要设置 personality
+                    # processor.set_personality(self.personality) # 移除旧的调用
                 
                 elif name == ProcessorName.RESPONSE_COMPOSER:
                     from linjing.processors.response_composer import ResponseComposer
                     processor = ResponseComposer(name=name, config=processor_config) # 传递 name 参数
                     processor.set_llm_manager(self.llm_manager)
-                    processor.set_personality(self.personality)
+                    # processor.set_personality(self.personality) # 移除旧的调用
                 
                 else:
                     # 尝试根据处理器名称动态导入模块 (例如 "read_air" -> linjing.processors.read_air)
