@@ -38,7 +38,7 @@ pydantic==2.11.3
 pydantic_core==2.33.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.0
-pywin32==310
+# pywin32==310 # Removed, Windows-specific package
 PyYAML==6.0.2
 qdrant-client==1.13.3
 regex==2024.11.6
@@ -52,5 +52,5 @@ typing-inspection==0.4.0
 typing_extensions==4.13.2
 urllib3==2.4.0
 websockets==15.0.1
-win32_setctime==1.2.0
+# win32_setctime==1.2.0 # Removed, Windows-specific package
 yarl==1.20.0
