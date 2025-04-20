@@ -137,8 +137,12 @@ class ResponseComposer(BaseProcessor):
         Returns:
             更新后的消息上下文，包含生成的回复
         """
+        logger.info("--- ResponseComposer process method entered ---") # 入口标记
         logger.info("开始生成回复消息")
         
+        reply = None # 初始化 reply 变量
+        reply_message = None # 初始化 reply_message 变量
+
         try:
             # 获取思考结果和相关上下文
             thought = context.get_state("thought", "")
@@ -174,8 +178,9 @@ class ResponseComposer(BaseProcessor):
             logger.debug(f"最终生成的回复消息对象 (纯文本): '{reply_text_for_log}'") # 记录纯文本
             logger.debug(f"最终生成的回复消息对象 (完整结构): {reply_message}") # 记录完整结构
 
+            # --- Setting the response ---
             logger.debug(f"准备将回复对象设置到 context: {reply_message}") # 保留原有日志
-            # 使用 create_response 来设置最终响应，而不是 set_state
+            # This is the main way to set the response for the bot to send
             try:
                 context.create_response(reply_message)
                 logger.info(f"成功调用 context.create_response. context.response 类型: {type(context.response)}, 内容: {context.response}") # 检查调用后状态
@@ -197,6 +202,7 @@ class ResponseComposer(BaseProcessor):
             logger.error(f"生成回复时出错 (Outer Try Block): {e}", exc_info=True)
             context.set_state("reply_generation_error", True) # 设置错误标志
 
+        logger.info("--- ResponseComposer process method finishing ---") # 出口标记
         return context
 
     async def _generate_response(self, context: MessageContext, thought: str) -> str:
