@@ -262,19 +262,20 @@ class ResponseComposer(BaseProcessor):
         return prompt
 
     # 使用与 ThoughtGenerator 和 WillingnessChecker 统一的格式化逻辑
-    def _format_history(self, context: MessageContext) -> str:
+    def _format_history(self, history_list: List[Message]) -> str: # <-- 修改参数为 history_list: List[Message]
         """
-        从 MessageContext 中提取并格式化最近的对话历史记录，用于 Prompt。
+        格式化最近的对话历史记录列表，用于 Prompt。
 
         Args:
-            context: 当前消息上下文。
+            history_list: 包含历史消息对象的列表。
 
         Returns:
             格式化后的历史对话字符串，如果无历史则返回 "无历史对话"。
         """
         history_text = ""
         # 使用 ResponseComposer 自己的 max_history 配置
-        recent_history = context.history[-self.max_history:] if context.history else []
+        # 直接使用传入的 history_list
+        recent_history = history_list[-self.max_history:] if history_list else []
         for msg in recent_history:
             if isinstance(msg, Message): # 优先处理 Message 对象
                  is_user = msg.get_meta("is_user", False)

@@ -12,6 +12,7 @@ import json # 导入 json 模块
 import importlib
 import inspect
 import os # <--- 重新导入 os 用于文件路径操作
+import yaml # <-- 导入 yaml 库
 from typing import Dict, List, Any, Optional, Tuple, Type, Callable
 
 from linjing.utils.logger import get_logger
@@ -518,9 +519,14 @@ class LinjingBot:
                 config=self.config.get("emotion", {}),
                 db_manager=self.storage_manager
             )
-            
-            # 初始化情绪管理器
-            await self.emotion_manager.initialize_tables()
+
+            # 初始化情绪管理器表结构 (调用新方法)
+            if hasattr(self.emotion_manager, '_initialize_tables'):
+                 await self.emotion_manager._initialize_tables()
+            # else: # 移除旧的兼容逻辑，因为我们知道新方法存在
+            #      if hasattr(self.emotion_manager, 'initialize_tables'):
+            #           await self.emotion_manager.initialize_tables()
+
             
         except ImportError as e:
             logger.error(f"情绪系统导入失败: {str(e)}")
@@ -529,8 +535,29 @@ class LinjingBot:
     async def _init_processors(self) -> None:
         """初始化处理器"""
         logger.info("正在初始化处理器...")
-        
-        # 获取处理器具体配置和管道顺序配置
+
+        # --- 加载 prompts.yaml ---
+        all_prompts_config = {}
+        prompts_path = self.config.get("paths", {}).get("prompts", "linjing/config/prompts.yaml")
+        logger.info(f"尝试从 '{prompts_path}' 加载处理器 Prompts...")
+        try:
+            # 处理 Docker 路径
+            if not os.path.isabs(prompts_path) and os.getenv("APP_HOME"):
+                 prompts_path = os.path.join(os.getenv("APP_HOME", "/app"), prompts_path)
+
+            if os.path.exists(prompts_path):
+                 with open(prompts_path, "r", encoding="utf-8") as f:
+                     all_prompts_config = yaml.safe_load(f) or {}
+                 logger.info(f"成功加载 Prompts 文件 ({len(all_prompts_config)} 个处理器配置)")
+            else:
+                 logger.error(f"Prompts 文件未找到: {prompts_path}")
+        except yaml.YAMLError as e:
+            logger.error(f"解析 Prompts 文件失败: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"加载 Prompts 文件时发生未知错误: {e}", exc_info=True)
+        # --- Prompts 加载完毕 ---
+
+        # 获取处理器具体配置和管道顺序配置 (来自 config.yaml)
         processor_configs = self.config.get("processors", {})
         # 从 bot 配置块读取管道顺序，如果不存在则使用默认值
         pipeline_order = self.config.get("bot", {}).get("processor_pipeline", [
@@ -542,11 +569,19 @@ class LinjingBot:
         # 导入并初始化处理器
         for name in pipeline_order:
             try:
-                # 获取该处理器的特定配置
+                # 获取该处理器的特定配置 (来自 config.yaml)
                 processor_config = processor_configs.get(name, {}).copy() # 使用 copy 避免修改原始配置
                 processor_config["enabled"] = processor_config.get("enabled", True) # 确保 enabled 存在
 
-                # --- 将加载的文本注入到需要它们的处理器的配置中 ---
+                # --- 合并来自 prompts.yaml 的配置 ---
+                # 将 prompts.yaml 中对应处理器的配置放到 processor_config['prompts'] 下
+                if name in all_prompts_config:
+                    processor_config["prompts"] = all_prompts_config[name]
+                    logger.debug(f"已合并来自 prompts.yaml 的 '{name}' 配置。")
+                else:
+                    processor_config["prompts"] = {} # 确保 prompts 键存在
+
+                # --- 将加载的人格/风格文本注入到需要它们的处理器的配置中 ---
                 if name in [ProcessorName.THOUGHT_GENERATOR, ProcessorName.WILLINGNESS_CHECKER]:
                     processor_config["personality_text"] = self.personality_principles_text
                     logger.debug(f"已为人格原则注入到处理器 '{name}' 的配置中")
@@ -566,6 +601,9 @@ class LinjingBot:
                     from linjing.processors.thought_generator import ThoughtGenerator
                     processor = ThoughtGenerator(name=name, config=processor_config) # 传递 name 参数
                     processor.set_llm_manager(self.llm_manager)
+                    # 注入 memory_manager
+                    if hasattr(processor, 'set_memory_manager') and self.memory_manager:
+                         processor.set_memory_manager(self.memory_manager)
                     # processor.set_personality(self.personality) # 移除旧的调用
 
                 # **新增：初始化 WillingnessChecker**

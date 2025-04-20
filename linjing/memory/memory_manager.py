@@ -10,7 +10,7 @@ import json
 import logging
 # import os # 在此文件中未使用
 import time
-# from datetime import datetime # 在此文件中未使用
+from datetime import datetime # <-- 导入 datetime
 from typing import Dict, List, Optional, Union, Any # <--- 添加 Any
 
 from linjing.adapters.message_types import Message, MessageSegment # 导入 Message 类
@@ -197,8 +197,8 @@ class MemoryManager:
         metadata_json = json.dumps(metadata) if metadata else None
         
         vector_id = None
-        embedding_generated = 0
-        
+        embedding_generated = False # <-- 使用 False
+
         # 如果提供了嵌入向量，则存入向量数据库
         if embedding:
             vector_id = await self.vector_db.add_vector(
@@ -214,7 +214,7 @@ class MemoryManager:
                     "type": "conversation"
                 }
             )
-            embedding_generated = 1 if vector_id else 0
+            embedding_generated = True if vector_id else False # <-- 使用 True/False
         
         # 存入关系数据库
         try:
@@ -280,8 +280,8 @@ class MemoryManager:
         metadata_json = json.dumps(metadata) if metadata else None
         
         vector_id = None
-        embedding_generated = 0
-        
+        embedding_generated = False # <-- 使用 False
+
         # 如果提供了嵌入向量，则存入向量数据库
         if embedding:
             vector_id = await self.vector_db.add_vector(
@@ -296,7 +296,7 @@ class MemoryManager:
                     "type": "knowledge"
                 }
             )
-            embedding_generated = 1 if vector_id else 0
+            embedding_generated = True if vector_id else False # <-- 使用 True/False
         
         # 存入关系数据库
         try:
@@ -975,7 +975,7 @@ class MemoryManager:
             INSERT INTO users (id, platform, name, created_at, last_active_at, metadata)
             VALUES (?, ?, ?, ?, ?, ?)
             """
-            current_time = int(time.time())
+            current_time_dt = datetime.fromtimestamp(time.time()) # <-- 转换为 datetime 对象
             # 基础元数据，可以根据需要扩展
             metadata_json = json.dumps({"platform_id": user_id}) # Store original ID in metadata too
 
@@ -983,8 +983,8 @@ class MemoryManager:
                 user_id,
                 platform,
                 name, # Might be None
-                current_time,
-                current_time,
+                current_time_dt, # <-- 使用 datetime 对象
+                current_time_dt, # <-- 使用 datetime 对象
                 metadata_json
             )
 

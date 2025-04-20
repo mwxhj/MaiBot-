@@ -326,8 +326,8 @@ class UserModel(BaseModel):
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             avatar TEXT,
-            created_at REAL,
-            last_active REAL,
+            created_at TIMESTAMPTZ, # <-- 改为 TIMESTAMPTZ
+            last_active TIMESTAMPTZ, # <-- 改为 TIMESTAMPTZ
             settings TEXT,
             metadata TEXT
         );

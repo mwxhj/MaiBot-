@@ -79,7 +79,12 @@ class ThoughtGenerator(BaseProcessor):
             llm_manager: LLM管理器实例
         """
         self.llm_manager = llm_manager
-    
+
+    def set_memory_manager(self, memory_manager: Any) -> None:
+        """设置记忆管理器实例"""
+        self.memory_manager = memory_manager
+        logger.debug(f"{self.name} memory_manager 设置成功。")
+
     # 移除 set_personality 方法，人格原则文本现在通过 config 注入
     # def set_personality(self, personality: Any) -> None:
     #     """
@@ -448,8 +453,9 @@ class ThoughtGenerator(BaseProcessor):
         Returns:
             格式化后的关系信息字符串，或在出错/无信息时返回提示。
         """
-        if not hasattr(context, "memory_manager") or not context.memory_manager:
-            logger.warning("无法获取关系信息：未在上下文中找到 memory_manager。")
+        # 直接使用 self.memory_manager
+        if not self.memory_manager:
+            logger.warning("无法获取关系信息：memory_manager 未设置。")
             return "关系信息：未知"
 
         try:
@@ -457,10 +463,20 @@ class ThoughtGenerator(BaseProcessor):
             # 这通常意味着我们需要将 _build_thinking_prompt 改为异步，或者使用 asyncio.run
             # 为了保持简单，暂时使用 asyncio.run，但这在生产环境中可能不是最佳实践
             # TODO: 考虑将 _build_thinking_prompt 改为异步
+            # 调用 self.memory_manager 的方法
+            # 注意：这里仍然存在同步调用异步的问题，后续可能需要重构
             import asyncio
-            relationship_summary = asyncio.run(
-                context.memory_manager.get_user_relationship_summary(context.user_id)
-            )
+            try:
+                 # 尝试在当前事件循环中运行，如果不行则创建新循环 (不推荐)
+                 loop = asyncio.get_running_loop()
+                 relationship_summary = loop.run_until_complete(
+                     self.memory_manager.get_user_relationship_summary(context.user_id)
+                 )
+            except RuntimeError: # No running event loop
+                 logger.warning("在同步方法 _format_relationship 中没有找到运行的事件循环，尝试创建新循环运行 get_user_relationship_summary (可能影响性能)。")
+                 relationship_summary = asyncio.run(
+                     self.memory_manager.get_user_relationship_summary(context.user_id)
+                 )
 
             if not relationship_summary:
                 return "关系信息：暂无"
@@ -494,9 +510,10 @@ class ThoughtGenerator(BaseProcessor):
             thought: 生成的思考内容字符串 (预期为 JSON)。
         """
         try:
-            if hasattr(context, "memory_manager") and context.memory_manager:
+            # 直接使用 self.memory_manager
+            if self.memory_manager:
                 # 使用 add_knowledge_memory 存储思考
-                await context.memory_manager.add_knowledge_memory(
+                await self.memory_manager.add_knowledge_memory(
                     content=thought, # 直接存储 JSON 字符串
                     category="internal_thought", # 指定类别
                     source=self.name, # 来源是本处理器
@@ -511,7 +528,7 @@ class ThoughtGenerator(BaseProcessor):
                 )
                 logger.debug("思考已保存到记忆 (类型: knowledge, 类别: internal_thought)")
             else:
-                 logger.warning("无法保存思考：未在上下文中找到 memory_manager。")
+                 logger.warning("无法保存思考：memory_manager 未设置。")
         except Exception as e:
             logger.error(f"保存思考到记忆失败: {str(e)}", exc_info=True)
             # 失败不影响主流程，只记录日志

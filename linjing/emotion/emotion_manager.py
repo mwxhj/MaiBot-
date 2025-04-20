@@ -8,6 +8,7 @@ import json
 import time
 import logging
 import asyncio
+from datetime import datetime # <-- 导入 datetime
 from typing import Dict, Any, List, Optional, Tuple
 
 from ..storage.database import DatabaseManager
@@ -134,7 +135,35 @@ class EmotionManager:
         
         # 启动情绪衰减任务
         self._start_decay_task()
-    
+        # 注意：表初始化应该在 connect 之后，但这里为了兼容旧逻辑暂时放在 init 后
+        # 更好的做法是让 DatabaseManager 处理所有表创建
+        # asyncio.create_task(self._initialize_tables()) # 不在 init 中直接调用 async
+
+    async def _initialize_tables(self) -> None:
+        """检查并创建情绪相关的数据库表"""
+        try:
+            # 创建 user_emotions 表 (如果不存在)
+            # 注意：PostgreSQL 使用 TIMESTAMPTZ 存储带时区的时间戳
+            await self.db_manager.execute_query("""
+                CREATE TABLE IF NOT EXISTS user_emotions (
+                    id SERIAL PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    emotion_data JSONB NOT NULL,
+                    timestamp TIMESTAMPTZ NOT NULL
+                );
+            """)
+            # 可以考虑为 user_id 和 timestamp 添加索引
+            await self.db_manager.execute_query("""
+                CREATE INDEX IF NOT EXISTS idx_user_emotions_user_id ON user_emotions(user_id);
+            """)
+            await self.db_manager.execute_query("""
+                CREATE INDEX IF NOT EXISTS idx_user_emotions_timestamp ON user_emotions(timestamp);
+            """)
+            logger.info("已检查/创建 user_emotions 表。")
+        except Exception as e:
+            logger.error(f"创建 user_emotions 表失败: {e}", exc_info=True)
+            # 抛出异常或采取其他错误处理措施
+
     def _start_decay_task(self):
         """启动情绪衰减定时任务"""
         asyncio.create_task(self._decay_loop())
@@ -262,13 +291,13 @@ class EmotionManager:
         """
         try:
             mood_data = json.dumps(mood.to_dict())
-            timestamp = mood.timestamp
-            
+            timestamp_dt = datetime.fromtimestamp(mood.timestamp) # <-- 转换为 datetime 对象
+
             query = """
             INSERT INTO user_moods (user_id, mood_data, timestamp)
             VALUES (?, ?, ?)
             """
-            await self.db_manager.execute_insert(query, (user_id, mood_data, timestamp))
+            await self.db_manager.execute_insert(query, (user_id, mood_data, timestamp_dt)) # <-- 使用 datetime 对象
             
         except Exception as e:
             logger.error(f"保存用户背景情绪失败: {e}")
@@ -309,8 +338,9 @@ class EmotionManager:
 
         return "且".join(parts) # 例如 "有点不悦且非常冷静且有点顺从"
     
-    async def initialize_tables(self) -> None:
-        """初始化数据库表 (已弃用)"""
-        # 表创建逻辑已移至 DatabaseManager 的 connect 方法中
-        logger.debug("EmotionManager.initialize_tables 已弃用，表创建由 DatabaseManager 处理。")
-        pass
+    # 移除旧的已弃用方法
+    # async def initialize_tables(self) -> None:
+    #     """初始化数据库表 (已弃用)"""
+    #     # 表创建逻辑已移至 DatabaseManager 的 connect 方法中
+    #     logger.debug("EmotionManager.initialize_tables 已弃用，表创建由 DatabaseManager 处理。")
+    #     pass
