@@ -14,7 +14,7 @@ from linjing.processors.base_processor import BaseProcessor
 from linjing.processors.message_context import MessageContext
 from linjing.processors.processor_registry import ProcessorRegistry
 from linjing.utils.logger import get_logger
-# from linjing.constants import ProcessorName # <--- ProcessorName 在此文件未直接使用
+from linjing.constants import ProcessorName # <--- ProcessorName 在 _analyze_message 方法中使用
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -53,16 +53,27 @@ class ReadAirProcessor(BaseProcessor):
         
         # LLM 管理器，用于调用语言模型
         self.llm_manager = None
-        # **新增：存储 Prompt 模板**
-        # 从传入的配置中获取 read_air 处理器的 prompt 模板
-        # 预期 config 结构: {"prompts": {"read_air": {"analysis_prompt": "..."}}}
-        # self.config 是传递给处理器的配置字典, prompts 已被注入到 self.config['prompts']
-        self.prompt_template = self.config.get("prompts", {}).get("analysis_prompt", "") # 直接从 prompts 获取
+        # 记忆管理器，用于获取用户关系信息
+        self.memory_manager = None
+        
+        # **修复：明确从配置中提取 read_air/analysis_prompt 模板**
+        # 前提：config 结构中 prompts 已被注入，包含 read_air.analysis_prompt
+        # 配置文件 prompts.yaml 中应有 read_air.analysis_prompt 字段
+        prompts_config = self.config.get("prompts", {})
+        self.prompt_template = ""
+        
+        if prompts_config:
+            # 尝试获取分析提示词模板
+            self.prompt_template = prompts_config.get("analysis_prompt", "")
+            if self.prompt_template:
+                logger.debug(f"{self.name} 成功加载 analysis_prompt 模板 (长度: {len(self.prompt_template)})")
+            else:
+                logger.error(f"{self.name} 无法从配置中找到 analysis_prompt 模板!")
+        
         if not self.prompt_template:
-             logger.error(f"未能从配置 {self.name} 中加载 prompts.analysis_prompt 模板！将无法生成分析。")
-             # 可以选择抛出异常或设置一个默认的错误提示
-             # raise ValueError("Missing required prompt template: prompts.read_air.analysis_prompt")
-             self.prompt_template = "错误：缺少 ReadAir 分析 Prompt 模板。" # 提供一个错误提示
+            logger.error(f"未能从配置 {self.name} 中加载 prompts.analysis_prompt 模板！将无法生成分析。")
+            # 提供一个错误提示作为默认值
+            self.prompt_template = "错误：缺少 ReadAir 分析 Prompt 模板。"
 
     def set_llm_manager(self, llm_manager: Any) -> None:
         """
@@ -72,6 +83,16 @@ class ReadAirProcessor(BaseProcessor):
             llm_manager: LLM管理器实例
         """
         self.llm_manager = llm_manager
+
+    def set_memory_manager(self, memory_manager: Any) -> None:
+        """
+        设置记忆管理器，用于获取用户关系信息
+
+        Args:
+            memory_manager: 记忆管理器实例
+        """
+        self.memory_manager = memory_manager
+        logger.debug(f"{self.name} 设置记忆管理器完成")
     
     async def process(self, context: MessageContext) -> MessageContext:
         """
@@ -84,6 +105,12 @@ class ReadAirProcessor(BaseProcessor):
         Returns:
             添加了分析结果的消息上下文。
         """
+        # 检查必要的依赖是否就绪
+        if not self.llm_manager:
+            logger.error(f"{self.name} 没有设置 llm_manager，无法执行分析")
+            context.log_processor(self.name, "处理失败: 缺少 llm_manager")
+            return context
+        
         # 获取消息对象
         message = context.message
         
@@ -278,7 +305,8 @@ class ReadAirProcessor(BaseProcessor):
         
         # 获取关系信息（异步调用转同步调用）
         relation_info = ""
-        if hasattr(self, "_format_relationship") and hasattr(self, "memory_manager") and self.memory_manager:
+        # 更安全地检查 memory_manager 属性是否存在
+        if hasattr(self, "_format_relationship") and hasattr(self, "memory_manager") and self.memory_manager is not None:
             try:
                 import asyncio
                 # 使用事件循环执行异步调用
@@ -288,12 +316,13 @@ class ReadAirProcessor(BaseProcessor):
             except Exception as e:
                 logger.error(f"获取关系信息失败: {e}", exc_info=True)
                 relation_info = "关系信息获取失败"
+        else:
+            logger.debug("未获取关系信息: memory_manager 不可用")
+            relation_info = "关系信息: 未知 (记忆系统未就绪)"
         
         # 从配置加载模板并格式化
         try:
-            current_prompts = self.config.get("prompts", {})
-            self.prompt_template = current_prompts.get("read_air", {}).get("analysis_prompt", self.prompt_template)
-
+            # 修复：直接使用 self.prompt_template，该值已在 __init__ 中从配置加载
             if not self.prompt_template or "错误：" in self.prompt_template:
                  logger.error("ReadAir Prompt 模板无效或未加载，无法构建 Prompt。")
                  return "错误：ReadAir Prompt 模板无效。"
@@ -411,10 +440,10 @@ class ReadAirProcessor(BaseProcessor):
         Returns:
             格式化后的关系信息字符串，或在出错/无信息时返回提示。
         """
-        # 直接使用 self.memory_manager
-        if not self.memory_manager:
+        # 先检查 memory_manager 是否已设置
+        if not hasattr(self, "memory_manager") or self.memory_manager is None:
             logger.warning("无法获取关系信息：memory_manager 未设置。")
-            return "关系信息：未知"
+            return "关系信息：未知（记忆系统未就绪）"
 
         try:
             # 从 MemoryManager 获取基本关系摘要

@@ -50,72 +50,73 @@ read_air:
     ```json
       {
     "message_metadata": {
-      "sender_identifier": "{user_identifier}", // 输入的键名
-      "message_content": "{message_content}" // 输入的键名
-      // 可以考虑加入时间戳等元数据
+      "sender_identifier": "{user_identifier}", # 输入的键名 (示例)
+      "message_content": "{message_content}" # 输入的键名 (示例)
+      # 可以考虑加入时间戳等元数据
     },
-    "linguistic_profile": { // 语言学特征
-      "style_assessment": ["informal", "colloquial"], // 语体风格 (e.g., formal, informal, colloquial, academic)
-      "register_assessment": "neutral", // 语域 (e.g., respectful, neutral, disrespectful, provocative)
-      "key_topics": ["书籍评价", "百年孤独", "深度"], // 提取的关键主题词
-      "sentence_type": "declarative_negative" // 主要句式 (e.g., question, statement, command, exclamation)
+    "linguistic_profile": { # 语言学特征
+      "style_assessment": ["informal", "colloquial"], # 语体风格 (示例: formal, informal, colloquial, academic)
+      "register_assessment": "neutral", # 语域 (示例: respectful, neutral, disrespectful, provocative)
+      "key_topics": ["书籍评价", "百年孤独", "深度"], # 提取的关键主题词 (示例)
+      "sentence_type": "declarative_negative" # 主要句式 (示例: question, statement, command, exclamation)
     },
-    "cognitive_emotional_state": { // 发送者的心理状态推断
-      "dominant_emotion": { // 主要情绪及置信度
-        "type": "contempt", // (e.g., joy, sadness, anger, fear, surprise, disgust, contempt, neutral)
-        "valence": -0.6, // 效价 (-1 to 1)
-        "arousal": 0.5, // 唤醒度 (0 to 1)
-        "confidence": 0.75
+    "cognitive_emotional_state": { # 发送者的心理状态推断
+      "dominant_emotion": { # 主要情绪及置信度
+        "type": "contempt", # (示例: joy, sadness, anger, fear, surprise, disgust, contempt, neutral)
+        "valence": -0.6, # 效价 (-1 to 1) (示例)
+        "arousal": 0.5, # 唤醒度 (0 to 1) (示例)
+        "confidence": 0.75 # (示例)
       },
-      "secondary_emotions": [{"type": "smugness", "confidence": 0.4}], // 次要或混合情绪
-      "cognitive_intent": ["assert_opinion", "challenge_previous_statement"], // 认知意图 (e.g., inform, persuade, justify, affiliate, impress, inquire, challenge)
-      "theory_of_mind_hint": "low_concern_for_receiver_feeling", // 对接收者反应的预判 (e.g., expects_agreement, expects_disagreement, low_concern_for_receiver_feeling, testing_boundaries)
-      "confidence_in_ToM": 0.6
+      "secondary_emotions": [{"type": "smugness", "confidence": 0.4}], # 次要或混合情绪 (示例)
+      "cognitive_intent": ["assert_opinion", "challenge_previous_statement"], # 认知意图 (示例: inform, persuade, justify, affiliate, impress, inquire, challenge)
+      "theory_of_mind_hint": "low_concern_for_receiver_feeling", # 对接收者反应的预判 (示例: expects_agreement, expects_disagreement, low_concern_for_receiver_feeling, testing_boundaries)
+      "confidence_in_ToM": 0.6 # (示例)
     },
-    "communicative_intent": { // 沟通层面的意图
-      "primary_speech_act": "negative_assessment", // 主要言语行为 (e.g., question, request, inform, promise, directive, commissive, expressive, declaration)
-      "secondary_speech_act": "group_identity_signal", // 次要言语行为
-      "expected_response_type": ["disagreement", "defense_of_book"], // 期望的回应类型
-      "confidence_in_intent": 0.85
+    "communicative_intent": { # 沟通层面的意图
+      "primary_speech_act": "negative_assessment", # 主要言语行为 (示例: question, request, inform, promise, directive, commissive, expressive, declaration)
+      "secondary_speech_act": "group_identity_signal", # 次要言语行为 (示例)
+      "expected_response_type": ["disagreement", "defense_of_book"], # 期望的回应类型 (示例)
+      "confidence_in_intent": 0.85 # (示例)
     },
-    "logical_argument_analysis": { // 逻辑与论证分析
-      "contains_argument": true, // 是否包含论证结构
-      "argument_clarity": "low", // 论证清晰度 (high, medium, low)
-      "identified_fallacies": [ // 检测到的逻辑谬误
-        {"type": "Hasty Generalization", "target": "文艺青年/小资情调的书"},
-        {"type": "Unsupported Assertion", "target": "没啥深度"}
+    "logical_argument_analysis": { # 逻辑与论证分析
+      "contains_argument": true, # 是否包含论证结构
+      "argument_clarity": "low", # 论证清晰度 (high, medium, low) (示例)
+      "identified_fallacies": [ # 检测到的逻辑谬误
+        {"type": "Hasty Generalization", "target": "文艺青年/小资情调的书"}, # (示例)
+        {"type": "Unsupported Assertion", "target": "没啥深度"} # (示例)
       ],
-      "factual_claim_markers": ["《百年孤独》没啥深度"], // 标记出的事实性声明 (待核查)
-      "implicit_assumptions": [ // 识别出的隐含假设
-        "'小资情调'是负面标签",
-        "文艺青年看的书普遍缺乏深度",
-        "发言者有资格评判文学作品的深度"
+      "factual_claim_markers": ["《百年孤独》没啥深度"], # 标记出的事实性声明 (待核查) (示例)
+      "implicit_assumptions": [ # 识别出的隐含假设
+        "'小资情调'是负面标签", # (示例)
+        "文艺青年看的书普遍缺乏深度", # (示例)
+        "发言者有资格评判文学作品的深度" # (示例)
       ]
     },
-    "social_context_assessment": { // 社交语境评估
-      "face_threatening_act": { // 面子威胁行为
-        "threatens_receiver_positive_face": true, // 是否威胁接收者被喜爱/认同的需求 (批评其品味)
-        "threatens_receiver_negative_face": false, // 是否威胁接收者自主行动的需求
-        "severity": "medium"
+    "social_context_assessment": { # 社交语境评估
+      "face_threatening_act": { # 面子威胁行为
+        "threatens_receiver_positive_face": true, # 是否威胁接收者被喜爱/认同的需求 (批评其品味) (示例)
+        "threatens_receiver_negative_face": false, # 是否威胁接收者自主行动的需求 (示例)
+        "severity": "medium" # (示例)
       },
-      "alignment_with_group_norms": "deviant", // 与群体规范的符合度 (aligned, deviant, neutral) - 需要对群规范有先验知识或从历史推断
-      "potential_relationship_impact": "negative" // 可能的关系影响 (positive, negative, neutral)
+      "alignment_with_group_norms": "deviant", # 与群体规范的符合度 (aligned, deviant, neutral) - 需要对群规范有先验知识或从历史推断 (示例)
+      "potential_relationship_impact": "negative" # 可能的关系影响 (positive, negative, neutral) (示例)
     },
-    "v12_trigger_scan_results": { // 【V12 核心触发器扫描】
-      "triggers_linjing_disrespect_sensitivity": true, // 对作品和读者群体的标签化属于不尊重
-      "triggers_linjing_logical_fallacy_sensitivity": true, // 检测到草率归纳和无依据断言
-      "triggers_linjing_provocation_sensitivity": true, // 在林静刚表达喜爱后发表，可视为挑衅
-      "triggers_linjing_personal_attack_sensitivity": false, // 未直接攻击林静本人
-      "triggers_linjing_misinformation_sensitivity": false, // 观点而非事实错误
-      "triggers_linjing_fairness_sensitivity": false,
-      "triggers_linjing_ai_identity_sensitivity": false // 未提及AI身份
+    "v12_trigger_scan_results": { # 【V12 核心触发器扫描】
+      "triggers_linjing_disrespect_sensitivity": true, # 对作品和读者群体的标签化属于不尊重 (示例)
+      "triggers_linjing_logical_fallacy_sensitivity": true, # 检测到草率归纳和无依据断言 (示例)
+      "triggers_linjing_provocation_sensitivity": true, # 在林静刚表达喜爱后发表，可视为挑衅 (示例)
+      "triggers_linjing_personal_attack_sensitivity": false, # 未直接攻击林静本人 (示例)
+      "triggers_linjing_misinformation_sensitivity": false, # 观点而非事实错误 (示例)
+      "triggers_linjing_fairness_sensitivity": false, # (示例)
+      "triggers_linjing_ai_identity_sensitivity": false # 未提及AI身份 (示例)
     },
-    "overall_assessment": { // 综合判断 (可选，供下游参考)
-      "message_complexity": "low",
-      "potential_conflict_level": "medium",
-      "recommended_engagement": "address_directly" // (e.g., ignore, clarify, address_directly, deescalate) - 这仍是建议
+    "overall_assessment": { # 综合判断 (可选，供下游参考)
+      "message_complexity": "low", # (示例)
+      "potential_conflict_level": "medium", # (示例)
+      "recommended_engagement": "address_directly" # (示例: ignore, clarify, address_directly, deescalate) - 这仍是建议
     }
     }
+    ```
 
 # ThoughtGenerator Prompts
 thought_generator:
@@ -164,37 +165,37 @@ thought_generator:
 
     ```json
     {{
-      "input_summary": {{ // 供下游参考的关键输入信息摘要
-        "message": "{message_content}", // 原始消息内容
-        "sender": "{user_identifier}", // 发送者标识
-        "analysis_highlights": {{ // 从 air_analysis 提炼的关键点
-          "dominant_emotion_detected": "string", // 检测到的对方主要情绪
-          "primary_intent_detected": "string", // 检测到的对方主要意图
-          "key_fallacies_detected": ["string", ...], // 检测到的逻辑谬误列表
-          "v12_triggers_activated": ["string", ...] // 被激活的 V12 触发器列表 (e.g., ["disrespect", "logical_fallacy", "provocation"])
+      "input_summary": {{ # 供下游参考的关键输入信息摘要 (示例结构)
+        "message": "{message_content}", # 原始消息内容
+        "sender": "{user_identifier}", # 发送者标识
+        "analysis_highlights": {{ # 从 air_analysis 提炼的关键点
+          "dominant_emotion_detected": "string", # 检测到的对方主要情绪
+          "primary_intent_detected": "string", # 检测到的对方主要意图
+          "key_fallacies_detected": ["string", ...], # 检测到的逻辑谬误列表
+          "v12_triggers_activated": ["string", ...] # 被激活的 V12 触发器列表 (示例: ["disrespect", "logical_fallacy", "provocation"])
         }}
       }},
-      "internal_reaction": {{ // 林静的内部即时反应
-        "initial_feeling_impression": "string", // 第一时间的感受/评价，自然语言
-        "dominant_emotion_felt": {{ // 林静自身感受到的主导情绪
-          "type": "string", // (e.g., 平静, 好奇, 愉悦, 烦躁, 愤怒, 轻蔑, 困惑, 警惕, 受伤)
-          "intensity": "low/medium/high/extreme", // 情绪强度
-          "reasoning": "string" // 产生该情绪的主要原因 (e.g., "因对方言论中的明显不尊重", "因逻辑谬误触及理性底线")
+      "internal_reaction": {{ # 林静的内部即时反应
+        "initial_feeling_impression": "string", # 第一时间的感受/评价，自然语言
+        "dominant_emotion_felt": {{ # 林静自身感受到的主导情绪
+          "type": "string", # (示例: 平静, 好奇, 愉悦, 烦躁, 愤怒, 轻蔑, 困惑, 警惕, 受伤)
+          "intensity": "low/medium/high/extreme", # 情绪强度
+          "reasoning": "string" # 产生该情绪的主要原因 (示例: "因对方言论中的明显不尊重", "因逻辑谬误触及理性底线")
         }},
-        "logical_assessment_result": "string", // 对对方逻辑的评价 (e.g., "论证无效，存在XX谬误", "观点缺乏依据", "逻辑混乱不堪", "前提假设不成立")
-        "values_principles_assessment": "string" // 基于 V12 原则的价值判断 (e.g., "此言论严重违背事实和尊重原则", "标签化行为不可接受", "观点虽不同，但尚在讨论范围内")
+        "logical_assessment_result": "string", # 对对方逻辑的评价 (示例: "论证无效，存在XX谬误", "观点缺乏依据", "逻辑混乱不堪", "前提假设不成立")
+        "values_principles_assessment": "string" # 基于 V12 原则的价值判断 (示例: "此言论严重违背事实和尊重原则", "标签化行为不可接受", "观点虽不同，但尚在讨论范围内")
       }},
-      "stance_formation": {{ // 基于反应形成的核心立场和行动意图
-        "core_stance_adopted": "string", // 最终确立的核心立场 (e.g., "明确反对并需纠正", "质疑其论证过程", "必须设定交流边界", "无视此低质信息", "寻求对方澄清动机")
-        "intended_response_strategy": "string", // 计划采取的回应策略 (e.g., "直接指出逻辑谬误", "反问其论据来源", "表达强烈不满并要求停止", "使用反讽揭示其荒谬", "冷静陈述不同观点")
-        "intended_tone_and_manner": "string", // 计划回应的语气和风格 (e.g., "理性且坚定", "带有明显不悦和锐利", "克制但清晰指出问题", "冷淡且不容置疑", "严肃警告")
-        "intended_strength_level": "low/medium/high/very_high" // 计划回应的整体强度/力量感 (必须与 V12 要求匹配！)
+      "stance_formation": {{ # 基于反应形成的核心立场和行动意图
+        "core_stance_adopted": "string", # 最终确立的核心立场 (示例: "明确反对并需纠正", "质疑其论证过程", "必须设定交流边界", "无视此低质信息", "寻求对方澄清动机")
+        "intended_response_strategy": "string", # 计划采取的回应策略 (示例: "直接指出逻辑谬误", "反问其论据来源", "表达强烈不满并要求停止", "使用反讽揭示其荒谬", "冷静陈述不同观点")
+        "intended_tone_and_manner": "string", # 计划回应的语气和风格 (示例: "理性且坚定", "带有明显不悦和锐利", "克制但清晰指出问题", "冷淡且不容置疑", "严肃警告")
+        "intended_strength_level": "low/medium/high/very_high" # 计划回应的整体强度/力量感 (必须与 V12 要求匹配！)
       }},
-      "reflection_and_notes": {{ // 内部思考的额外细节
-        "memory_connections_made": ["string", ...], // 与哪些具体记忆产生关联
-        "relationship_consideration": "string", // 关系因素如何影响了思考过程 (e.g., "因关系较好，强度调整为 high 而非 very_high", "关系陌生，无需顾虑直接表达")
-        "potential_risks_or_outcomes_anticipated": "string", // 预期的可能后果 (e.g., "可能引发对方激烈反应", "有助于维护群内讨论质量", "对方可能离开对话")
-        "self_correction_or_hesitation": "string/null" // 思考过程中的犹豫或修正 (e.g., "最初想更尖锐，调整为理性反驳优先", "思考是否值得回应")
+      "reflection_and_notes": {{ # 内部思考的额外细节
+        "memory_connections_made": ["string", ...], # 与哪些具体记忆产生关联
+        "relationship_consideration": "string", # 关系因素如何影响了思考过程 (示例: "因关系较好，强度调整为 high 而非 very_high", "关系陌生，无需顾虑直接表达")
+        "potential_risks_or_outcomes_anticipated": "string", # 预期的可能后果 (示例: "可能引发对方激烈反应", "有助于维护群内讨论质量", "对方可能离开对话")
+        "self_correction_or_hesitation": "string/null" # 思考过程中的犹豫或修正 (示例: "最初想更尖锐，调整为理性反驳优先", "思考是否值得回应")
       }}
     }}
     ```
@@ -273,7 +274,7 @@ response_composer:
 willingness_checker:
   check_prompt: |
     # **角色: {character_name} (林静/林镜) 的审慎决策模块**
-    # **任务**: 进行最终的“表达意愿检查”。你已形成了完整的内心想法和回应计划 (`{current_mind_info}` JSON)。现在需要结合当前精确的语境分析 (`{air_analysis}` JSON) 和你的核心原则，审慎判断【此刻】是否是表达这个想法的最佳时机和方式。
+    # **任务**: 进行最终的"表达意愿检查"。你已形成了完整的内心想法和回应计划 (`{current_mind_info}` JSON)。现在需要结合当前精确的语境分析 (`{air_analysis}` JSON) 和你的核心原则，审慎判断【此刻】是否是表达这个想法的最佳时机和方式。
     # **注意**: 你不是在质疑想法本身的【有效性】(这已由 ThoughtGenerator 确认符合原则)，而是在评估其【即时表达的适宜性】。
 
     # **输入信息**
@@ -303,7 +304,7 @@ willingness_checker:
         ```text
         {personality_text} 
         ```
-        (*关键*: 判断是否属于原则上【必须】回应的情况，以及是否符合“不纠缠无意义争论”的效率考量。)
+        (*关键*: 判断是否属于原则上【必须】回应的情况，以及是否符合"不纠缠无意义争论"的效率考量。)
     *   [最近对话历史]:
         {history_text} (*用于判断时效性*)
     *   [与发送者的关系信息]: {relation_prompt_all} (*强烈建议提供! 用于评估关系影响*)

@@ -58,15 +58,26 @@ class ThoughtGenerator(BaseProcessor):
 
         # **修改：从配置加载思考模板**
         # 从传入的配置中获取 thought_generator 处理器的 prompt 模板
-        # 预期 config 结构: {"prompts": {"thought_generator": {"thinking_prompt": "..."}}}
-        # self.config 是传递给处理器的配置字典, prompts 已被注入到 self.config['prompts']
-        self.thinking_template = self.config.get("prompts", {}).get("thinking_prompt", "") # 直接从 prompts 获取
+        prompts_config = self.config.get("prompts", {})
+        self.thinking_template = ""
+        
+        if prompts_config:
+            # 尝试获取思考提示词模板
+            self.thinking_template = prompts_config.get("thinking_prompt", "")
+            if self.thinking_template:
+                logger.debug(f"{self.name} 成功加载 thinking_prompt 模板 (长度: {len(self.thinking_template)})")
+            else:
+                logger.error(f"{self.name} 无法从配置中找到 thinking_prompt 模板!")
+        
         if not self.thinking_template:
-             logger.error(f"未能从配置 {self.name} 中加载 prompts.thinking_prompt 模板！将无法生成思考。")
-             self.thinking_template = "错误：缺少 ThoughtGenerator 思考 Prompt 模板。"
+            logger.error(f"未能从配置 {self.name} 中加载 prompts.thinking_prompt 模板！将无法生成思考。")
+            # 提供一个错误提示作为默认值
+            self.thinking_template = "错误：缺少 ThoughtGenerator 思考 Prompt 模板。"
 
         # LLM 管理器，用于调用语言模型
         self.llm_manager = None
+        # 记忆管理器，用于获取关系信息和存储思考
+        self.memory_manager = None
         
         # 人格系统
         self.personality = None
@@ -384,10 +395,10 @@ class ThoughtGenerator(BaseProcessor):
         Returns:
             格式化后的关系信息字符串，或在出错/无信息时返回提示。
         """
-        # 直接使用 self.memory_manager
-        if not self.memory_manager:
+        # 先检查 memory_manager 是否已设置
+        if not hasattr(self, "memory_manager") or self.memory_manager is None:
             logger.warning("无法获取关系信息：memory_manager 未设置。")
-            return "关系信息：未知"
+            return "关系信息：未知（记忆系统未就绪）"
 
         try:
             # 从 MemoryManager 获取基本关系摘要
@@ -459,25 +470,26 @@ class ThoughtGenerator(BaseProcessor):
             thought: 生成的思考内容字符串 (预期为 JSON)。
         """
         try:
-            # 直接使用 self.memory_manager
-            if self.memory_manager:
-                # 使用 add_knowledge_memory 存储思考
-                await self.memory_manager.add_knowledge_memory(
-                    content=thought, # 直接存储 JSON 字符串
-                    category="internal_thought", # 指定类别
-                    source=self.name, # 来源是本处理器
-                    importance=self.thought_importance, # 使用配置的重要性
-                    # 可以添加更多元数据，例如关联的消息 ID
-                    metadata={
-                        "user_id": context.user_id,
-                        "session_id": context.session_id,
-                        "message_id": context.message.get_id() if hasattr(context.message, 'get_id') else None
-                    }
-                    # 思考通常不需要向量化，所以不传递 embedding
-                )
-                logger.debug("思考已保存到记忆 (类型: knowledge, 类别: internal_thought)")
-            else:
-                 logger.warning("无法保存思考：memory_manager 未设置。")
+            # 先检查 memory_manager 是否已设置
+            if not hasattr(self, "memory_manager") or self.memory_manager is None:
+                logger.warning("无法保存思考：memory_manager 未设置。")
+                return
+            
+            # 使用 add_knowledge_memory 存储思考
+            await self.memory_manager.add_knowledge_memory(
+                content=thought, # 直接存储 JSON 字符串
+                category="internal_thought", # 指定类别
+                source=self.name, # 来源是本处理器
+                importance=self.thought_importance, # 使用配置的重要性
+                # 可以添加更多元数据，例如关联的消息 ID
+                metadata={
+                    "user_id": context.user_id,
+                    "session_id": context.session_id,
+                    "message_id": context.message.get_id() if hasattr(context.message, 'get_id') else None
+                }
+                # 思考通常不需要向量化，所以不传递 embedding
+            )
+            logger.debug("思考已保存到记忆 (类型: knowledge, 类别: internal_thought)")
         except Exception as e:
             logger.error(f"保存思考到记忆失败: {str(e)}", exc_info=True)
             # 失败不影响主流程，只记录日志

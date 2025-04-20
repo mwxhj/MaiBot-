@@ -36,13 +36,25 @@ class WillingnessChecker(BaseProcessor):
         """
         super().__init__(name=name, config=config)
         self.llm_manager = None
+        self.memory_manager = None
         self.personality = None # 预期由 LinjingBot 设置 (当前未实现)
-        # 从传入的配置中获取 willingness_checker 处理器的 prompt 模板
-        # 预期 config 结构: {"prompts": {"check_prompt": "..."}} (prompts 已被注入)
-        self.prompt_template = self.config.get("prompts", {}).get("check_prompt", "") # 直接从 prompts 获取
+        
+        # 改进：从配置中获取 willingness_checker 处理器的 prompt 模板
+        prompts_config = self.config.get("prompts", {})
+        self.prompt_template = ""
+        
+        if prompts_config:
+            # 尝试获取意愿检查提示词模板
+            self.prompt_template = prompts_config.get("check_prompt", "")
+            if self.prompt_template:
+                logger.debug(f"{self.name} 成功加载 check_prompt 模板 (长度: {len(self.prompt_template)})")
+            else:
+                logger.error(f"{self.name} 无法从配置中找到 check_prompt 模板!")
+        
         if not self.prompt_template:
              logger.error(f"未能从配置 {self.name} 中加载 prompts.check_prompt 模板！")
-             self.prompt_template = "错误：缺少 {self.name} Prompt 模板。"
+             self.prompt_template = f"错误：缺少 {self.name} Prompt 模板。"
+         
         # 默认意愿（如果 LLM 调用失败或解析失败）
         self.default_willingness = self.config.get("default_willingness", True)
         # 获取机器人QQ号用于判断 @ (从处理器配置获取，需要确保配置中存在)
@@ -53,6 +65,11 @@ class WillingnessChecker(BaseProcessor):
 
     def set_llm_manager(self, llm_manager: Any) -> None:
         self.llm_manager = llm_manager
+
+    def set_memory_manager(self, memory_manager: Any) -> None:
+        """设置记忆管理器实例"""
+        self.memory_manager = memory_manager
+        logger.debug(f"{self.name} memory_manager 设置成功。")
 
     # 移除 set_personality 方法，人格原则文本现在通过 config 注入
     # def set_personality(self, personality: Any) -> None:
@@ -69,6 +86,12 @@ class WillingnessChecker(BaseProcessor):
         Returns:
             更新后的消息上下文
         """
+        # 首先检查必要的依赖是否就绪
+        if not self.llm_manager:
+            logger.warning(f"{self.name} 没有设置 llm_manager，无法执行意愿检查，默认为愿意回复。")
+            context.set_state("is_willing_to_reply", True)
+            return context
+            
         # 获取已生成的思考结果
         thought = context.get_state("thought")
         if not thought:
@@ -94,13 +117,14 @@ class WillingnessChecker(BaseProcessor):
         # 格式化近期对话历史
         history_text = self._format_history(context)
 
-        # 构建 Prompt
+        # 构建 Prompt, 传递 context 参数
         prompt = await self._build_check_prompt(
             thought=thought,
             emotion_text=emotion_text,
             air_analysis=air_analysis,
             personality_text=personality_text,
-            history_text=history_text # 传递历史记录
+            history_text=history_text,
+            context=context # 传递 context 用于获取关系信息
         )
 
         if "错误：" in prompt: # 检查构建 prompt 是否出错
@@ -130,8 +154,21 @@ class WillingnessChecker(BaseProcessor):
 
         return context
 
-    async def _build_check_prompt(self, thought: str, emotion_text: str, air_analysis: str, personality_text: str, history_text: str) -> str:
-        """构建意愿检查提示词"""
+    async def _build_check_prompt(self, thought: str, emotion_text: str, air_analysis: str, personality_text: str, history_text: str, context: Optional[MessageContext] = None) -> str:
+        """
+        构建意愿检查提示词
+        
+        Args:
+            thought: 思考结果
+            emotion_text: 格式化的情绪状态文本
+            air_analysis: 格式化的读空气分析文本
+            personality_text: 人格原则文本
+            history_text: 历史对话文本
+            context: 可选的消息上下文，用于获取关系信息
+            
+        Returns:
+            构建好的提示词
+        """
         try:
             # 直接使用在 __init__ 中加载好的 self.prompt_template
             if not self.prompt_template or "错误：" in self.prompt_template:
@@ -144,13 +181,13 @@ class WillingnessChecker(BaseProcessor):
             
             # 获取关系信息
             relation_prompt_all = ""
-            try:
-                if hasattr(self, "_format_relationship") and hasattr(self, "memory_manager") and self.memory_manager:
+            if context is not None and hasattr(self, "_format_relationship"):
+                try:
                     relation_prompt_all = await self._format_relationship(context)
                     logger.debug(f"为意愿检查获取到关系信息: {relation_prompt_all}")
-            except Exception as e:
-                logger.error(f"获取关系信息失败: {e}", exc_info=True)
-                relation_prompt_all = "关系信息获取失败"
+                except Exception as e:
+                    logger.error(f"获取关系信息失败: {e}", exc_info=True)
+                    relation_prompt_all = "关系信息获取失败"
 
             # 使用 .format 填充模板占位符
             # 注意：确保模板中的占位符名称与这里的关键字参数完全匹配
@@ -243,11 +280,22 @@ class WillingnessChecker(BaseProcessor):
     async def _format_relationship(self, context: MessageContext) -> str:
         """
         获取并格式化与用户的关系信息
+        
+        Args:
+            context: 消息上下文
+            
+        Returns:
+            格式化的关系信息字符串
         """
+        # 先检查 memory_manager 是否已设置
+        if not hasattr(self, "memory_manager") or self.memory_manager is None:
+            logger.warning("无法获取关系信息：memory_manager 未设置。")
+            return "关系信息：未知（记忆系统未就绪）"
+        
         try:
             user_id = context.get_user_id()
-            if not user_id or not self.memory_manager:
-                return ""
+            if not user_id:
+                return "用户ID未知，无法获取关系信息"
             
             # 从记忆管理器获取关系摘要
             relation_summary = await self.memory_manager.get_relationship_summary(user_id)
@@ -287,7 +335,7 @@ class WillingnessChecker(BaseProcessor):
             return relation_prompt
         except Exception as e:
             logger.error(f"格式化关系信息时出错: {str(e)}", exc_info=True)
-            return ""
+            return "关系信息：获取失败"
 
     # 移除此方法，因为 personality_text 应从配置获取
     # def _format_personality(self) -> str:

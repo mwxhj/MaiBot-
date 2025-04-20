@@ -54,8 +54,23 @@ class ResponseComposer(BaseProcessor):
         # --- 从处理器配置 (self.config) 加载参数 ---
         # 加载 Prompt 模板 (prompts 已被注入到 self.config['prompts'])
         prompts_config = self.config.get("prompts", {}) # 直接获取 prompts 字典
-        self.response_prompt_template = prompts_config.get("response_prompt", "")
-        self.fallback_prompt_template = prompts_config.get("fallback_prompt", "")
+        self.response_prompt_template = ""
+        self.fallback_prompt_template = ""
+        
+        if prompts_config:
+            # 尝试获取回复提示词模板
+            self.response_prompt_template = prompts_config.get("response_prompt", "")
+            if self.response_prompt_template:
+                logger.debug(f"{self.name} 成功加载 response_prompt 模板 (长度: {len(self.response_prompt_template)})")
+            else:
+                logger.error(f"{self.name} 无法从配置中找到 response_prompt 模板!")
+            
+            # 尝试获取备用提示词模板
+            self.fallback_prompt_template = prompts_config.get("fallback_prompt", "")
+            if self.fallback_prompt_template:
+                logger.debug(f"{self.name} 成功加载 fallback_prompt 模板 (长度: {len(self.fallback_prompt_template)})")
+            else:
+                logger.error(f"{self.name} 无法从配置中找到 fallback_prompt 模板!")
 
         # 加载其他配置项
         self.max_history = self.config.get("max_history", 5) # 用于格式化历史记录
@@ -85,7 +100,6 @@ class ResponseComposer(BaseProcessor):
         if not self.character_name:
              global_config = self.config.get("global_config", {}) # 假设全局配置通过 'global_config' 键传递
              self.character_name = global_config.get("bot", {}).get("name", "灵镜") # 尝试从全局获取
-
 
         if not self.response_prompt_template:
              logger.error("未能从配置中加载 ResponseComposer response_prompt 模板！")
@@ -243,18 +257,24 @@ class ResponseComposer(BaseProcessor):
         if "错误：" in v12_style_guide:
              logger.error("未能从配置中获取 v12_style_guide！Prompt 将不完整。")
 
-        # 获取关系信息 (当前为 TODO)
-        relation_prompt_all = ""  # TODO: 从 MemoryManager 获取
+        # 尝试获取关系信息 (异步调用，需要转同步)
+        relation_prompt_all = ""
+        if hasattr(self, "_format_relationship"):
+            try:
+                import asyncio
+                # 使用事件循环执行异步调用
+                loop = asyncio.get_event_loop() if asyncio.get_event_loop().is_running() else asyncio.new_event_loop()
+                relation_prompt_all = loop.run_until_complete(self._format_relationship(context))
+                logger.debug(f"为响应生成获取到关系信息: {relation_prompt_all}")
+            except Exception as e:
+                logger.error(f"获取关系信息失败: {e}", exc_info=True)
+                relation_prompt_all = "关系信息获取失败"
 
-        # 获取当前情绪状态 (复用格式化方法)
-        # TODO: 确认此格式是否适合 Prompt
+        # 获取当前情绪状态
         mood_prompt = self._format_emotion(context)
         
         try:
-            # 确保从 self.config 获取最新的 prompts 数据
-            current_prompts = self.config.get("prompts", {})
-            self.response_prompt_template = current_prompts.get("response_composer", {}).get("response_prompt", self.response_prompt_template)
-
+            # 使用初始化时加载好的模板，避免运行时重新获取
             if not self.response_prompt_template or "错误：" in self.response_prompt_template:
                  logger.error("ResponseComposer response_prompt 模板无效或未加载，无法构建 Prompt。")
                  return "错误：ResponseComposer response_prompt 模板无效。"
@@ -265,7 +285,7 @@ class ResponseComposer(BaseProcessor):
                 message_content=user_message_text,
                 current_mind_info=thought,  # 现在传入完整的 JSON 字符串
                 v12_style_guide=v12_style_guide,       # 对应 {v12_style_guide}
-                relation_prompt_all=relation_prompt_all, # 对应 {relation_prompt_all} (TODO)
+                relation_prompt_all=relation_prompt_all, # 对应 {relation_prompt_all}
                 mood_prompt=mood_prompt,               # 对应 {mood_prompt}
                 character_name=self.character_name     # 对应 {character_name}
             )
@@ -451,12 +471,8 @@ class ResponseComposer(BaseProcessor):
         if self.llm_manager:
             try:
                 user_message = context.message.extract_plain_text() if hasattr(context, "message") else ""
-                # **修改：从配置加载模板并格式化**
+                # **修改：使用初始化时加载的模板**
                 try:
-                    # 确保从 self.config 获取最新的 prompts 数据
-                    current_prompts = self.config.get("prompts", {})
-                    self.fallback_prompt_template = current_prompts.get("response_composer", {}).get("fallback_prompt", self.fallback_prompt_template) # 更新模板
-
                     if not self.fallback_prompt_template or "错误：" in self.fallback_prompt_template:
                          logger.error("ResponseComposer fallback_prompt 模板无效或未加载，无法构建 Prompt。")
                          # 如果模板加载失败，直接返回同步生成的备用回复
@@ -573,10 +589,10 @@ class ResponseComposer(BaseProcessor):
         Returns:
             格式化后的关系信息字符串，或在出错/无信息时返回提示。
         """
-        # 直接使用 self.memory_manager
-        if not self.memory_manager:
+        # 先检查 memory_manager 是否已设置
+        if not hasattr(self, "memory_manager") or self.memory_manager is None:
             logger.warning("无法获取关系信息：memory_manager 未设置。")
-            return "关系信息：未知"
+            return "关系信息：未知（记忆系统未就绪）"
 
         try:
             # 从 MemoryManager 获取基本关系摘要
