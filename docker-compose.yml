@@ -33,6 +33,8 @@ services:
     depends_on:
       napcat:
         condition: service_healthy
+      postgres_db: # <--- 添加对新数据库服务的依赖
+        condition: service_started # 或者 service_healthy 如果镜像支持
     networks:
       - linjing-net
     env_file:
@@ -64,6 +66,22 @@ services:
       - QDRANT__SERVICE__GRPC_PORT=6334
       - QDRANT__CLUSTER__ENABLED=false
 
+  postgres_db: # <--- 添加 PostgreSQL 服务
+    image: postgres:15 # 或者你需要的版本
+    container_name: postgres_db_linjing # 避免与外部可能存在的 postgres_db 冲突
+    restart: unless-stopped
+    networks:
+      - linjing-net
+    environment:
+      POSTGRES_USER: ${DB_USER:-mingwang} # 从 .env 读取或使用默认值
+      POSTGRES_PASSWORD: ${DB_PASSWORD} # 从 .env 读取
+      POSTGRES_DB: ${DB_NAME:-linjing_db} # 从 .env 读取或使用默认值
+    volumes:
+      - postgres-data:/var/lib/postgresql/data # 数据持久化
+    # 可以取消注释下面的端口映射，如果需要从宿主机直接访问数据库
+    # ports:
+    #   - "5432:5432"
+
 networks:
   linjing-net:
     driver: bridge
@@ -76,3 +94,4 @@ volumes:
   linjing-data:
   linjing-logs:
   qdrant-data:
+  postgres-data: # <--- 添加 PostgreSQL 数据卷

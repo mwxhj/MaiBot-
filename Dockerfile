@@ -23,27 +23,14 @@ RUN groupadd -r linjing && useradd -r -g linjing linjing && \
     mkdir -p /app/data /app/logs && \
     chown linjing:linjing /app/data /app/logs
 
-# 安装基本必要依赖
+# 安装基础服务和数据库驱动 (这些不在 linjing/requirements.txt 中)
 RUN pip install --no-cache-dir \
-    qdrant-client==1.13.3 \
-    openai \
-    numpy \
-    loguru \
-    sqlalchemy \
-    requests \
-    python-dotenv \
-    PyYAML \
-    cryptography \
-    tiktoken \
-    pydantic \
-    aiohttp \
     fastapi \
     uvicorn \
-    websockets>=11.0.3 \
-    aiosqlite \
     asyncpg==0.27.0 \
-    psycopg2-binary \
-    urllib3==2.0.3
+    psycopg2-binary
+    # 其他依赖 (如 openai, numpy, loguru, requests, pydantic, aiohttp, etc.)
+    # 将通过下面的 linjing/requirements.txt 安装
 
 # 复制应用代码
 COPY --chown=linjing:linjing . /app/
