@@ -356,12 +356,12 @@ class ResponseComposer(BaseProcessor):
         return emotion_text.strip(", ") or "情绪平静"
 
     # 使用与 ThoughtGenerator 和 WillingnessChecker 统一的格式化逻辑
-    def _format_history(self, context: MessageContext) -> str:
-        """格式化历史消息，包含用户昵称和 ID"""
+    def _format_history(self, history_list: List[Message]) -> str:
+        """格式化历史消息列表，包含用户昵称和 ID"""
         history_text = ""
-        # 使用配置的历史长度
-        max_history_length = self.config.get("max_history_for_read_air", 5) 
-        recent_history = context.history[-max_history_length:] if context.history else []
+        # 使用 ResponseComposer 自身的 max_history 配置
+        # max_history_length = self.config.get("max_history_for_response", 5) # 或者直接用 self.max_history
+        recent_history = history_list[-self.max_history:] if history_list else [] # <-- 修正：操作 history_list，使用 self.max_history
         
         for msg in recent_history:
             is_user = msg.get_meta("is_user", False)
@@ -379,11 +379,11 @@ class ResponseComposer(BaseProcessor):
                     nickname = getattr(msg.sender, 'nickname', None)
                 
                 if nickname and user_id:
-                    role = f"{nickname}({user_id})"
+                    role = f"用户 {nickname} ({user_id})"
                 elif nickname:
-                    role = f"{nickname}"
+                    role = f"用户 {nickname}"
                 elif user_id:
-                    role = f"({user_id})"
+                    role = f"用户 ({user_id})"
                 else:
                     role = "未知用户"
             else:
@@ -394,7 +394,7 @@ class ResponseComposer(BaseProcessor):
 
             history_text += f"{role}: {content}\n"
         
-        return history_text.strip() or "无相关历史对话"
+        return history_text.strip() or "无相关历史对话" # <-- 修正：统一返回 "无相关历史对话"
 
     # 已移除弃用的 _format_personality_traits 方法
 
