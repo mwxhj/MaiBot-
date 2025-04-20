@@ -195,6 +195,11 @@ class ThoughtGenerator(BaseProcessor):
         """
         import json # Import json module here
         
+        # --- 在最开始直接检查 context 状态 --- 
+        raw_state_value = context.get_state("read_air_analysis")
+        logger.debug(f"_build_thinking_prompt: 直接从 context 获取 read_air_analysis 类型: {type(raw_state_value)}, 值: {str(raw_state_value)[:200]}...")
+        # --- 检查结束 ---
+
         # 获取消息文本
         message_text = context.message.extract_plain_text()
         
@@ -205,8 +210,43 @@ class ThoughtGenerator(BaseProcessor):
         memories_text = self._format_memories(context)
         # 格式化当前情绪状态 (用于 mood_prompt)
         mood_prompt = self._format_emotion(context) # 注意: _format_emotion 可能需要调整以输出更适合 Prompt 的格式
-        # 格式化 ReadAir 的分析结果 (获取 Python 对象)
-        air_analysis = self._format_air_analysis(context)
+
+        # --- 获取 ReadAir 分析结果 (使用辅助函数) --- 
+        air_analysis_raw = self._format_air_analysis(context) # 调用辅助函数
+        # logger.debug(f"_build_thinking_prompt: 通过 _format_air_analysis 获取到的 air_analysis_raw 类型: {type(air_analysis_raw)}, 值: {str(air_analysis_raw)[:200]}...") # 这行日志可能与上面的直接检查重复或有差异
+
+        # --- 防御性处理 + 转换为 JSON 字符串 (基于 air_analysis_raw) ---
+        air_analysis_dict = None # 用于存储最终的字典
+        if isinstance(air_analysis_raw, dict):
+            air_analysis_dict = air_analysis_raw
+            logger.debug("_build_thinking_prompt: air_analysis_raw 是字典，直接使用。")
+        elif isinstance(air_analysis_raw, str):
+            logger.warning("_build_thinking_prompt: air_analysis_raw 是字符串，尝试解析为 JSON。")
+            try:
+                air_analysis_dict = json.loads(air_analysis_raw)
+                if not isinstance(air_analysis_dict, dict):
+                     logger.error("_build_thinking_prompt: 解析 air_analysis_raw 字符串后得到的不是字典！")
+                     air_analysis_dict = None # 解析结果无效
+            except json.JSONDecodeError as e:
+                logger.error(f"_build_thinking_prompt: 解析 air_analysis_raw 字符串失败: {e}")
+                air_analysis_dict = None # 解析失败
+        else: # None 或其他类型
+            logger.warning(f"_build_thinking_prompt: air_analysis_raw 不是字典或字符串 (类型: {type(air_analysis_raw)})，无法处理。")
+            air_analysis_dict = None
+
+        # 将最终得到的字典转换为 JSON 字符串 (如果字典有效)
+        air_analysis_json_str = "{}" # Default to empty JSON object string
+        if air_analysis_dict is not None:
+            try:
+                air_analysis_json_str = json.dumps(air_analysis_dict, ensure_ascii=False, indent=2)
+                logger.debug("_build_thinking_prompt: 成功将 air_analysis_dict 转换为 JSON 字符串。")
+            except TypeError as e:
+                 logger.error(f"_build_thinking_prompt: 无法将 air_analysis_dict 转换为 JSON 字符串: {e}")
+                 air_analysis_json_str = f'{{"error": "Failed to serialize air_analysis_dict: {str(e)}"}}'
+        else:
+             logger.warning("_build_thinking_prompt: air_analysis_dict 无效，使用空 JSON 对象字符串。")
+        # --- 处理结束 ---
+
         # 获取人格原则文本 (由 LinjingBot 注入到 self.config)
         personality_text = self.config.get("personality_text", "错误：人格原则文本未在配置中找到！")
         if "错误：" in personality_text:
@@ -214,20 +254,6 @@ class ThoughtGenerator(BaseProcessor):
 
         # 获取关系信息摘要 (确认已修改)
         relation_prompt_all = await self._format_relationship(context)
-
-        # --- 新增：将 air_analysis 对象转换为 JSON 字符串 ---
-        air_analysis_json_str = "{}" # Default to empty JSON object string
-        if isinstance(air_analysis, dict):
-            try:
-                # Convert the Python dict to a JSON string
-                air_analysis_json_str = json.dumps(air_analysis, ensure_ascii=False, indent=2)
-            except TypeError as e:
-                 logger.error(f"无法将 air_analysis 字典转换为 JSON 字符串: {e}")
-                 air_analysis_json_str = f'{{"error": "Failed to serialize air_analysis: {str(e)}"}}'
-        elif air_analysis: # If it's not a dict but not None/empty, log a warning
-            logger.warning(f"_format_air_analysis 返回的不是字典，而是: {type(air_analysis)}")
-            air_analysis_json_str = f'{{"error": "Invalid air_analysis type: {type(air_analysis).__name__}"}}'
-        # --- JSON 转换结束 ---
 
         # 构建思考提示词
         depth_description = ["简单", "一般", "详细", "深入", "非常深入"][min(self.thinking_depth, 4)]
@@ -250,7 +276,7 @@ class ThoughtGenerator(BaseProcessor):
                 memories_text=memories_text,
                 mood_prompt=mood_prompt,
                 relation_prompt_all=relation_prompt_all,
-                air_analysis=air_analysis_json_str, # 使用 JSON 字符串
+                air_analysis=air_analysis_json_str, # 使用最终处理好的 JSON 字符串
                 personality_text=personality_text,
                 depth_description=depth_description
             )
@@ -258,7 +284,8 @@ class ThoughtGenerator(BaseProcessor):
              logger.error(f"构建 ThoughtGenerator Prompt 时缺少占位符: {e}。模板: {self.thinking_template}")
              prompt = f"错误：构建 Prompt 失败，缺少占位符 {e}。"
         except Exception as e:
-             logger.error(f"构建 ThoughtGenerator Prompt 时发生未知错误: {e}", exc_info=True)
+             # 捕获这里的异常，现在更有可能是 .format() 本身的问题或其他未知错误
+             logger.error(f"构建 ThoughtGenerator Prompt 的 format 调用或其他地方发生未知错误: {e}", exc_info=True)
              prompt = "错误：构建 Prompt 时发生未知错误。"
 
         return prompt
@@ -368,26 +395,26 @@ class ThoughtGenerator(BaseProcessor):
 
         return emotion_text.strip(", ") or "情绪平静"
     
-    def _format_air_analysis(self, context: MessageContext) -> str:
+    def _format_air_analysis(self, context: MessageContext) -> Optional[Dict[str, Any]]:
         """
-        从 MessageContext 中提取 ReadAirProcessor 的分析结果 (预期为 JSON 字典)，
-        并将其格式化为适合 Prompt 输入的 JSON 字符串。
+        从 MessageContext 中提取 ReadAirProcessor 的分析结果字典。
 
         Args:
             context: 当前消息上下文。
 
         Returns:
-            分析结果字典，或在出错时返回 None 或空字典。
+            分析结果字典，或在出错或无效时返回 None。
         """
         # 从 context state 获取由 ReadAirProcessor 设置的分析结果字典
         analysis = context.get_state("read_air_analysis")
-        logger.debug(f"获取到的'读空气'分析结果: {analysis}")
+        # 在 build_prompt 中添加更详细的日志，这里只做基本记录
+        # logger.debug(f"获取到的'读空气'分析结果: {analysis}") 
         
-        # 只返回获取到的字典，或者在无效时返回 None 或空字典
+        # 只返回获取到的字典，或者在无效时返回 None
         if not analysis or not isinstance(analysis, dict):
-            logger.warning(f"无效的'读空气'分析结果类型: {type(analysis)}，返回 None")
-            return None # 或者 return {} 如果下游期望字典
-
+            logger.warning(f"无效的'读空气'分析结果类型: {type(analysis)}，在 _format_air_analysis 中返回 None")
+            return None 
+            
         # 直接返回获取到的字典对象
         return analysis
     

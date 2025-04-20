@@ -149,6 +149,9 @@ class ReadAirProcessor(BaseProcessor):
             
             # 如果分析成功，将结果添加到上下文
             if analysis:
+                # --- 添加日志：检查 analysis 的类型和值 --- 
+                logger.debug(f"ReadAirProcessor.process: analysis 类型: {type(analysis)}, 值 (前200字符): {str(analysis)[:200]}...")
+                # --- 日志结束 ---
                 context.set_state("read_air_analysis", analysis)
                 # **新增：将 should_reply 存入 context state**
                 should_reply = analysis.get("should_reply", True) # 从解析结果获取，默认为 True
