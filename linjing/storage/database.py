@@ -11,7 +11,7 @@ import asyncio # <--- 导入 asyncio 模块
 # import aiosqlite # <-- 不再需要 aiosqlite
 import asyncpg # <--- 导入 asyncpg 用于异步操作
 import json
-import traceback # <--- 添加导入
+# import traceback # <--- 移除不再需要的导入
 from pathlib import Path # <--- 保留 Path 用于 SQLite (如果需要)
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -66,12 +66,10 @@ class DatabaseManager:
         self.connection_config = self.config.get("connection", {})
         self.create_tables = self.config.get("create_tables_on_connect", True)
         self._initialized = False
-        # --- 添加日志：记录每次初始化和调用者信息 ---
-        stack_info = "".join(traceback.format_stack(limit=5)) # 获取调用栈信息
-        logger.critical(f"!!! DB MANAGER INIT CALLED. Config: {self.config}. Stack:\n{stack_info}") # 记录传入的配置和调用栈
-        if self.db_type == "postgresql":
-            logger.critical(f"!!! DB MANAGER INIT PARSED: host={self.db_host}, port={self.db_port}, user={self.db_user}, db={self.db_name}")
-        # --- 日志结束 ---
+        # --- 移除调试日志 ---
+        # if self.db_type == "postgresql":
+        #     logger.critical(f"!!! DB MANAGER INIT PARSED: host={self.db_host}, port={self.db_port}, user={self.db_user}, db={self.db_name}")
+        # --- 移除结束 ---
     
     async def connect(self) -> bool:
         """
@@ -124,22 +122,11 @@ class DatabaseManager:
                     # 使用关键字参数代替 DSN 调用 create_pool，避免 DSN 解析问题
                     connection_timeout = self.connection_config.get("timeout", 30)
                     # 恢复使用配置文件中的主机名
-                    # --- 添加更详细的日志，就在调用 create_pool 之前 ---
-                    final_host = host_to_use
-                    final_port = port_to_use
-                    final_user = self.db_user
-                    final_password = self.db_password # 不打印密码本身
-                    final_database = self.db_name
-                    final_ssl = False
-                    final_timeout = connection_timeout
-                    final_command_timeout = self.connection_config.get("timeout", 30)
-                    final_min_size = self.connection_config.get("min_size", 1)
-                    final_max_size = self.connection_config.get("max_size", 5)
-                    # ... 其他参数 ...
-                    logger.critical(f"!!! PRE-CREATE-POOL CHECK: host={final_host}, port={final_port}, user={final_user}, db={final_database}, ssl={final_ssl}, timeout={final_timeout}")
-                    # --- 详细日志结束 ---
+                    # --- 移除调试日志 ---
+                    # logger.critical(f"!!! PRE-CREATE-POOL CHECK: host={host_to_use}, port={port_to_use}, user={self.db_user}, db={self.db_name}, ssl=False, timeout=connection_timeout")
+                    # --- 移除结束 ---
                     self.pool = await asyncpg.create_pool(
-                        host=final_host, # <--- 使用最终确认的主机名
+                        host=host_to_use, # <--- 使用配置文件中的主机名
                         port=final_port,
                         user=final_user,
                         password=final_password, # 直接传递密码

@@ -389,10 +389,15 @@ class LinjingBot:
             # 在配置中添加向量数据库配置
             memory_config["vector_db"] = vector_db_config
             
-            # 在配置中添加数据库路径
-            memory_config["db_path"] = self.config.get("storage", {}).get("db_path", "data/database.db")
-            
-            self.memory_manager = MemoryManager(config=memory_config)
+            # 在配置中添加数据库路径 (这部分可能不再需要，因为 db_manager 已包含连接信息)
+            # memory_config["db_path"] = self.config.get("storage", {}).get("db_path", "data/database.db")
+
+            # 传递已初始化的 DatabaseManager 实例给 MemoryManager
+            if not self.storage_manager:
+                 logger.error("Storage manager 未初始化，无法创建 MemoryManager！")
+                 raise RuntimeError("Storage manager not initialized before MemoryManager") # 或者返回 False
+
+            self.memory_manager = MemoryManager(db_manager=self.storage_manager, config=memory_config)
             
             # 初始化记忆管理器
             await self.memory_manager.initialize()

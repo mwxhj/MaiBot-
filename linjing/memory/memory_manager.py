@@ -35,26 +35,28 @@ class MemoryManager:
     - 知识记忆：机器人的知识库
     """
     
-    def __init__(self, config: Dict[str, Any] = None):
+    # 修改 __init__ 以接收 DatabaseManager 实例
+    def __init__(self, db_manager: DatabaseManager, config: Dict[str, Any] = None):
         """
         初始化记忆管理器
-        
+
         Args:
-            config: 配置字典，包含数据库和向量数据库的配置参数
+            db_manager: 已初始化的 DatabaseManager 实例
+            config: 配置字典，主要用于向量数据库等其他配置
         """
         self.config = config or {}
-        
-        # 获取配置
-        self.db_path = self.config.get("db_path", "data/database.db")
+
+        # 获取向量数据库配置 (数据库配置现在由传入的 db_manager 管理)
         self.vector_db_config = self.config.get("vector_db", {})
-        
-        # 确保数据目录存在
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        
-        # 初始化数据库管理器 - 将db_path包装为字典
-        self.db = DatabaseManager({"db_path": self.db_path})
+        # self.db_path = self.config.get("db_path", "data/database.db") # 不再需要单独获取 db_path
+
+        # 确保数据目录存在 (如果向量数据库需要)
+        # os.makedirs(os.path.dirname(self.db_path), exist_ok=True) # 可能不再需要，取决于向量数据库
+
+        # 使用传入的数据库管理器实例
+        self.db = db_manager # <--- 使用传入的实例
         self.vector_db = VectorDBManagerFactory.create(self.vector_db_config)
-        
+
         self._initialized = False
         logger.info("记忆管理器初始化完成")
     
