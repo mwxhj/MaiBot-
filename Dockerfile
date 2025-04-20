@@ -24,10 +24,11 @@ RUN groupadd -r linjing && useradd -r -g linjing linjing && \
     chown linjing:linjing /app/data /app/logs
 
 # 安装基础服务和数据库驱动 (这些不在 linjing/requirements.txt 中)
+# Upgrade asyncpg to latest version
 RUN pip install --no-cache-dir \
     fastapi \
     uvicorn \
-    asyncpg==0.27.0 \
+    asyncpg \
     psycopg2-binary
     # 其他依赖 (如 openai, numpy, loguru, requests, pydantic, aiohttp, etc.)
     # 将通过下面的 linjing/requirements.txt 安装
