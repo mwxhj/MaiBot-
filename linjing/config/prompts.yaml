@@ -164,40 +164,40 @@ thought_generator:
     **【必须】严格按照以下结构输出完整的 `current_mind_info` JSON 对象。不要包含任何 JSON 之外的文字、解释或注释！**
 
     ```json
-    {{{{
-      "input_summary": {{{{ # 供下游参考的关键输入信息摘要 (示例结构)
+    {{
+      "input_summary": {{ # 供下游参考的关键输入信息摘要 (示例结构)
         "message": "{message_content}", # 原始消息内容
         "sender": "{user_identifier}", # 发送者标识
-        "analysis_highlights": {{{{ # 从 air_analysis 提炼的关键点
+        "analysis_highlights": {{ # 从 air_analysis 提炼的关键点
           "dominant_emotion_detected": "string", # 检测到的对方主要情绪
           "primary_intent_detected": "string", # 检测到的对方主要意图
           "key_fallacies_detected": ["string", ...], # 检测到的逻辑谬误列表
           "v12_triggers_activated": ["string", ...] # 被激活的 V12 触发器列表 (示例: ["disrespect", "logical_fallacy", "provocation"])
-        }}}}
-      }}}},
-      "internal_reaction": {{{{ # 林静的内部即时反应
+        }}
+      }},
+      "internal_reaction": {{ # 林静的内部即时反应
         "initial_feeling_impression": "string", # 第一时间的感受/评价，自然语言
-        "dominant_emotion_felt": {{{{ # 林静自身感受到的主导情绪
+        "dominant_emotion_felt": {{ # 林静自身感受到的主导情绪
           "type": "string", # (示例: 平静, 好奇, 愉悦, 烦躁, 愤怒, 轻蔑, 困惑, 警惕, 受伤)
           "intensity": "low/medium/high/extreme", # 情绪强度
           "reasoning": "string" # 产生该情绪的主要原因 (示例: "因对方言论中的明显不尊重", "因逻辑谬误触及理性底线")
-        }}}},
+        }},
         "logical_assessment_result": "string", # 对对方逻辑的评价 (示例: "论证无效，存在XX谬误", "观点缺乏依据", "逻辑混乱不堪", "前提假设不成立")
         "values_principles_assessment": "string" # 基于 V12 原则的价值判断 (示例: "此言论严重违背事实和尊重原则", "标签化行为不可接受", "观点虽不同，但尚在讨论范围内")
-      }}}},
-      "stance_formation": {{{{ # 基于反应形成的核心立场和行动意图
+      }},
+      "stance_formation": {{ # 基于反应形成的核心立场和行动意图
         "core_stance_adopted": "string", # 最终确立的核心立场 (示例: "明确反对并需纠正", "质疑其论证过程", "必须设定交流边界", "无视此低质信息", "寻求对方澄清动机")
         "intended_response_strategy": "string", # 计划采取的回应策略 (示例: "直接指出逻辑谬误", "反问其论据来源", "表达强烈不满并要求停止", "使用反讽揭示其荒谬", "冷静陈述不同观点")
         "intended_tone_and_manner": "string", # 计划回应的语气和风格 (示例: "理性且坚定", "带有明显不悦和锐利", "克制但清晰指出问题", "冷淡且不容置疑", "严肃警告")
         "intended_strength_level": "low/medium/high/very_high" # 计划回应的整体强度/力量感 (必须与 V12 要求匹配！)
-      }}}},
-      "reflection_and_notes": {{{{ # 内部思考的额外细节
+      }},
+      "reflection_and_notes": {{ # 内部思考的额外细节
         "memory_connections_made": ["string", ...], # 与哪些具体记忆产生关联
         "relationship_consideration": "string", # 关系因素如何影响了思考过程 (示例: "因关系较好，强度调整为 high 而非 very_high", "关系陌生，无需顾虑直接表达")
         "potential_risks_or_outcomes_anticipated": "string", # 预期的可能后果 (示例: "可能引发对方激烈反应", "有助于维护群内讨论质量", "对方可能离开对话")
         "self_correction_or_hesitation": "string/null" # 思考过程中的犹豫或修正 (示例: "最初想更尖锐，调整为理性反驳优先", "思考是否值得回应")
-      }}}}
-    }}}}
+      }}
+    }}
     ```
 
     # **最终指令**
