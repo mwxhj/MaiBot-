@@ -48,42 +48,42 @@ read_air:
     **【【【必须严格按照以下 JSON 结构输出分析结果】】】**，不要包含任何 JSON 之外的解释性文字。请确保所有字段都存在，即使值为 null 或 false。
 
     ```json
-      {
-    "message_metadata": {
+      {{
+    "message_metadata": {{
       "sender_identifier": "{user_identifier}", # 输入的键名 (示例)
       "message_content": "{message_content}" # 输入的键名 (示例)
       # 可以考虑加入时间戳等元数据
-    },
-    "linguistic_profile": { # 语言学特征
+    }},
+    "linguistic_profile": {{ # 语言学特征
       "style_assessment": ["informal", "colloquial"], # 语体风格 (示例: formal, informal, colloquial, academic)
       "register_assessment": "neutral", # 语域 (示例: respectful, neutral, disrespectful, provocative)
       "key_topics": ["书籍评价", "百年孤独", "深度"], # 提取的关键主题词 (示例)
       "sentence_type": "declarative_negative" # 主要句式 (示例: question, statement, command, exclamation)
-    },
-    "cognitive_emotional_state": { # 发送者的心理状态推断
-      "dominant_emotion": { # 主要情绪及置信度
+    }},
+    "cognitive_emotional_state": {{ # 发送者的心理状态推断
+      "dominant_emotion": {{ # 主要情绪及置信度
         "type": "contempt", # (示例: joy, sadness, anger, fear, surprise, disgust, contempt, neutral)
         "valence": -0.6, # 效价 (-1 to 1) (示例)
         "arousal": 0.5, # 唤醒度 (0 to 1) (示例)
         "confidence": 0.75 # (示例)
-      },
-      "secondary_emotions": [{"type": "smugness", "confidence": 0.4}], # 次要或混合情绪 (示例)
+      }},
+      "secondary_emotions": [{{"type": "smugness", "confidence": 0.4}}], # 次要或混合情绪 (示例)
       "cognitive_intent": ["assert_opinion", "challenge_previous_statement"], # 认知意图 (示例: inform, persuade, justify, affiliate, impress, inquire, challenge)
       "theory_of_mind_hint": "low_concern_for_receiver_feeling", # 对接收者反应的预判 (示例: expects_agreement, expects_disagreement, low_concern_for_receiver_feeling, testing_boundaries)
       "confidence_in_ToM": 0.6 # (示例)
-    },
-    "communicative_intent": { # 沟通层面的意图
+    }},
+    "communicative_intent": {{ # 沟通层面的意图
       "primary_speech_act": "negative_assessment", # 主要言语行为 (示例: question, request, inform, promise, directive, commissive, expressive, declaration)
       "secondary_speech_act": "group_identity_signal", # 次要言语行为 (示例)
       "expected_response_type": ["disagreement", "defense_of_book"], # 期望的回应类型 (示例)
       "confidence_in_intent": 0.85 # (示例)
-    },
-    "logical_argument_analysis": { # 逻辑与论证分析
+    }},
+    "logical_argument_analysis": {{ # 逻辑与论证分析
       "contains_argument": true, # 是否包含论证结构
       "argument_clarity": "low", # 论证清晰度 (high, medium, low) (示例)
       "identified_fallacies": [ # 检测到的逻辑谬误
-        {"type": "Hasty Generalization", "target": "文艺青年/小资情调的书"}, # (示例)
-        {"type": "Unsupported Assertion", "target": "没啥深度"} # (示例)
+        {{"type": "Hasty Generalization", "target": "文艺青年/小资情调的书"}}, # (示例)
+        {{"type": "Unsupported Assertion", "target": "没啥深度"}} # (示例)
       ],
       "factual_claim_markers": ["《百年孤独》没啥深度"], # 标记出的事实性声明 (待核查) (示例)
       "implicit_assumptions": [ # 识别出的隐含假设
@@ -91,17 +91,17 @@ read_air:
         "文艺青年看的书普遍缺乏深度", # (示例)
         "发言者有资格评判文学作品的深度" # (示例)
       ]
-    },
-    "social_context_assessment": { # 社交语境评估
-      "face_threatening_act": { # 面子威胁行为
+    }},
+    "social_context_assessment": {{ # 社交语境评估
+      "face_threatening_act": {{ # 面子威胁行为
         "threatens_receiver_positive_face": true, # 是否威胁接收者被喜爱/认同的需求 (批评其品味) (示例)
         "threatens_receiver_negative_face": false, # 是否威胁接收者自主行动的需求 (示例)
         "severity": "medium" # (示例)
-      },
+      }},
       "alignment_with_group_norms": "deviant", # 与群体规范的符合度 (aligned, deviant, neutral) - 需要对群规范有先验知识或从历史推断 (示例)
       "potential_relationship_impact": "negative" # 可能的关系影响 (positive, negative, neutral) (示例)
-    },
-    "v12_trigger_scan_results": { # 【V12 核心触发器扫描】
+    }},
+    "v12_trigger_scan_results": {{ # 【V12 核心触发器扫描】
       "triggers_linjing_disrespect_sensitivity": true, # 对作品和读者群体的标签化属于不尊重 (示例)
       "triggers_linjing_logical_fallacy_sensitivity": true, # 检测到草率归纳和无依据断言 (示例)
       "triggers_linjing_provocation_sensitivity": true, # 在林静刚表达喜爱后发表，可视为挑衅 (示例)
@@ -109,13 +109,13 @@ read_air:
       "triggers_linjing_misinformation_sensitivity": false, # 观点而非事实错误 (示例)
       "triggers_linjing_fairness_sensitivity": false, # (示例)
       "triggers_linjing_ai_identity_sensitivity": false # 未提及AI身份 (示例)
-    },
-    "overall_assessment": { # 综合判断 (可选，供下游参考)
+    }},
+    "overall_assessment": {{ # 综合判断 (可选，供下游参考)
       "message_complexity": "low", # (示例)
       "potential_conflict_level": "medium", # (示例)
       "recommended_engagement": "address_directly" # (示例: ignore, clarify, address_directly, deescalate) - 这仍是建议
-    }
-    }
+    }}
+    }}
     ```
 
 # ThoughtGenerator Prompts
