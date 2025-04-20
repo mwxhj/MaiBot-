@@ -389,6 +389,7 @@ class OneBotAdapter(Bot):
                         logger.debug(f"主处理函数返回回复: {reply}")
                         # 确定回复目标和消息类型
                         target_id = message_obj.group_id if message_obj.message_type == 'group' else message_obj.user_id
+                        print(f"!!! DEBUG PRINT: _handle_event PREPARING TO CALL self.send for target {target_id} !!!", flush=True) # 添加 Print
                         await self.send(target_id, reply, message_obj.message_type)
                     else:
                         logger.debug("主处理函数未返回回复消息")
@@ -418,6 +419,7 @@ class OneBotAdapter(Bot):
     # **修改：添加 message_type 参数**
     async def send(self, target: str, message: Union[str, Message, MessageSegment], message_type: str) -> str:
         """发送消息"""
+        print(f"!!! DEBUG PRINT: ENTERED self.send (Target: {target}, Type: {message_type}) !!!", flush=True) # 添加 Print
         if not self.connected:
             raise ConnectionError("未连接到OneBot实现")
 
