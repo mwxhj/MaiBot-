@@ -180,10 +180,16 @@ class TypedRequestQueue(Generic[T, R]):
     async def _worker(self, worker_id: int):
         """工作协程，从队列中获取并处理任务。"""
         logger.info(f"Worker {worker_id} for queue type {self.queue_type} starting.")
-        while True:
-            task = None # 初始化
+        while self.running: # 使用 self.running 控制循环
+            # +++ 新增日志 1: 确认循环迭代 +++
+            logger.debug(f"Worker {worker_id}: Loop iteration started. Queue size: {self.queue.qsize()}")
+            task = None
             try:
-                task = await self.queue.get() # 从队列获取任务
+                # +++ 新增日志 2: 确认即将获取任务 +++
+                logger.debug(f"Worker {worker_id}: Waiting to get task from queue...")
+                # --- 修改：添加超时获取任务，避免永久阻塞 ---
+                task = await asyncio.wait_for(self.queue.get(), timeout=60.0) # 等待 60 秒
+                # --- 修改结束 ---
                 logger.debug(f"Worker {worker_id}: Got task from queue. Task ID: {task.task_id}, Data: {task.data}") # 新增日志
                 
                 # 增加 Semaphore 获取
