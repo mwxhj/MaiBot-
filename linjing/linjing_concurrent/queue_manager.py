@@ -520,51 +520,109 @@ class RequestQueueManager:
         Returns:
             是否成功添加
         """
-        # --- 修改：从 message 对象获取平台和会话 ID (如果可用) ---
-        platform = getattr(message, 'get_meta', lambda k,d=None: d)('platform', 'unknown') # 使用 get_meta
-        session_id_from_msg = getattr(message, 'get_session_id', lambda: None)() # 调用 get_session_id
-        # 如果消息中没有会话ID，则尝试从 context 获取，或生成默认值
-        session_id = session_id_from_msg or getattr(context, 'session_id', f'session_{getattr(context, "user_id", "unknown")}_{int(time.time())}')
+        logger.debug(f"--- QueueManager.add_message START --- Context: {context}") # 新增日志
+        if not message:
+            logger.error("Context does not contain a message object.")
+            return False
 
-        send_metadata = {}
-        if message: # 确保 message 对象存在
+        # 尝试获取 platform 和 session_id
+        platform = message.get_meta("platform", "unknown")
+        session_id = context.get_session_id() # 优先从context获取
+        if not session_id:
+            # 尝试从 message 获取
+            session_id = message.get_session_id()
+            if not session_id:
+                session_id = "default_session_" + message.get_user_id("unknown_user")
+                logger.warning(f"Could not determine session_id, using default: {session_id}")
+
+        logger.debug(f"Determined platform: {platform}, session_id: {session_id}") # 新增日志
+
+        # 收集元数据用于发送
+        send_metadata = {
+            "user_id": message.get_user_id(),
+            "group_id": message.get_meta("group_id"),
+            "message_type": message.get_meta("message_type", "unknown"),
+            "platform": platform,
+            "original_message": message # 保留原始消息对象用于潜在的回复引用等
+        }
+        logger.debug(f"Collected send_metadata: {send_metadata}") # 新增日志
+
+        # 包装处理器以传递 send_metadata
+        async def processor_wrapper(msg_data):
+            logger.debug(f"--- processor_wrapper START --- Received data type: {type(msg_data)}, value: {msg_data}") # 新增日志
+            # 检查传入的数据是否是预期的 MessageContext
+            if not isinstance(msg_data, MessageContext):
+                logger.error(f"processor_wrapper received unexpected data type: {type(msg_data)}. Expected MessageContext.")
+                return None # 或者抛出异常
+            
+            # 从 msg_data (即 context) 获取处理器
+            processor = msg_data.get_processor()
+            if not processor:
+                 logger.error("Processor function not found in MessageContext.")
+                 return None
+
             try:
-                # 使用 get_meta 或特定的方法，并添加 getattr 防御
-                # 假设 adapter 实例在 context 中，如果不在，发送时可能需要其他方式获取
-                adapter_instance = getattr(context, 'adapter', None) 
-                
-                send_metadata['user_id'] = getattr(message, 'get_user_id', lambda: None)()
-                send_metadata['group_id'] = getattr(message, 'get_meta', lambda k,d=None: d)('group_id') # 使用 get_meta
-                send_metadata['message_type'] = getattr(message, 'get_meta', lambda k,d=None: d)('message_type') # 使用 get_meta
-                send_metadata['platform'] = platform
-                send_metadata["adapter"] = adapter_instance
-                send_metadata["original_message"] = message # 原始消息对象
+                # 调用实际的消息处理函数
+                logger.debug(f"Calling actual processor: {processor.__name__}") # 新增日志
+                reply = await processor(msg_data) # 传递完整的 context
+                logger.debug(f"Processor {processor.__name__} finished. Reply: {reply}") # 新增日志
+                return reply
             except Exception as e:
-                 # 修改警告日志，更清晰地指出问题
-                 logger.warning(f"为 session {session_id} 提取消息元数据时出错: {e}。发送功能可能受限。", exc_info=True)
-        # --- 修改结束 ---
+                logger.error(f"Error executing processor {processor.__name__}: {e}", exc_info=True)
+                return None # 处理失败
+            finally:
+                 logger.debug(f"--- processor_wrapper END ---") # 新增日志
+
+        # 决定使用哪个队列 (SESSION 或 RESOURCE)
+        queue_type = self.type_config.get(RequestQueueType.SESSION, {})
+        # 这里可以根据消息类型或内容动态决定队列类型，例如：
+        # if message.contains_resource_intensive_command():
+        #     queue_type = QueueType.RESOURCE
+
+        logger.debug(f"Determined queue_type: {queue_type}") # 新增日志
+
+        # 根据队列类型，确定队列键
+        queue_key = session_id if queue_type == RequestQueueType.SESSION else "global_resource_queue"
+        logger.debug(f"Determined queue_key: {queue_key}") # 新增日志
 
         try:
-            # 获取特定会话的队列
-            queue = await self.get_or_create_queue(session_id)
-            
-            # --- 直接添加请求，processor 就是传入的 processor --- 
-            request_task = await queue.add_request(
-                data=message, # data 是原始 message 对象
-                processor=processor, # 直接使用传入的 processor (即 self._process_single_message)
-                priority=priority,
-                timeout=timeout or self.default_timeout,
-                metadata={"send_metadata": send_metadata} # 传递元数据
-            )
-            logger.debug(f"请求 {request_task.request_id} 已添加到 {queue.queue_type.value} 队列 {session_id} (外部实现)，优先级: {priority}") # 添加日志区分
+            logger.debug(f"Attempting to call _add_to_queue for key: {queue_key}") # 新增日志
+            await self._add_to_queue(RequestQueueType.SESSION, queue_key, context, processor_wrapper, send_metadata)
+            logger.debug(f"--- QueueManager.add_message END (Success) --- for key: {queue_key}") # 新增日志
             return True
-        except asyncio.QueueFull:
-             logger.error(f"会话队列 {session_id} 已满 (外部实现)，消息被丢弃。") # 添加日志区分
-             return False
         except Exception as e:
-            logger.error(f"添加消息到队列 {session_id} (外部实现) 时出错: {e}", exc_info=True) # 添加日志区分
+            logger.error(f"Failed to add message to queue {queue_key}: {e}", exc_info=True)
+            logger.debug(f"--- QueueManager.add_message END (Failure) --- for key: {queue_key}") # 新增日志
             return False
-    
+
+    async def _add_to_queue(self, queue_type: RequestQueueType, key: str, data: Any, processor: Callable, send_metadata: Dict[str, Any]):
+        """将任务添加到指定类型和键的队列中。"""
+        logger.debug(f"--- QueueManager._add_to_queue START --- Type: {queue_type}, Key: {key}") # 新增日志
+        queues = self.session_queues if queue_type == RequestQueueType.SESSION else self.queues
+        
+        # 获取或创建队列
+        if key not in queues:
+            logger.info(f"Creating new queue for type {queue_type}, key {key}")
+            # 从主配置或默认值获取队列配置
+            queue_config = self.type_config.get(queue_type, {})
+            specific_config = queue_config.get(queue_type.value.lower(), {})
+            max_size = specific_config.get("max_size", 0) # 0 表示无限
+            num_workers = specific_config.get("max_concurrent", 1)
+            logger.debug(f"Queue config for {key}: max_size={max_size}, num_workers={num_workers}")
+            
+            queues[key] = ExternalTypedRequestQueue(
+                queue_type=queue_type,
+                event_bus=self.event_bus,
+                max_size=max_size,
+                num_workers=num_workers
+            )
+            await queues[key].start_workers() # 启动工作协程
+        
+        queue = queues[key]
+        logger.debug(f"Adding task to queue {key}. Current queue size: {queue.queue.qsize()}") # 新增日志
+        await queue.add_task(processor=processor, data=data, send_metadata=send_metadata)
+        logger.debug(f"--- QueueManager._add_to_queue END --- Task added to queue {key}") # 新增日志
+
     async def get_queue_status(self) -> Dict[str, Any]:
         """获取队列状态（兼容旧版本）"""
         status = await self.get_status()

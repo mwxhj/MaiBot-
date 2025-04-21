@@ -105,4 +105,40 @@ class TypedRequestQueue(Generic[T, R]):
             else:
                  logger.warning(f"Method '_try_process_next' not found or not callable in {self.__class__.__name__}")
 
+    async def _worker(self, worker_id: int):
+        """工作协程，从队列中获取并处理任务。"""
+        logger.info(f"Worker {worker_id} for queue type {self.queue_type} starting.")
+        while True:
+            task = None # 初始化
+            try:
+                task = await self.queue.get() # 从队列获取任务
+                logger.debug(f"Worker {worker_id}: Got task from queue. Task ID: {task.task_id}, Data: {task.data}") # 新增日志
+                
+                # 增加 Semaphore 获取
+                logger.debug(f"Worker {worker_id}: Attempting to acquire semaphore (current value: {self._semaphore._value})")
+                async with self._semaphore:
+                    logger.debug(f"Worker {worker_id}: Semaphore acquired. Processing task {task.task_id}")
+                    await self._process_request(task)
+                    logger.debug(f"Worker {worker_id}: Finished processing task {task.task_id}. Releasing semaphore.")
+                
+                # 任务处理完毕后，通知队列
+                self.queue.task_done()
+                logger.debug(f"Worker {worker_id}: Task {task.task_id} marked as done.")
+
+            except asyncio.CancelledError:
+                logger.info(f"Worker {worker_id} received cancellation request. Exiting.")
+                break
+            except Exception as e:
+                # --- 新增：更详细的异常日志 --- 
+                task_id_info = f"task {task.task_id}" if task else "an unknown task"
+                logger.error(f"Worker {worker_id}: Error processing {task_id_info}: {e}", exc_info=True)
+                # 如果任务存在，可能需要标记为失败或重试
+                if task:
+                    self.queue.task_done() # 确保即使出错也调用 task_done
+                    logger.warning(f"Worker {worker_id}: Marked errored task {task.task_id} as done to prevent queue blocking.")
+                    # 这里可以添加逻辑将任务标记为失败，或者放入重试队列
+                # 短暂休眠以避免快速失败循环
+                await asyncio.sleep(1)
+        logger.info(f"Worker {worker_id} for queue type {self.queue_type} stopped.")
+
     # ... (其余代码，需要确保 RequestTask, active_tasks, _try_process_next 等存在且定义正确) ... 

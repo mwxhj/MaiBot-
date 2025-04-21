@@ -161,77 +161,32 @@ class LinjingBot:
 
     async def handle_message(self, message: Any) -> Optional[Any]:
         """
-        处理接收到的消息
-
-        Args:
-            message: 消息对象
-
-        Returns:
-            处理后的响应消息
+        核心消息处理入口。
+        接收适配器转换后的内部消息对象，创建处理上下文，并将其添加到队列管理器中。
         """
-        if not self.running:
-            logger.warning("机器人没有运行，无法处理消息")
-            return None
+        logger.debug(f"--- LinjingBot.handle_message START --- Received message object: {message}") # 新增日志
 
-        # --- V12 触发条件判断 ---
-        should_process, mentioned_or_named = await self._should_process_message(message) # 获取是否处理及是否被提及
-        if not should_process:
-            # logger.debug("消息未满足触发条件，跳过处理。")
-            return None
-        # --- 触发条件判断结束 ---
+        # 1. 创建消息上下文
+        # 传递 self (LinjingBot 实例) 给 MessageContext
+        context = MessageContext(self, message)
+        logger.debug(f"Created MessageContext: {context}") # 新增日志
 
-        # 创建消息上下文
-        context = MessageContext(
-            message=message,
-            user_id=message.get_user_id() if hasattr(message, 'get_user_id') else str(message),
-            config=self.config,
-            session_id=message.get_session_id() if hasattr(message, 'get_session_id') else "default"
-        )
+        # 2. 将消息上下文添加到队列管理器
+        try:
+            # 异步调用队列管理器的 add_message 方法
+            logger.debug(f"Attempting to add message to QueueManager for session: {context.get_session_id()}") # 新增日志
+            success = await self.queue_manager.add_message(context)
+            logger.debug(f"QueueManager.add_message called for session {context.get_session_id()}. Result: {success}") # 新增日志
 
-        # --- 新增：检查是否处于高警戒模式，用于消息合并 ---
-        is_high_alert = False
-        if self.storage_manager:
-            try:
-                session_id = message.get_session_id() if hasattr(message, 'get_session_id') else "default"
-                session_state = await self.storage_manager.get_session_state(session_id)
-                is_high_alert = session_state and session_state.get("is_high_alert", False)
-            except Exception as e:
-                logger.error(f"获取会话状态失败: {e}", exc_info=True)
-        
-        # --- 新增：尝试消息合并 ---
-        if self.message_debouncer:
-            try:
-                was_debounced, group_id = await self.message_debouncer.process_message(
-                    message=message,
-                    context=context,
-                    processor=self._process_single_message,
-                    is_high_alert=is_high_alert
-                )
-                if was_debounced:
-                    logger.debug(f"消息已被合并到组 {group_id}，稍后处理")
-                    return None  # 消息被合并，暂不处理
-            except Exception as e:
-                logger.error(f"消息合并处理失败: {e}", exc_info=True)
-        
-        # --- 新增：通过队列管理器处理单条消息 ---
-        if self.queue_manager:
-            try:
-                success = await self.queue_manager.add_message(
-                    message=message,
-                    context=context,
-                    processor=self._process_single_message
-                )
-                if success:
-                    logger.debug("消息已加入队列，按顺序处理")
-                    return None  # 消息已加入队列，实际处理和返回将在队列处理时完成
-                else:
-                    logger.error("消息加入队列失败，尝试直接处理")
-            except Exception as e:
-                logger.error(f"消息队列处理失败: {e}", exc_info=True)
-        
-        # 如果并发控制组件不可用或失败，则直接处理消息
-        logger.warning("并发控制失败或未启用，直接处理消息")
-        return await self._process_single_message(message)
+            # handle_message 本身通常不直接返回回复，回复由队列处理后通过事件总线发送
+            # 可以返回一个状态，例如 True 表示成功入队
+            return success
+        except Exception as e:
+            logger.error(f"Error adding message to QueueManager for session {context.get_session_id()}: {e}", exc_info=True)
+            # 返回 False 或 None 表示处理失败
+            return False
+        finally:
+            logger.debug(f"--- LinjingBot.handle_message END --- for session: {context.get_session_id()}") # 新增日志
 
     async def _process_single_message(self, message: Any) -> Optional[Any]:
         """
