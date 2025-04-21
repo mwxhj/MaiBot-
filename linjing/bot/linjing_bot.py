@@ -189,19 +189,19 @@ class LinjingBot:
         # 2. 将消息上下文添加到队列管理器
         try:
             # 异步调用队列管理器的 add_message 方法
-            logger.debug(f"Attempting to add message to QueueManager for session: {context.get_session_id()}") # 新增日志
+            logger.debug(f"Attempting to add message to QueueManager for session: {context.session_id}") # 修改点 1
             success = await self.queue_manager.add_message(context)
-            logger.debug(f"QueueManager.add_message called for session {context.get_session_id()}. Result: {success}") # 新增日志
+            logger.debug(f"QueueManager.add_message called for session {context.session_id}. Result: {success}") # 修改点 2
 
             # handle_message 本身通常不直接返回回复，回复由队列处理后通过事件总线发送
             # 可以返回一个状态，例如 True 表示成功入队
             return success
         except Exception as e:
-            logger.error(f"Error adding message to QueueManager for session {context.get_session_id()}: {e}", exc_info=True)
+            logger.error(f"Error adding message to QueueManager for session {context.session_id}: {e}", exc_info=True) # 修改点 3
             # 返回 False 或 None 表示处理失败
             return False
         finally:
-            logger.debug(f"--- LinjingBot.handle_message END --- for session: {context.get_session_id()}") # 新增日志
+            logger.debug(f"--- LinjingBot.handle_message END --- for session: {context.session_id}") # 修改点 4
 
     async def _process_single_message(self, message: Any) -> Optional[Any]:
         """
