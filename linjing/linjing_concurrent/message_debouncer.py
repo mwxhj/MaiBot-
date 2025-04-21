@@ -27,6 +27,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from linjing.adapters.message_types import Message
 from linjing.utils.logger import get_logger
+from loguru import logger
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -339,22 +340,47 @@ class MessageDebouncer:
                 logger.error(f"处理分组 {group.id} 时出错: {e}", exc_info=True)
     
     async def _process_group(self, group: MessageGroup, processor: Callable) -> None:
-        """
-        处理单个分组
+        """实际处理消息组"""
+        if not group.messages or not group.contexts:
+            logger.warning(f"尝试处理空消息组 {group.id}")
+            return
+            
+        # 获取处理函数，优先使用分组中记录的，其次使用默认的
+        proc_to_use = processor or self.processor or (group.processors[0] if group.processors else None)
         
-        Args:
-            group: 消息分组
-            processor: 处理函数
-        """
-        logger.info(f"处理分组 {group.id}，包含 {group.count()} 条消息")
+        if not proc_to_use:
+            logger.error(f"消息组 {group.id} 没有可用的处理函数")
+            return
+            
+        logger.info(f"开始处理消息组 {group.id}，包含 {group.count()} 条消息")
         
-        try:
-            start_time = time.time()
-            await processor(group.messages, group.contexts)
-            process_time = time.time() - start_time
-            logger.info(f"分组 {group.id} 处理完成，耗时: {process_time:.3f}秒")
-        except Exception as e:
-            logger.error(f"处理分组 {group.id} 时出错: {e}", exc_info=True)
+        # --- 修改：遍历消息并逐个处理 ---
+        error_count = 0
+        success_count = 0
+        for i, message in enumerate(group.messages):
+            # 获取对应的上下文 (如果需要的话，但 _process_single_message 内部会重新创建)
+            # context = group.contexts[i] if i < len(group.contexts) else None
+            
+            try:
+                logger.debug(f"处理消息组 {group.id} 中的第 {i+1}/{len(group.messages)} 条消息: {str(message)[:100]}...")
+                # 调用处理函数，只传递单个 message
+                # 注意：假设 proc_to_use (即 LinjingBot._process_single_message) 只需要 message 参数
+                await proc_to_use(message)
+                success_count += 1
+            except Exception as e:
+                error_count += 1
+                logger.error(f"处理消息组 {group.id} 中第 {i+1} 条消息时出错: {e}", exc_info=True)
+                # 可以选择继续处理下一条，或者在这里中止
+                # 例如，如果一条失败就中止整个组的处理：
+                # break 
+
+        if error_count == 0:
+            logger.info(f"消息组 {group.id} 处理完成，成功处理 {success_count} 条消息。")
+        else:
+            logger.warning(
+                f"消息组 {group.id} 处理完成，成功 {success_count} 条，失败 {error_count} 条。"
+            )
+        # --- 修改结束 ---
     
     def get_status(self) -> Dict[str, Any]:
         """
