@@ -190,7 +190,12 @@ class LinjingBot:
         try:
             # 异步调用队列管理器的 add_message 方法
             logger.debug(f"Attempting to add message to QueueManager for session: {context.session_id}") # 修改点 1
-            success = await self.queue_manager.add_message(context)
+            # 传递 message, context, 和 processor
+            success = await self.queue_manager.add_message(
+                message=message,
+                context=context,
+                processor=self._process_single_message # 指定处理函数
+            )
             logger.debug(f"QueueManager.add_message called for session {context.session_id}. Result: {success}") # 修改点 2
 
             # handle_message 本身通常不直接返回回复，回复由队列处理后通过事件总线发送
