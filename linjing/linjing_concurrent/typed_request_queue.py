@@ -96,49 +96,42 @@ class TypedRequestQueue(Generic[T, R]):
             # 执行处理器函数
             logger.debug(f"Task {task.task_id}: Awaiting processor {getattr(task.processor, '__name__', 'N/A')}")
             # --- 使用 asyncio.wait_for 添加超时控制 ---
-            
-            self.active_tasks += 1
-            task.mark_started()
-            
-            # 运行实际的处理函数 (传递 task.data)
-            result = await task.processor(task.data) 
-
-            # --- 添加日志：确认 processor 返回后协程恢复 --- 
-            logger.debug(f"Task {task.request_id}: Processor awaited and returned. Coroutine resumed. Result type: {type(result)}")
-            # --- 日志结束 --- 
+            timeout = self.default_timeout # 或者从 task.metadata 获取特定超时
+            result = await asyncio.wait_for(task.processor(task.data), timeout=timeout)
+            # --- 超时控制结束 ---
+            logger.debug(f"Task {task.task_id}: Processor awaited and returned: {result}") # 修正点 1
+            task.result = result
+            task.status = TaskStatus.COMPLETED
+            self.tasks_processed += 1 # 增加处理计数
 
             end_time = time.monotonic()
             processing_time = end_time - task.started_at
-            logger.info(f"任务 {task.request_id} 处理完成，耗时: {processing_time:.4f} 秒。结果: {result is not None}")
-            logger.debug(f"任务 {task.request_id} 结果详情: {str(result)[:200]}...")
-
-            # 标记任务完成并将结果存储起来
-            task.mark_completed(result)
+            logger.info(f"任务 {task.task_id} 处理完成，耗时: {processing_time:.4f} 秒。结果: {result is not None}") # 修正点 2
+            logger.debug(f"任务 {task.task_id} 结果详情: {str(result)[:200]}...") # 修正点 3
 
             # --- 添加日志：检查事件发布条件 --- 
-            logger.debug(f"Task {task.request_id} completed. Result type: {type(result)}, Result empty/None: {not result}")
-            logger.debug(f"Task {task.request_id} metadata: {task.metadata}")
-            # 假设 self.event_bus 在初始化时设置
+            logger.debug(f"Task {task.task_id} completed. Result type: {type(result)}, Result empty/None: {not result}") # 修正点 4
+            logger.debug(f"Task {task.task_id} metadata: {task.send_metadata}") # 修正点 5 (使用 send_metadata)
             logger.debug(f"Event bus available: {hasattr(self, 'event_bus') and self.event_bus is not None}") 
             # --- 日志结束 --- 
 
             # --- 修改：添加更详细的事件发布日志 --- 
             if hasattr(self, 'event_bus') and self.event_bus and result: 
-                logger.debug(f"Task {task.request_id}: Result is not empty, attempting to publish send event.")
+                logger.debug(f"Task {task.task_id}: Result is not empty, attempting to publish send event.") # 修正点 6
                 try:
-                    logger.debug(f"Task {task.request_id}: Entering publish try block.")
-                    send_metadata = task.metadata.get("send_metadata") if task.metadata else None
-                    logger.debug(f"Task {task.request_id}: Extracted send_metadata: {send_metadata}")
+                    logger.debug(f"Task {task.task_id}: Entering publish try block.") # 修正点 7
+                    send_metadata = task.send_metadata # 直接使用 send_metadata
+                    logger.debug(f"Task {task.task_id}: Extracted send_metadata: {send_metadata}") # 修正点 8
                     
                     if send_metadata:
-                        logger.debug(f"Task {task.request_id}: send_metadata found.")
+                        logger.debug(f"Task {task.task_id}: send_metadata found.") # 修正点 9
                         adapter = send_metadata.get("adapter")
                         original_message = send_metadata.get("original_message")
                         platform = send_metadata.get("platform", "Unknown") # 获取平台信息
-                        logger.debug(f"Task {task.request_id}: Extracted adapter: {adapter is not None}, original_message: {original_message is not None}, platform: {platform}")
+                        logger.debug(f"Task {task.task_id}: Extracted adapter: {adapter is not None}, original_message: {original_message is not None}, platform: {platform}") # 修正点 10
 
                         if adapter and original_message:
-                            logger.debug(f"Task {task.request_id}: adapter and original_message found, preparing event data.")
+                            logger.debug(f"Task {task.task_id}: adapter and original_message found, preparing event data.") # 修正点 11
                             event_data = {
                                 "adapter": adapter,
                                 "original_message": original_message,
@@ -146,36 +139,56 @@ class TypedRequestQueue(Generic[T, R]):
                                 "platform": platform
                             }
                             await self.event_bus.publish(EventType.SEND_MESSAGE_REQUEST, event_data)
-                            logger.info(f"任务 {task.request_id} 结果非空，已成功发布 SEND_MESSAGE_REQUEST 事件到平台 {platform}") # 修改成功日志
+                            logger.info(f"任务 {task.task_id} 结果非空，已成功发布 SEND_MESSAGE_REQUEST 事件到平台 {platform}") # 修正点 12
                         else:
-                            logger.warning(f"任务 {task.request_id}: send_metadata 中缺少 adapter 或 original_message，无法发布发送事件。Adapter: {adapter is not None}, Message: {original_message is not None}")
+                            logger.warning(f"任务 {task.task_id}: send_metadata 中缺少 adapter 或 original_message，无法发布发送事件。Adapter: {adapter is not None}, Message: {original_message is not None}") # 修正点 13
                     else:
-                        logger.warning(f"任务 {task.request_id}: 缺少 send_metadata，无法发布发送事件。")
+                        logger.warning(f"任务 {task.task_id}: 缺少 send_metadata，无法发布发送事件。") # 修正点 14
                 except Exception as e:
-                    logger.error(f"发布 SEND_MESSAGE_REQUEST 事件时出错 (任务 {task.request_id}): {e}", exc_info=True)
+                    logger.error(f"发布 SEND_MESSAGE_REQUEST 事件时出错 (任务 {task.task_id}): {e}", exc_info=True) # 修正点 15
             elif not result:
-                 logger.debug(f"Task {task.request_id}: Result is empty or None, skipping send event publish.")
+                 logger.debug(f"Task {task.task_id}: Result is empty or None, skipping send event publish.") # 修正点 16
             # --- 事件发布逻辑修改结束 --- 
 
-        except asyncio.CancelledError:
-            logger.warning(f"任务 {task.request_id} 被取消 (可能由于超时)。")
-            # 标记任务失败并存储异常信息，确保使用正确的错误类型
-            # task.mark_failed(TimeoutError("Task timed out and was cancelled")) # 可能需要 asyncio.TimeoutError
-            task.mark_failed(asyncio.TimeoutError(f"Task {task.request_id} timed out and was cancelled"))
+        except asyncio.TimeoutError: # 捕获超时错误
+             logger.warning(f"Task {task.task_id} timed out after {timeout} seconds.") # 修正点 17
+             task.status = TaskStatus.TIMEOUT
+             task.error = asyncio.TimeoutError(f"Task {task.task_id} timed out") # 修正点 18
+             self.tasks_timed_out += 1 # 增加超时计数
+             result = None
+        except asyncio.CancelledError: # 处理任务被取消的情况
+            logger.warning(f"Task {task.task_id} was cancelled.") # 修正点 19
+            task.status = TaskStatus.CANCELLED
+            self.tasks_cancelled += 1
+            result = None
+            # 通常不需要重新抛出 CancelledError，除非上层需要特定处理
         except Exception as e:
-            logger.error(f"处理任务 {task.request_id} 时发生错误: {e}", exc_info=True)
-            # 标记任务失败并存储异常信息
-            task.mark_failed(e)
+            logger.error(f"Task {task.task_id}: Error during processing: {e}", exc_info=True) # 修正点 20
+            task.status = TaskStatus.FAILED
+            task.error = e
+            self.tasks_failed += 1 # 增加失败计数
+            result = None # 确保失败时 result 为 None
         finally:
-            # 减少活跃任务计数器
-            if hasattr(self, 'active_tasks') and self.active_tasks > 0: # 确保属性存在且大于0
-                self.active_tasks -= 1
-            logger.debug(f"任务 {task.request_id} 处理结束，当前活跃任务数: {getattr(self, 'active_tasks', 'N/A')}") # 使用 getattr 防御
-            # 尝试处理下一个任务 (确保 _try_process_next 存在)
-            if hasattr(self, '_try_process_next') and callable(self._try_process_next):
-                self._try_process_next()
-            else:
-                 logger.warning(f"Method '_try_process_next' not found or not callable in {self.__class__.__name__}")
+            end_time = time.monotonic()
+            processing_time = end_time - start_time
+            # self.active_tasks -= 1 # 移动到调用者处或使用信号量管理
+            self.last_activity_time = end_time # 更新最后活动时间
+            logger.debug(f"Task {task.task_id}: Processing finished in {processing_time:.4f} seconds. Status: {task.status}") # 修正点 21
+
+            # --- 事件发布逻辑 (处理失败情况) ---
+            if task.status == TaskStatus.FAILED and hasattr(self, 'event_bus') and self.event_bus:
+                event_data = {
+                    "task_id": task.task_id, # 修正点 22
+                    "error": str(task.error),
+                    "metadata": task.send_metadata
+                }
+                logger.debug(f"Task {task.task_id}: Publishing event MESSAGE_PROCESSING_FAILED with data: {event_data}") # 修正点 23
+                try:
+                    await self.event_bus.publish(EventType.MESSAGE_PROCESSING_FAILED, event_data)
+                except Exception as pub_e:
+                     logger.error(f"发布 MESSAGE_PROCESSING_FAILED 事件时出错 (任务 {task.task_id}): {pub_e}", exc_info=True) # 修正点 24
+            # --- 事件发布逻辑结束 ---
+            logger.debug(f"--- TypedRequestQueue._process_request END --- Task ID: {task.task_id}") # 修正点 25
 
     async def _worker(self, worker_id: int):
         """工作协程，从队列中获取并处理任务。"""
