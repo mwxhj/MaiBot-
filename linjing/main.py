@@ -277,7 +277,7 @@ async def main():
 
     # 1. 设置日志
     log_config = CONFIG.get("logging", {})
-    setup_logging(level=log_config.get("level", "INFO"), 
+    setup_logger(level=log_config.get("level", "INFO"), 
                   log_file_path=log_config.get("log_file_path"))
     logger = get_logger("main") # 获取主 logger
     logger.info("林镜 Bot (5 层架构重构) 启动中...")
