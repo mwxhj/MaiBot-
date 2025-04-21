@@ -58,7 +58,6 @@ from linjing.l1_fast_sense.context_aggregator import ContextAggregator
 from linjing.l1_fast_sense.trigger_scanner import LightweightV12TriggerScanner
 from linjing.l1_fast_sense.fast_sense_nlp import FastSenseNLPModule
 from linjing.l1_fast_sense.processor import FastSenseProcessor
-from linjing.l1_fast_sense.fast_sense_nlp_module import FastSenseNLPModule
 from linjing.l1_fast_sense.lightweight_v12_trigger_scanner import LightweightV12TriggerScanner
 from linjing.l1_fast_sense.context_aggregator import ContextAggregator
 from linjing.l2_adaptive_dispatcher.adaptive_dispatcher import AdaptiveDispatcher
