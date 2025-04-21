@@ -50,6 +50,88 @@ from linjing.utils.logger import setup_logger
 # 设置日志记录器
 logger = logging.getLogger(__name__)
 
+# L1 组件
+from linjing.l1_fast_sense.input_buffer import InputBuffer
+from linjing.l1_fast_sense.context_aggregator import ContextAggregator
+from linjing.l1_fast_sense.trigger_scanner import LightweightV12TriggerScanner
+from linjing.l1_fast_sense.fast_sense_nlp import FastSenseNLPModule
+from linjing.l1_fast_sense.processor import FastSenseProcessor
+
+# L2 组件
+from linjing.l2_adaptive_dispatcher.state_monitor import SimpleStateMonitor, StateMonitorInterface
+from linjing.l2_adaptive_dispatcher.decision_engine import SimpleRuleBasedDecisionEngine, DecisionEngineInterface
+from linjing.l2_adaptive_dispatcher.adaptive_dispatcher import AdaptiveDispatcher
+
+# 模拟 L3/L4/L5 依赖 (稍后定义)
+# from linjing.llm.llm_interface import LLMInterface # 实际组件
+# from linjing.processors.prompt_assembler import PromptAssembler # 实际组件
+# from linjing.adapters.base_adapter import BaseAdapter # L5 发送需要
+
+# --- 全局变量 ---
+logger = None # 将在 setup_logging 后初始化
+stop_event = asyncio.Event() # 用于全局停止信号
+
+# --- 模拟组件定义 ---
+class MockLLMInterface:
+    """模拟 LLM 接口，用于 L1 测试。"""
+    async def invoke(self, prompt: str, model_name: str, config: Dict[str, Any]) -> str:
+        logger.debug(f"MockLLMInterface invoked for model {model_name} with config: {config}")
+        logger.trace(f"Mock Prompt: {prompt[:100]}...")
+        # 返回一个符合 L1 NLP 期望的简单 JSON 字符串
+        mock_response = {
+            "basic_analysis": {
+                "style": ["informal"],
+                "sentiment_hint": {"primary": "neutral", "score": 0.1},
+                "intent_hint": {"primary": "chat", "confidence": 0.6},
+                "keywords": ["hello", "test"]
+            }
+        }
+        import json
+        return json.dumps(mock_response)
+
+class MockPromptAssembler:
+    """模拟 Prompt Assembler，用于 L1 测试。"""
+    def assemble(self, prompt_key: str, context_data: Dict[str, Any]) -> Optional[str]:
+        logger.debug(f"MockPromptAssembler asked for key '{prompt_key}' with data keys: {list(context_data.keys())}")
+        if prompt_key == "fast_sense_processor.analysis_prompt":
+            return "This is a mock prompt for fast sense analysis."
+        logger.warning(f"MockPromptAssembler received unexpected key: {prompt_key}")
+        return None
+
+# --- 配置 (简化) ---
+# TODO: 从文件或环境变量加载真实配置
+CONFIG = {
+    "logging": {
+        "level": "DEBUG", # 可以调整日志级别
+        "log_file_path": "logs/linjing_main.log"
+    },
+    "redis": {
+        "redis_host": "localhost",
+        "redis_port": 6379,
+        "redis_db": 0,
+        "redis_password": None,
+        "l1_context_cache_max_len": 10,
+        "l1_context_key_prefix": "l1ctx:",
+        "user_activity_window_sec": 60
+    },
+    "l1": {
+        "trigger_rules_path": "config/l1_trigger_rules.yaml",
+        "nlp_config": {
+            "l1_llm_model": "mock_fast_model", # 指向模拟模型
+            "l1_llm_config": {"temperature": 0.1} # 模拟的 LLM 配置
+        },
+        "processor_config": {
+            "bot_name": "林镜"
+        }
+    },
+    "l2": {
+        "state_monitor_config": {
+            "initial_bot_mode": "standard"
+        },
+        "decision_engine_config": {}
+    }
+}
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="林镜聊天机器人")
     parser.add_argument("-c", "--config", help="YAML 配置文件路径")
@@ -147,5 +229,232 @@ def main() -> None:
         loop.close()
         logger.info("事件循环已关闭。")
 
+# --- 日志记录消费者 (L3/L5 占位符) ---
+async def logging_consumer(queue: asyncio.Queue, name: str):
+    """简单的异步任务，消耗队列中的项目并记录日志。"""
+    if not logger:
+        print(f"错误：Logger 未初始化！无法启动消费者 {name}。")
+        return
+    logger.info(f"Logging Consumer '{name}' started, listening to queue: {queue}")
+    while not stop_event.is_set(): # 检查全局停止信号
+        try:
+            # 使用 timeout 来允许周期性检查 stop_event
+            item = await asyncio.wait_for(queue.get(), timeout=1.0)
+            logger.info(f"[{name}] Received: {item}")
+            queue.task_done()
+        except asyncio.TimeoutError:
+            # 超时是正常的，继续循环以检查 stop_event
+            continue
+        except asyncio.CancelledError:
+            logger.info(f"Logging Consumer '{name}' task cancelled.")
+            break
+        except Exception as e:
+            logger.error(f"Error in Logging Consumer '{name}': {e}", exc_info=True)
+            try:
+                # 即使出错也尝试标记 task_done，避免队列阻塞
+                queue.task_done()
+            except ValueError:
+                pass # 如果 get() 失败则 task_done 可能无效
+            except Exception as e_td:
+                logger.error(f"Error calling task_done in Logging Consumer '{name}' after exception: {e_td}")
+            # 短暂休眠避免错误循环过快
+            await asyncio.sleep(0.5)
+    logger.info(f"Logging Consumer '{name}' stopped.")
+
+# --- 信号处理 ---
+def handle_signal(sig, frame):
+    """处理 SIGINT 和 SIGTERM 信号，设置停止事件。"""
+    if logger:
+        logger.info(f"收到信号 {sig}, 正在请求停止...")
+    else:
+        print(f"收到信号 {sig}, 正在请求停止...")
+    stop_event.set() # 设置全局停止事件
+
+# --- 主函数 ---
+async def main():
+    """程序主入口，初始化并运行所有组件。"""
+    global logger
+
+    # 1. 设置日志
+    log_config = CONFIG.get("logging", {})
+    setup_logging(level=log_config.get("level", "INFO"), 
+                  log_file_path=log_config.get("log_file_path"))
+    logger = get_logger("main") # 获取主 logger
+    logger.info("林镜 Bot (5 层架构重构) 启动中...")
+
+    # 2. 创建队列
+    # 注意：队列大小可以根据需要调整配置
+    input_buffer_queue = InputBuffer(max_size=1000) # L0 -> L1 的队列在 InputBuffer 内部管理
+    l1_output_queue = asyncio.Queue(maxsize=500)     # L1 -> L2
+    l3_path_a_queue = asyncio.Queue(maxsize=100)     # L2 -> L3 Path A
+    l3_path_b_queue = asyncio.Queue(maxsize=100)     # L2 -> L3 Path B
+    l3_path_c_queue = asyncio.Queue(maxsize=200)     # L2 -> L3 Path C (可能量更大)
+    l5_action_queue = asyncio.Queue(maxsize=100)     # L2 -> L5 Direct Action
+    logger.info("所有层间队列已创建。")
+
+    # 3. 实例化组件
+    try:
+        # L1 组件
+        redis_config = CONFIG.get("redis", {})
+        context_aggregator = ContextAggregator(config=redis_config)
+        # 尝试测试 Redis 连接 (可选, 异步运行)
+        # asyncio.create_task(context_aggregator._test_redis_connection())
+
+        l1_config = CONFIG.get("l1", {})
+        trigger_config = {"l1_trigger_rules_path": l1_config.get("trigger_rules_path")}
+        trigger_scanner = LightweightV12TriggerScanner(config=trigger_config)
+
+        # 使用模拟的 LLM 和 Prompt Assembler
+        mock_llm = MockLLMInterface()
+        mock_prompter = MockPromptAssembler()
+        nlp_module = FastSenseNLPModule(llm_interface=mock_llm,
+                                        prompt_assembler=mock_prompter,
+                                        config=l1_config.get("nlp_config"))
+
+        l1_processor = FastSenseProcessor(input_buffer=input_buffer_queue,
+                                          l2_dispatcher_queue=l1_output_queue,
+                                          nlp_module=nlp_module,
+                                          trigger_scanner=trigger_scanner,
+                                          context_aggregator=context_aggregator,
+                                          config=l1_config.get("processor_config"))
+        logger.info("L1 组件实例化完成。")
+
+        # L2 组件
+        l2_config = CONFIG.get("l2", {})
+        state_monitor = SimpleStateMonitor(config=l2_config.get("state_monitor_config"))
+        decision_engine = SimpleRuleBasedDecisionEngine(config=l2_config.get("decision_engine_config"))
+
+        l2_dispatcher = AdaptiveDispatcher(l1_output_queue=l1_output_queue,
+                                           l3_path_a_queue=l3_path_a_queue,
+                                           l3_path_b_queue=l3_path_b_queue,
+                                           l3_path_c_queue=l3_path_c_queue,
+                                           l5_action_queue=l5_action_queue,
+                                           state_monitor=state_monitor,
+                                           decision_engine=decision_engine,
+                                           config=l2_config.get("dispatcher_config")) # 可选的 L2 配置
+        logger.info("L2 组件实例化完成。")
+
+    except Exception as e:
+        logger.error(f"组件实例化失败: {e}", exc_info=True)
+        return # 无法继续
+
+    # --- 模拟事件输入 (用于测试) ---
+    async def simulate_input(buffer: InputBuffer):
+        """向 L1 InputBuffer 模拟输入一些事件。"""
+        logger.info("启动模拟输入...")
+        count = 0
+        while not stop_event.is_set() and count < 5: # 模拟少量事件
+            count += 1
+            mock_event = {
+                "post_type": "message",
+                "message_type": "private",
+                "message_id": f"mock_msg_{count}",
+                "user_id": "10001",
+                "group_id": None,
+                "sender": {"nickname": "TestUser", "user_id": "10001"},
+                "time": asyncio.get_event_loop().time(),
+                "raw_message": f"你好，林镜！这是第 {count} 条测试消息。",
+                "message": [{"type": "text", "data": {"text": f"你好，林镜！这是第 {count} 条测试消息。"}}],
+                "at_me": False
+            }
+            if count == 3: # 模拟一个 @ 消息
+                mock_event["raw_message"] = "@林镜 紧急情况，请回复！"
+                mock_event["message"][0]["data"]["text"] = "@林镜 紧急情况，请回复！"
+                mock_event["at_me"] = True
+            if count == 4: # 模拟一个长消息
+                mock_event["raw_message"] = "这是一个非常非常非常长的测试消息，目的是测试 L1 的复杂度评估是否会将其标记为中等或高复杂度，因为它超过了一定的长度阈值。" * 3
+                mock_event["message"][0]["data"]["text"] = mock_event["raw_message"]
+
+            try:
+                await buffer.put(mock_event)
+                logger.info(f"模拟事件 {count} 已放入 InputBuffer。")
+            except asyncio.QueueFull:
+                logger.warning("模拟输入时 InputBuffer 已满，暂停输入。")
+                await asyncio.sleep(1)
+            await asyncio.sleep(1.5) # 输入间隔
+        logger.info("模拟输入结束。")
+
+    # 4. 创建和收集任务
+    tasks = []
+    try:
+        logger.info("创建核心任务...")
+        # L1 处理器任务
+        tasks.append(asyncio.create_task(l1_processor.start_processing(), name="L1_FastSenseProcessor"))
+        # L2 分发器任务
+        tasks.append(asyncio.create_task(l2_dispatcher.start_dispatching(), name="L2_AdaptiveDispatcher"))
+        # L3/L5 日志记录消费者任务
+        tasks.append(asyncio.create_task(logging_consumer(l3_path_a_queue, "L3_Path_A_Consumer"), name="L3_Path_A_Consumer"))
+        tasks.append(asyncio.create_task(logging_consumer(l3_path_b_queue, "L3_Path_B_Consumer"), name="L3_Path_B_Consumer"))
+        tasks.append(asyncio.create_task(logging_consumer(l3_path_c_queue, "L3_Path_C_Consumer"), name="L3_Path_C_Consumer"))
+        tasks.append(asyncio.create_task(logging_consumer(l5_action_queue, "L5_Action_Consumer"), name="L5_Action_Consumer"))
+
+        # 模拟输入任务 (仅用于测试)
+        tasks.append(asyncio.create_task(simulate_input(input_buffer_queue), name="SimulateInput"))
+
+        logger.info(f"共 {len(tasks)} 个核心任务已创建，开始运行...")
+        # 等待停止信号或任何任务异常退出
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+        # 处理完成的任务
+        for task in done:
+            try:
+                result = task.result() # 获取结果以暴露异常
+                logger.info(f"任务 '{task.get_name()}' 正常完成。结果: {result}")
+            except asyncio.CancelledError:
+                logger.info(f"任务 '{task.get_name()}' 被取消。")
+            except Exception as e:
+                logger.error(f"任务 '{task.get_name()}' 异常退出: {e}", exc_info=True)
+                # 一个任务异常退出，我们也停止其他任务
+                stop_event.set()
+
+        # 如果不是因为停止信号而结束，等待停止信号
+        if not stop_event.is_set():
+            logger.info("等待停止信号...")
+            await stop_event.wait()
+
+    except Exception as e:
+        logger.critical(f"运行主循环时发生严重错误: {e}", exc_info=True)
+    finally:
+        logger.info("开始停止所有剩余任务...")
+        # 取消所有挂起的任务
+        remaining_tasks = asyncio.all_tasks() - {asyncio.current_task()}
+        if remaining_tasks:
+             logger.info(f"正在取消 {len(remaining_tasks)} 个任务...")
+             for task in remaining_tasks:
+                 task.cancel()
+             # 等待取消完成
+             await asyncio.gather(*remaining_tasks, return_exceptions=True)
+             logger.info("所有任务已取消。")
+        else:
+             logger.info("没有需要取消的任务。")
+
+        # 可以在这里添加其他清理逻辑，例如关闭 Redis 连接池
+        # if context_aggregator and context_aggregator.redis_pool:
+        #     await context_aggregator.redis_pool.disconnect()
+        #     logger.info("Redis 连接池已断开。")
+
+        logger.info("林镜 Bot 程序已停止。")
+
+# --- 程序入口点 ---
 if __name__ == "__main__":
-    main()
+    # 设置信号处理
+    signal.signal(signal.SIGINT, handle_signal) # 处理 Ctrl+C
+    signal.signal(signal.SIGTERM, handle_signal) # 处理 kill 命令
+
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        # 理论上信号处理会先捕获，这里作为后备
+        if logger:
+             logger.info("通过 KeyboardInterrupt 强制退出。")
+        else:
+             print("通过 KeyboardInterrupt 强制退出。")
+    except Exception as e_run:
+         # 捕获 asyncio.run() 本身的错误
+         if logger:
+             logger.critical(f"运行 asyncio 事件循环时发生致命错误: {e_run}", exc_info=True)
+         else:
+              print(f"运行 asyncio 事件循环时发生致命错误: {e_run}", file=sys.stderr)
+         sys.exit(1) # 以错误码退出
+
+    sys.exit(0) # 正常退出

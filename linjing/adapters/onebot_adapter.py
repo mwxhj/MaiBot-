@@ -27,10 +27,12 @@ logger = get_logger(__name__)
 class OneBotAdapter(Bot):
     """OneBot v11 协议适配器"""
 
-    def __init__(self, config: Dict[str, Any], event_bus: Any): # Added event_bus parameter
-        super().__init__(config)
-        self.platform = "onebot"
+    def __init__(self, config: Dict[str, Any], event_bus: Any, input_buffer: asyncio.Queue): # 添加 input_buffer 参数
+        super().__init__(config, event_bus)
+        self.config = config
+        self.api_token = config.get("api_token")
         self.event_bus = event_bus # Store event_bus
+        self.input_buffer = input_buffer # 存储 input_buffer
 
         # 用于存储 LinjingBot 的 handle_message 方法
         self._message_handler: Optional[Callable[[Message], Awaitable[Optional[Any]]]] = None # 重命名以示内部使用
@@ -44,7 +46,9 @@ class OneBotAdapter(Bot):
         # --- 订阅结束 ---
 
         # WebSocket连接配置
-        self.ws_url = config.get("ws_url", "")  # 正向WS地址
+        self.ws_url = config.get("ws_url", "ws://localhost:6700")
+        self.heartbeat_interval = config.get("heartbeat_interval", 30)
+        self.reconnect_delay = config.get("reconnect_delay", 5)
         self.reverse_ws_host = config.get("reverse_ws_host", "0.0.0.0")
         # 优先使用环境变量中的端口配置
         import os
@@ -376,122 +380,70 @@ class OneBotAdapter(Bot):
              self.connected = False # 确保状态更新
 
     async def _handle_event(self, event: Dict[str, Any]):
-        """处理接收到的事件"""
-        logger.debug(f"收到原始消息: {event}") # 打印原始事件数据
-
-        # --- 添加过滤逻辑 ---
+        """处理从WebSocket接收到的单个事件"""
         post_type = event.get("post_type")
-        if post_type == "meta_event":
-            # 特别处理心跳事件以获取 self_id
-            if event.get("meta_event_type") == "heartbeat" and not self.self_id:
-                 status = event.get("status")
-                 if status and status.get("online") and status.get("good"):
-                     # OneBot 标准心跳包通常不包含 self_id，但有些实现（如 go-cqhttp HTTP）可能在 status 里有
-                     # 尝试从 /get_login_info 获取 self_id
-                     try:
-                         login_info = await self.call_api("get_login_info")
-                         
-                         # --- 修正 self_id 提取逻辑 ---
-                         fetched_self_id = None # Initialize
-                         data = login_info.get("data") # 先获取 'data' 字典
-                         if data and isinstance(data, dict):
-                             user_id_val = data.get("user_id") # 获取 user_id 的值
-                             if user_id_val is not None: # 确保 user_id 存在且不为 None
-                                 fetched_self_id = str(user_id_val) # 再从 'data' 中获取 'user_id' 并转为字符串
-                         # --- 修正结束 ---
+        logger.trace(f"接收到原始事件: {event}") # 使用 trace 级别记录原始事件
 
-                         if fetched_self_id:
-                             if not self.self_id:
-                                 self.self_id = fetched_self_id
-                                 logger.info(f"通过 get_login_info 获取到 self_id: {self.self_id}")
-                                 # 验证 self_id
-                                 await self._verify_self_id(self.self_id)
-                                 # 发送适配器连接成功事件
-                                 await self.event_bus.publish(EventType.ADAPTER_CONNECTED, {
-                                     "adapter_name": self.platform,
-                                     "adapter": self, # 传递适配器实例
-                                     "self_id": self.self_id
-                                 })
-                             elif self.self_id != fetched_self_id:
-                                 logger.warning(f"get_login_info 返回的 ID ({fetched_self_id}) 与当前 ID ({self.self_id}) 不符。")
-                         else:
-                             logger.warning("get_login_info 未返回有效的 user_id")
-                     except Exception as e:
-                         logger.warning(f"尝试从 get_login_info 获取 self_id 失败: {e}")
-
-            # 对于所有 meta_event (包括心跳)，记录后直接返回，不进入后续处理
-            meta_event_type = event.get("meta_event_type")
-            logger.debug(f"忽略元事件 ({meta_event_type})，不处理。")
-            return
-        # --- 过滤逻辑结束 ---
-
-        # --- 验证 self_id (如果尚未获取) ---
-        event_self_id = event.get("self_id")
-        if event_self_id:
-            event_self_id_str = str(event_self_id)
-            if not self.self_id:
-                 self.self_id = event_self_id_str
-                 logger.info(f"从事件中获取到 self_id: {self.self_id}")
-                 await self._verify_self_id(self.self_id)
-                 # 发送适配器连接成功事件
-                 await self.event_bus.publish(EventType.ADAPTER_CONNECTED, {
-                     "adapter_name": self.platform,
-                     "adapter": self, # 传递适配器实例
-                     "self_id": self.self_id
-                 })
-            elif self.self_id != event_self_id_str:
-                 logger.warning(f"事件中的 self_id ({event_self_id_str}) 与已知的 self_id ({self.self_id}) 不符！")
-                 # 如果启用了严格验证，可能需要断开连接或报警
-                 if self.verify_self_id and self.expected_self_id and self.expected_self_id != event_self_id_str:
-                     logger.error(f"接收到来自非预期机器人 ({event_self_id_str}) 的事件，预期为 {self.expected_self_id}，连接可能存在问题！")
-                     # 可以考虑在这里添加断开连接的逻辑 await self.disconnect()
-
-
-        # --- 消息转换 ---
-        # 仅处理 post_type 为 'message' 的事件
-        if post_type == 'message':
-            try:
-                # 使用 MessageConverter 进行转换
-                message_obj = MessageConverter.to_internal_message("onebot", event)
-                # --- 修改：使用 bind 记录提取到的信息 ---
-                user_id = message_obj.get_user_id() if hasattr(message_obj, 'get_user_id') else 'unknown'
-                group_id = message_obj.get_meta('group_id') if hasattr(message_obj, 'get_meta') else None
-                content = message_obj.extract_plain_text() if hasattr(message_obj, 'extract_plain_text') else str(message_obj)
-                logger.bind(user_id=user_id, group_id=group_id, msg_content=content).debug(f"消息转换后的事件对象 (User: {user_id}, Group: {group_id})")
-                # logger.debug(f"消息转换后的事件对象: {message_obj}") # 旧日志
-                # --- 修改结束 ---
-
-                # 如果转换成功且存在主消息处理函数
-                if message_obj and self._message_handler:
-                    logger.debug(f"调用主消息处理函数: {self._message_handler.__name__}")
-                    # 【【【修改点 1: 只调用，不关心返回值】】】
-                    await self._message_handler(message_obj) # 调用 LinjingBot.handle_message, 忽略返回值
-
-                    # 【【【修改点 2: 删除整个错误的 if reply is not None: ... 代码块】】】
-                    # (从这里开始删除)
-                    # if reply is not None:
-                    # ... (整个错误处理逻辑块) ...
-                    # else:
-                    #     logger.debug("主处理函数未返回回复消息")
-                    # (删除到这里结束)
-
-                    # 保留日志，说明任务已交给异步处理器
-                    logger.debug(f"消息已传递给主处理函数 {self._message_handler.__name__} 进行异步处理。")
-
-                elif not self._message_handler:
-                    logger.warning("收到消息但未注册主消息处理函数")
-
-            except Exception as e: # 这是外层 try-except
-                print(f"!!! DEBUG PRINT: ERROR in outer _handle_event try-except: {e} !!!", flush=True) # 新增
-                logger.error(f"处理消息事件时出错: {e}", exc_info=True)
-        elif post_type == 'notice':
-            # 处理通知事件 (如果需要)
-            logger.debug(f"收到通知事件: {event.get('notice_type')}")
-            # 在这里可以添加对特定通知事件的处理逻辑，例如群成员增加/减少等
-            # 可以通过 self.event_bus.publish 发布更具体的事件类型
-            pass
+        # 记录收到的 post_type 用于调试
+        if post_type:
+            logger.debug(f"收到事件类型: {post_type}")
         else:
-            logger.warning(f"收到未知 post_type 的事件: {post_type}")
+            logger.warning("收到的事件缺少 'post_type' 字段")
+            # 可以选择在这里直接返回或继续处理，取决于是否允许没有 post_type 的事件
+            # return
+
+        # 处理 OneBot 心跳事件
+        if post_type == "meta_event" and event.get("meta_event_type") == "heartbeat":
+            interval = event.get("interval", "未知")
+            status = event.get("status") # 获取状态信息
+            status_desc = "未知"
+            if status:
+                status_desc = f"Online: {status.get('online', 'N/A')}, Good: {status.get('good', 'N/A')}"
+            logger.debug(f"收到 OneBot 心跳事件. Interval: {interval}ms. Status: {status_desc}")
+            # 重置心跳定时器或确认连接状态等逻辑（如果需要）
+            return # 心跳事件通常不需要进一步处理
+
+        # 处理生命周期事件（例如 connect）
+        if post_type == "meta_event" and event.get("meta_event_type") == "lifecycle":
+             sub_type = event.get("sub_type")
+             logger.info(f"收到生命周期事件: {sub_type}")
+             if sub_type == "connect":
+                # 存储或更新 self_id
+                received_self_id = str(event.get("self_id", ""))
+                if received_self_id:
+                     # 只有在验证通过或未启用验证时才更新
+                     if await self._verify_self_id(received_self_id):
+                         if self.self_id != received_self_id:
+                             logger.info(f"机器人自身ID已更新: {received_self_id}")
+                             self.self_id = received_self_id
+                         else:
+                             logger.info(f"机器人自身ID确认: {received_self_id}")
+                     else:
+                         # 验证失败，可能需要断开连接或发出警告
+                         logger.error("机器人ID验证失败！收到的ID与预期不符。")
+                         # 根据策略决定是否断开连接
+                         # await self.disconnect()
+                         return # 阻止后续处理
+                else:
+                     logger.warning("生命周期 connect 事件中未找到 self_id")
+             # 可以添加对其他生命周期事件的处理，如 enable/disable
+             return # 生命周期事件通常不需要推送到 L1
+
+        # **重构核心：将所有其他类型的事件放入 L1 输入缓冲区**
+        try:
+            # 不再进行消息转换或直接调用 self.bot.handle_message
+            # 直接将原始事件放入 L1 的 input_buffer
+            logger.debug(f"将事件放入 L1 InputBuffer: post_type={post_type}, event_id(approx)={event.get('message_id', event.get('notice_id', 'N/A'))}")
+            await self.input_buffer.put(event)
+        except AttributeError:
+             # 处理 self.input_buffer 不存在或没有 put 方法的情况
+             logger.error("InputBuffer 未正确初始化或缺少 'put' 方法！无法将事件推送到 L1。", exc_info=True)
+        except asyncio.QueueFull:
+             # 处理队列已满的情况
+             logger.error("L1 InputBuffer已满！事件可能丢失。请检查 L1 处理速度或增加缓冲区大小。")
+        except Exception as e:
+             # 捕获其他可能的异常
+             logger.error(f"将事件放入 L1 InputBuffer 时发生未知错误: {e}", exc_info=True)
 
     async def _verify_self_id(self, current_self_id: str):
         """验证获取到的 self_id 是否符合预期"""
