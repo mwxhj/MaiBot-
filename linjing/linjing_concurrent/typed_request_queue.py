@@ -201,10 +201,13 @@ class TypedRequestQueue(Generic[T, R]):
                 logger.info(f"Worker {worker_id} received cancellation request. Exiting.")
                 break
             except Exception as e:
-                # --- 新增：更详细的异常日志 --- 
-                task_id_info = f"task {task.task_id}" if task else "an unknown task"
-                logger.error(f"Worker {worker_id}: Error processing {task_id_info}: {e}", exc_info=True)
-                # 如果任务存在，可能需要标记为失败或重试
+                # --- 修改：简化错误日志，避免访问 task.task_id ---
+                task_id_info = "a task" # Use a generic placeholder
+                if task and hasattr(task, 'task_id'): # Safely try to get ID if available
+                    task_id_info = f"task {task.task_id}"
+                # 保持 exc_info=True 以打印原始错误的完整堆栈信息
+                logger.error(f"Worker {worker_id}: Unhandled error processing {task_id_info}: {e}", exc_info=True)
+                # --- 修改结束 ---
                 if task:
                     self.queue.task_done() # 确保即使出错也调用 task_done
                     logger.warning(f"Worker {worker_id}: Marked errored task {task.task_id} as done to prevent queue blocking.")
