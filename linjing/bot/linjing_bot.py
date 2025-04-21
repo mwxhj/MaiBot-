@@ -217,7 +217,9 @@ class LinjingBot:
             # --- V12 将消息放入队列 ---
             logger.debug(f"Attempting to add message to QueueManager for session: {session_id}")
             # 使用 context 作为主要数据传递给队列，processor 是处理 context 的函数
+            # --- 修正：同时传递 message 和 context ---
             result = await self.queue_manager.add_message(
+                 message=message, # <--- 重新传递 message
                  context=context, # 将完整的 context 传递过去
                  processor=self._process_single_message # 指定处理函数
             )
