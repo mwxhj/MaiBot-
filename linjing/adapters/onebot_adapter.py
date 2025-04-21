@@ -20,6 +20,7 @@ from websockets.exceptions import ConnectionClosed
 from linjing.adapters.adapter_utils import Bot, MessageConverter, retry_operation
 from linjing.adapters.message_types import Message, MessageSegment
 from linjing.utils.logger import get_logger
+from linjing.constants import EventType
 
 logger = get_logger(__name__)
 
@@ -33,6 +34,14 @@ class OneBotAdapter(Bot):
 
         # 用于存储 LinjingBot 的 handle_message 方法
         self._message_handler: Optional[Callable[[Message], Awaitable[Optional[Any]]]] = None # 重命名以示内部使用
+
+        # --- 新增：订阅发送消息请求事件 ---
+        if self.event_bus:
+            self.event_bus.subscribe(EventType.SEND_MESSAGE_REQUEST, self.handle_send_request)
+            logger.info("已订阅 SEND_MESSAGE_REQUEST 事件")
+        else:
+            logger.warning("EventBus 未提供，无法订阅 SEND_MESSAGE_REQUEST 事件")
+        # --- 订阅结束 ---
 
         # WebSocket连接配置
         self.ws_url = config.get("ws_url", "")  # 正向WS地址
@@ -84,6 +93,74 @@ class OneBotAdapter(Bot):
         """注册用于处理接收到的消息的主处理函数"""
         self._message_handler = handler # 使用内部变量名
         logger.info(f"已注册消息处理函数: {handler.__name__}")
+
+    # --- 新增：处理发送请求的事件处理器 ---
+    async def handle_send_request(self, event_type: str, data: Dict[str, Any]):
+        """处理来自事件总线的发送消息请求"""
+        logger.debug(f"收到 SEND_MESSAGE_REQUEST 事件: {data}")
+        reply = data.get("reply")
+        target_info = data.get("target")
+
+        if not reply or not target_info:
+            logger.error("发送请求事件缺少 'reply' 或 'target' 数据")
+            return
+
+        session_id = target_info.get("session_id")
+        user_id = target_info.get("user_id")
+        group_id = target_info.get("group_id")
+        # platform = target_info.get("platform") # platform 在这里可能不是必需的
+
+        # 确定消息类型和目标 ID
+        message_type = None
+        target_id = None
+
+        # 优先使用明确的 group_id 或 user_id
+        if group_id:
+            message_type = "group"
+            target_id = str(group_id) # 确保是字符串
+            logger.debug(f"从 target_info 确定为群组消息，目标 group_id: {target_id}")
+        elif user_id:
+            # 需要区分是来自群聊的私聊还是直接私聊，但 OneBot API 通常只认 user_id
+            # 简单的处理：如果 session_id 看起来像群聊，也按私聊发给 user_id
+            # 更复杂的场景可能需要结合 context 判断，但这里先简化
+            message_type = "private"
+            target_id = str(user_id) # 确保是字符串
+            logger.debug(f"从 target_info 确定为私聊消息，目标 user_id: {target_id}")
+        else:
+            # 如果 group_id 和 user_id 都没有，尝试从 session_id 解析
+            logger.warning("事件数据中缺少明确的 group_id 或 user_id，尝试从 session_id 解析...")
+            if session_id and session_id.startswith("group_"):
+                message_type = "group"
+                try:
+                    target_id = session_id.split("_", 1)[1]
+                    logger.debug(f"从 session_id '{session_id}' 解析得到群组消息，目标 group_id: {target_id}")
+                except IndexError:
+                    logger.error(f"无法从 session_id '{session_id}' 解析 group_id")
+                    return
+            elif session_id and session_id.startswith("private_"):
+                 message_type = "private"
+                 try:
+                     target_id = session_id.split("_", 1)[1]
+                     logger.debug(f"从 session_id '{session_id}' 解析得到私聊消息，目标 user_id: {target_id}")
+                 except IndexError:
+                     logger.error(f"无法从 session_id '{session_id}' 解析 user_id")
+                     return
+            else:
+                logger.error(f"无法从事件数据确定发送目标: {target_info}")
+                return
+
+        if target_id and message_type:
+            logger.info(f"准备通过 OneBot 发送消息 (类型: {message_type}, 目标: {target_id})")
+            try:
+                # 调用适配器自身的 send 方法来发送
+                # send 方法接收 target_id, message 对象, message_type
+                await self.send(target=target_id, message=reply, message_type=message_type)
+                logger.info(f"消息已成功请求发送到 {message_type} {target_id}")
+            except Exception as e:
+                logger.error(f"调用 self.send 发送消息失败: {e}", exc_info=True)
+        else:
+             logger.error("未能确定有效的 target_id 或 message_type 用于发送")
+    # --- 事件处理器结束 ---
 
     async def connect(self) -> bool:
         """连接到OneBot实现"""
@@ -330,7 +407,6 @@ class OneBotAdapter(Bot):
                                  # 验证 self_id
                                  await self._verify_self_id(self.self_id)
                                  # 发送适配器连接成功事件
-                                 from linjing.constants import EventType # 局部导入避免循环依赖
                                  await self.event_bus.publish(EventType.ADAPTER_CONNECTED, {
                                      "adapter_name": self.platform,
                                      "adapter": self, # 传递适配器实例
@@ -358,7 +434,6 @@ class OneBotAdapter(Bot):
                  logger.info(f"从事件中获取到 self_id: {self.self_id}")
                  await self._verify_self_id(self.self_id)
                  # 发送适配器连接成功事件
-                 from linjing.constants import EventType # 局部导入避免循环依赖
                  await self.event_bus.publish(EventType.ADAPTER_CONNECTED, {
                      "adapter_name": self.platform,
                      "adapter": self, # 传递适配器实例

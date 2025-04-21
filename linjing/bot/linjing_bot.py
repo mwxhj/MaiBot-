@@ -424,8 +424,8 @@ class LinjingBot:
                                  "session_id": event_context.session_id,
                                  "user_id": event_context.user_id,
                                  "platform": event_context.platform,
-                                 # 可以考虑添加 group_id 等其他适配器可能需要的信息
-                                 "group_id": event_context.get_meta("group_id")
+                                 # --- 修正：从 event_context.message 获取元数据 ---
+                                 "group_id": event_context.message.get_meta("group_id") if hasattr(event_context.message, 'get_meta') else None
                              }
                          }
                      )
