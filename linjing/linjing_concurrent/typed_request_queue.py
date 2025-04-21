@@ -1,7 +1,7 @@
 from loguru import logger # 确保 logger 已导入
 import asyncio
 import time
-from .constants import EventType # 假设 EventType 在同目录的 constants.py
+from linjing.constants import EventType # 从项目根目录的 constants 导入
 from typing import Generic, TypeVar, Callable, Awaitable, Optional, Any, Dict, List, Set # 补全 typing 导入
 
 # 定义类型变量用于泛型
