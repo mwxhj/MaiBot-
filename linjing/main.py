@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-林静聊天机器人主程序入口。
+林镜聊天机器人主程序入口。
 """
 
 import sys
@@ -51,7 +51,7 @@ from linjing.utils.logger import setup_logger
 logger = logging.getLogger(__name__)
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="林静聊天机器人")
+    parser = argparse.ArgumentParser(description="林镜聊天机器人")
     parser.add_argument("-c", "--config", help="YAML 配置文件路径")
     parser.add_argument("-d", "--debug", action="store_true", help="启用调试模式 (覆盖配置文件中的日志级别)")
     parser.add_argument("-v", "--version", action="store_true", help="显示版本信息")
@@ -70,7 +70,7 @@ def handle_signals() -> None:
     signal.signal(signal.SIGTERM, signal_handler)
 
 async def main_async(config: Dict[str, Any]) -> None:
-    logger.info(f"林静聊天机器人 v{VERSION} 正在启动...")
+    logger.info(f"林镜聊天机器人 v{VERSION} 正在启动...")
     bot = None
     try:
         bot = LinjingBot(config)
@@ -99,7 +99,7 @@ async def main_async(config: Dict[str, Any]) -> None:
 def main() -> None:
     args = parse_args()
     if args.version:
-        print(f"林静聊天机器人 v{VERSION}")
+        print(f"林镜聊天机器人 v{VERSION}")
         sys.exit(0)
 
     # 获取命令行指定的配置文件路径

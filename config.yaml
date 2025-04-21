@@ -3,7 +3,7 @@
 
 # 系统基本设置
 system:
-  name: "林静"
+  name: "林镜"
   version: "0.1.0"
   log_level: "DEBUG"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
   timezone: "Asia/Shanghai"
@@ -24,7 +24,7 @@ system:
 
 # 调试配置
 debug:
-  always_high_alert: true  # 开发模式：始终处于高戒备状态，回复所有消息
+  always_high_alert: false  # 开发模式：始终处于高戒备状态，回复所有消息
   log_all_events: true     # 记录所有接收到的事件
 
 # 并发控制组件配置
@@ -52,7 +52,7 @@ concurrent:
 # 机器人核心设置
 bot:
   # 基本配置
-  name: "林静"
+  name: "林镜"
   version: "0.1.0"
   description: "基于多LLM的智能对话机器人"
   log_level: "DEBUG"
@@ -73,7 +73,7 @@ bot:
       auto_association: true     # 启用自动记忆关联
       max_cache_items: 1000      # 向量缓存最大条目
     
-    default_system_prompt: "我是林静，一个有自己想法和情绪的 AI。我的回应会基于我的判断和当前的心情。不要期待我总是友好或乐于助人。" # V12 人设调整
+    default_system_prompt: "我是林镜，一个有自己想法和情绪的 AI。我的回应会基于我的判断和当前的心情。不要期待我总是友好或乐于助人。" # V12 人设调整
     max_response_length: 500  # 回复最大长度，避免在群里发送过长消息
   
   # 处理器执行顺序设置 - 确保与ProcessorName中定义的处理器匹配
@@ -95,7 +95,7 @@ bot:
     high_alert_duration: 5             # 高戒备持续消息数 (改为 5)
     # 新增：名字触发配置
     name_trigger_enabled: true          # 是否启用名字触发高戒备
-    bot_names: ["林静", "Linjing"]      # 触发高戒备的机器人名字列表
+    bot_names: ["林镜", "Linjing"]      # 触发高戒备的机器人名字列表
 
 # LLM模型配置
 llm:
@@ -198,8 +198,8 @@ llm:
           model: "gemini-1.5-pro-latest"
       # **添加：添加response_composer处理器**
       response_composer:
-        - provider_id: "DUCKgemini_provider"
-          model: "gemini-1.5-pro-latest"
+        - provider_id: "mingwang_provider"
+          model: "gemini-2.5-pro-exp-03-25"
 
 # 存储设置
 storage:
@@ -390,7 +390,7 @@ processors:
     description: "判断是否适合表达内心想法的处理器"
     skip_on_mention: false # 修改为 false，确保任何情况下都检查意愿
     default_willingness: true # LLM 调用失败时的默认行为
-    max_history_for_willingness: 3 # 用于判断意愿时参考的历史消息数量
+    max_history_for_willingness: 5 # 用于判断意愿时参考的历史消息数量
     llm_max_tokens: 4096  # LLM判断意愿最大Token数
 
 # 适配器设置
@@ -421,7 +421,7 @@ adapters:
       respond_to_prefix: false    # V12 人设调整：不响应前缀命令
       command_prefix: "/"         # 命令前缀 (保留，但实际响应逻辑可能不依赖)
       keyword_trigger: false      # V12 人设调整：不启用关键词触发
-      # trigger_keywords: ["林静", "机器人"]  # V12 人设调整：注释掉关键词
+      # trigger_keywords: ["林镜", "机器人"]  # V12 人设调整：注释掉关键词
 
 # 插件系统 - 目前代码中未实现，将此部分设为禁用状态
 plugins:

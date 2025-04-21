@@ -95,7 +95,7 @@ def setup_logger(config_manager: 'ConfigManager', level: str = "INFO", log_dir: 
         os.makedirs(obs_log_dir, exist_ok=True)
         logger.info(f"启用全方位观察日志，将保存到: {obs_log_dir}")
 
-        # 1. 林静发言日志
+        # 1. 林镜发言日志
         logger.add(
             os.path.join(obs_log_dir, "linjing_speech_{time:YYYY-MM-DD}.log"),
             level="INFO", rotation="10 MB", retention="7 days", encoding="utf-8",
@@ -104,7 +104,7 @@ def setup_logger(config_manager: 'ConfigManager', level: str = "INFO", log_dir: 
             enqueue=True 
         )
 
-        # 2. 林静想法日志
+        # 2. 林镜想法日志
         logger.add(
             os.path.join(obs_log_dir, "linjing_thoughts_{time:YYYY-MM-DD}.jsonl"),
             level="DEBUG", rotation="50 MB", retention="14 days", encoding="utf-8",
@@ -114,7 +114,7 @@ def setup_logger(config_manager: 'ConfigManager', level: str = "INFO", log_dir: 
             enqueue=True
         )
         
-        # 3. 林静读空气日志
+        # 3. 林镜读空气日志
         logger.add(
             os.path.join(obs_log_dir, "linjing_read_air_{time:YYYY-MM-DD}.jsonl"),
             level="DEBUG", rotation="10 MB", retention="7 days", encoding="utf-8",
@@ -124,7 +124,7 @@ def setup_logger(config_manager: 'ConfigManager', level: str = "INFO", log_dir: 
             enqueue=True
         )
 
-        # 4. 林静情绪日志
+        # 4. 林镜情绪日志
         logger.add(
             os.path.join(obs_log_dir, "linjing_emotion_{time:YYYY-MM-DD}.jsonl"),
             level="DEBUG", rotation="10 MB", retention="14 days", encoding="utf-8",

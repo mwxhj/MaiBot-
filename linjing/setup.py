@@ -14,7 +14,7 @@ setup(
     version="0.1.0",
     author="LinjingBot Team",
     author_email="author@example.com",
-    description="林静 - 一个有个性的AI聊天机器人",
+    description="林镜 - 一个有个性的AI聊天机器人",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/username/linjing",

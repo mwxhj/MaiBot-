@@ -266,7 +266,7 @@ class ThoughtGenerator(BaseProcessor):
 
             # 获取角色名 (尝试从 global_config 获取，如果 LinjingBot 传递了的话)
             global_config = self.config.get("global_config", {})
-            character_name = global_config.get("bot", {}).get("name", "林静") # 默认 '林静'
+            character_name = global_config.get("bot", {}).get("name", "林镜") # 默认 '林镜'
 
             prompt = self.thinking_template.format(
                 character_name=character_name,
@@ -339,7 +339,7 @@ class ThoughtGenerator(BaseProcessor):
             else:
                 # 获取 Bot 名称 (尝试从全局配置或默认)
                 global_config = self.config.get("global_config", {})
-                bot_name = global_config.get("bot", {}).get("name", "林静") 
+                bot_name = global_config.get("bot", {}).get("name", "林镜") 
                 role = f"我 ({bot_name})"
 
             history_text += f"{role}: {content}\n"

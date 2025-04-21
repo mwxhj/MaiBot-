@@ -573,7 +573,7 @@ class ReadAirProcessor(BaseProcessor):
             else:
                 global_config = self.config.get("global_config", {}) if self.config else {}
                 bot_config = global_config.get("bot", {}) if global_config else {}
-                bot_name = bot_config.get("name", "林静")
+                bot_name = bot_config.get("name", "林镜")
                 role = f"我 ({bot_name})"
 
             history_text += f"{role}: {content}\n"

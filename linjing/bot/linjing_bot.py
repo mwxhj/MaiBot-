@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-林静机器人主类模块，作为整个机器人的核心控制器。
+林镜机器人主类模块，作为整个机器人的核心控制器。
 """
 
 import asyncio
@@ -33,7 +33,7 @@ from linjing.linjing_concurrent import (
 logger = get_logger(__name__)
 
 class LinjingBot:
-    """林静机器人主类，负责协调各个组件"""
+    """林镜机器人主类，负责协调各个组件"""
 
     def __init__(self, config: Dict[str, Any]):
         """
@@ -69,7 +69,7 @@ class LinjingBot:
         self.high_alert_duration = trigger_config.get("high_alert_duration", 5) # 从配置读取，默认为 5
         # 新增：读取名字触发配置
         self.name_trigger_enabled = trigger_config.get("name_trigger_enabled", True)
-        self.bot_names = trigger_config.get("bot_names", ["林静", "Linjing"])
+        self.bot_names = trigger_config.get("bot_names", ["林镜", "Linjing"])
 
         # 初始化并发控制组件
         self.queue_manager = None
@@ -86,7 +86,7 @@ class LinjingBot:
         Returns:
             初始化是否成功
         """
-        logger.info("正在初始化林静机器人...")
+        logger.info("正在初始化林镜机器人...")
         try:
             await self._load_personality_principles()
             await self._load_style_guide()
@@ -98,7 +98,7 @@ class LinjingBot:
             await self._init_adapters()
             await self._init_plugins()
             await self._init_concurrent_controls()
-            logger.info("林静机器人初始化完成")
+            logger.info("林镜机器人初始化完成")
             return True
         except Exception as e:
             logger.error(f"初始化失败: {str(e)}", exc_info=True)
@@ -109,7 +109,7 @@ class LinjingBot:
         if self.running:
             logger.warning("机器人已经在运行")
             return
-        logger.info("正在启动林静机器人...")
+        logger.info("正在启动林镜机器人...")
         try:
             for adapter_name, adapter in self.adapters.items():
                 if hasattr(adapter, 'connect') and callable(adapter.connect):
@@ -124,7 +124,7 @@ class LinjingBot:
             if self.message_debouncer:
                 await self.message_debouncer.start()
 
-            logger.info("林静机器人启动完成")
+            logger.info("林镜机器人启动完成")
         except Exception as e:
             logger.error(f"启动失败: {str(e)}", exc_info=True)
             raise
@@ -134,7 +134,7 @@ class LinjingBot:
         if not self.running:
             logger.warning("机器人没有运行")
             return
-        logger.info("正在停止林静机器人...")
+        logger.info("正在停止林镜机器人...")
         try:
             await self.event_bus.publish(EventType.BOT_STOPPED, {"bot": self})
             for adapter_name, adapter in self.adapters.items():
@@ -154,7 +154,7 @@ class LinjingBot:
                     await self.resource_lock.stop()
                     logger.info("资源锁管理器已停止")
 
-            logger.info("林静机器人停止完成")
+            logger.info("林镜机器人停止完成")
         except Exception as e:
             logger.error(f"停止失败: {str(e)}", exc_info=True)
             raise
@@ -1223,7 +1223,7 @@ class LinjingBot:
         
         # 如果没找到@提及，检查文本中是否包含机器人名字
         if not mentioned and self.name_trigger_enabled:
-            bot_names = self.config.get("bot", {}).get("bot_names", ["林静", "Linjing"])
+            bot_names = self.config.get("bot", {}).get("bot_names", ["林镜", "Linjing"])
             message_text = message.extract_plain_text() if hasattr(message, 'extract_plain_text') else str(message)
             
             for name in bot_names:
