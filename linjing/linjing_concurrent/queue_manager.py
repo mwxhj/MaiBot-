@@ -573,55 +573,58 @@ class RequestQueueManager:
             finally:
                  logger.debug(f"--- processor_wrapper END ---") # 新增日志
 
-        # 决定使用哪个队列 (SESSION 或 RESOURCE)
-        queue_type = self.type_config.get(RequestQueueType.SESSION, {})
-        # 这里可以根据消息类型或内容动态决定队列类型，例如：
-        # if message.contains_resource_intensive_command():
-        #     queue_type = QueueType.RESOURCE
+        # 对于消息处理，我们总是使用 SESSION 类型的队列
+        queue_type = RequestQueueType.SESSION
+        logger.debug(f"Determined queue_type: {queue_type}") # 现在会打印 RequestQueueType.SESSION
 
-        logger.debug(f"Determined queue_type: {queue_type}") # 新增日志
-
-        # 根据队列类型，确定队列键
+        # 根据正确的 queue_type 确定 queue_key
         queue_key = session_id if queue_type == RequestQueueType.SESSION else "global_resource_queue"
-        logger.debug(f"Determined queue_key: {queue_key}") # 新增日志
+        logger.debug(f"Determined queue_key: {queue_key}") # 现在应该会打印 session_id
 
         try:
-            logger.debug(f"Attempting to call _add_to_queue for key: {queue_key}") # 新增日志
-            await self._add_to_queue(RequestQueueType.SESSION, queue_key, context, processor_wrapper, send_metadata)
-            logger.debug(f"--- QueueManager.add_message END (Success) --- for key: {queue_key}") # 新增日志
+            logger.debug(f"Attempting to call _add_to_queue for key: {queue_key}")
+            # 传递正确的 queue_type 枚举值
+            await self._add_to_queue(queue_type, queue_key, context, processor_wrapper, send_metadata)
+            logger.debug(f"--- QueueManager.add_message END (Success) --- for key: {queue_key}")
             return True
         except Exception as e:
             logger.error(f"Failed to add message to queue {queue_key}: {e}", exc_info=True)
-            logger.debug(f"--- QueueManager.add_message END (Failure) --- for key: {queue_key}") # 新增日志
+            logger.debug(f"--- QueueManager.add_message END (Failure) --- for key: {queue_key}")
             return False
 
     async def _add_to_queue(self, queue_type: RequestQueueType, key: str, data: Any, processor: Callable, send_metadata: Dict[str, Any]):
-        """将任务添加到指定类型和键的队列中。"""
-        logger.debug(f"--- QueueManager._add_to_queue START --- Type: {queue_type}, Key: {key}") # 新增日志
+        logger.debug(f"--- QueueManager._add_to_queue START --- Type: {queue_type}, Key: {key}")
+        # --- 修正：根据 queue_type 选择正确的队列字典 ---
         queues = self.session_queues if queue_type == RequestQueueType.SESSION else self.queues
-        
-        # 获取或创建队列
+
         if key not in queues:
             logger.info(f"Creating new queue for type {queue_type}, key {key}")
-            # 从主配置或默认值获取队列配置
-            queue_config = self.type_config.get(queue_type, {})
-            specific_config = queue_config.get(queue_type.value.lower(), {})
-            max_size = specific_config.get("max_size", 0) # 0 表示无限
-            num_workers = specific_config.get("max_concurrent", 1)
+            # --- 修正：从 type_config 获取配置 ---
+            queue_config = self.type_config.get(queue_type, {}) # 使用正确的 queue_type 获取配置
+            max_size = queue_config.get("max_size", self.default_queue_size) # 使用 queue_config
+            num_workers = queue_config.get("max_concurrent", self.default_concurrent) # 使用 queue_config
             logger.debug(f"Queue config for {key}: max_size={max_size}, num_workers={num_workers}")
-            
-            queues[key] = ExternalTypedRequestQueue(
-                queue_type=queue_type,
-                event_bus=self.event_bus,
-                max_size=max_size,
-                num_workers=num_workers
-            )
-            await queues[key].start_workers() # 启动工作协程
-        
+
+            # --- 确保实例化 ExternalTypedRequestQueue 并传递正确的 queue_type ---
+            try:
+                queues[key] = ExternalTypedRequestQueue(
+                    queue_type=queue_type, # 传递正确的枚举值
+                    event_bus=self.event_bus,
+                    max_size=max_size,
+                    num_workers=num_workers
+                )
+                await queues[key].start_workers() # 启动工作协程
+            except TypeError as te: # 捕获可能的 TypeError，提供更详细信息
+                 logger.error(f"Error instantiating ExternalTypedRequestQueue for key {key}: {te}. Check constructor arguments.", exc_info=True)
+                 raise # 重新抛出异常，以便外层能捕获到
+            except Exception as e:
+                 logger.error(f"Unexpected error creating queue for key {key}: {e}", exc_info=True)
+                 raise
+
         queue = queues[key]
-        logger.debug(f"Adding task to queue {key}. Current queue size: {queue.queue.qsize()}") # 新增日志
+        logger.debug(f"Adding task to queue {key}. Current queue size: {queue.queue.qsize()}")
         await queue.add_task(processor=processor, data=data, send_metadata=send_metadata)
-        logger.debug(f"--- QueueManager._add_to_queue END --- Task added to queue {key}") # 新增日志
+        logger.debug(f"--- QueueManager._add_to_queue END --- Task added to queue {key}")
 
     async def get_queue_status(self) -> Dict[str, Any]:
         """获取队列状态（兼容旧版本）"""
