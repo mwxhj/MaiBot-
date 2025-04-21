@@ -17,7 +17,7 @@ from linjing.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-@ProcessorRegistry.register()
+# @ProcessorRegistry.register() # <-- 暂时注释掉
 class ThoughtGenerator(BaseProcessor):
     """
     思考生成器，生成机器人的内部思考过程。

@@ -45,10 +45,12 @@ else:
 # 导入其他必要的类和函数
 from linjing.constants import VERSION
 from linjing.bot.linjing_bot import LinjingBot
-from linjing.utils.logger import setup_logger
+from linjing.utils.logger import get_logger # 只导入 get_logger
+from loguru import logger as loguru_logger # 直接导入 loguru
 
 # 设置日志记录器
-logger = logging.getLogger(__name__)
+logger = None # 将在 setup_logging 后初始化
+stop_event = asyncio.Event() # 用于全局停止信号
 
 # L1 组件
 from linjing.l1_fast_sense.input_buffer import InputBuffer
@@ -200,7 +202,7 @@ def main() -> None:
 
     # 调用 setup_logger，传入 config_manager 实例
     # log_dir 参数现在是可选的，setup_logger 会从 config_manager 获取路径
-    setup_logger(config_manager, level=log_level) # log_level 现在由配置或 --debug 决定
+    # setup_logger(config_manager, level=log_level) # log_level 现在由配置或 --debug 决定
     # 记录实际使用的日志目录 (从 config_manager 获取)
     actual_log_dir = getattr(config_manager, 'LOG_PATH', 'Unknown') # 获取实际路径用于记录
     logger.info(f"日志级别设置为: {log_level}")
@@ -275,11 +277,46 @@ async def main():
     """程序主入口，初始化并运行所有组件。"""
     global logger
 
-    # 1. 设置日志
+    # 1. 设置日志 (直接使用 Loguru)
     log_config = CONFIG.get("logging", {})
-    setup_logger(level=log_config.get("level", "INFO"), 
-                  log_file_path=log_config.get("log_file_path"))
-    logger = get_logger("main") # 获取主 logger
+    log_level = log_config.get("level", "INFO")
+    log_file_path_pattern = log_config.get("log_file_path", "logs/linjing_main_{time:YYYY-MM-DD}.log")
+    log_dir = os.path.dirname(log_file_path_pattern)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+
+    loguru_logger.remove() # 移除默认处理器
+    loguru_logger.add(
+        sys.stderr,
+        level=log_level,
+        format=(
+            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+            "<level>{message}</level>"
+        ),
+        colorize=True
+    )
+    loguru_logger.add(
+        log_file_path_pattern, # 使用带时间格式的文件名
+        level=log_level,
+        rotation="00:00",
+        retention="7 days", # 简单设置保留时间
+        compression="zip",
+        encoding="utf-8",
+        format=(
+            "{time:YYYY-MM-DD HH:mm:ss.SSS} | "
+            "{level: <8} | "
+            "{name}:{function}:{line} - "
+            "{message}"
+        )
+        # enqueue=True # 可以考虑开启异步日志写入
+    )
+    # 设置全局 logger 变量 (虽然现在主要用 loguru_logger)
+    # logger = get_logger("main") # get_logger 内部可能依赖 setup_logger，暂时注释掉
+    logger = loguru_logger # 直接使用配置好的 loguru logger
+    logger.info("使用 Loguru 直接配置日志完成。")
+
     logger.info("林镜 Bot (5 层架构重构) 启动中...")
 
     # 2. 创建队列
@@ -441,20 +478,18 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, handle_signal) # 处理 Ctrl+C
     signal.signal(signal.SIGTERM, handle_signal) # 处理 kill 命令
 
+    # 获取 logger，即使在异常情况下也能记录
+    # logger = get_logger("main_entry") # 可能失败，因为 setup_logger 未调用
+    main_logger = loguru_logger # 直接使用 loguru
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         # 理论上信号处理会先捕获，这里作为后备
-        if logger:
-             logger.info("通过 KeyboardInterrupt 强制退出。")
-        else:
-             print("通过 KeyboardInterrupt 强制退出。")
+        main_logger.info("通过 KeyboardInterrupt 强制退出。")
     except Exception as e_run:
          # 捕获 asyncio.run() 本身的错误
-         if logger:
-             logger.critical(f"运行 asyncio 事件循环时发生致命错误: {e_run}", exc_info=True)
-         else:
-              print(f"运行 asyncio 事件循环时发生致命错误: {e_run}", file=sys.stderr)
+         main_logger.critical(f"运行 asyncio 事件循环时发生致命错误: {e_run}", exc_info=True)
          sys.exit(1) # 以错误码退出
 
     sys.exit(0) # 正常退出

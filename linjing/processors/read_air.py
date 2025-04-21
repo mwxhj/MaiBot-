@@ -17,7 +17,7 @@ from loguru import logger # 确保 logger 已导入
 from linjing.constants import ProcessorName # <--- ProcessorName 在 _analyze_message 方法中使用
 from linjing.adapters import Message # 确保 Message 已导入
 
-@ProcessorRegistry.register()
+# @ProcessorRegistry.register() # <-- 暂时注释掉，避免在新 main.py 运行时自动注册
 class ReadAirProcessor(BaseProcessor):
     """
     读空气处理器，理解对话语境和隐含意图。

@@ -24,7 +24,7 @@ from linjing.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-@ProcessorRegistry.register("response_composer")
+# @ProcessorRegistry.register("response_composer") # <-- 暂时注释掉
 class ResponseComposer(BaseProcessor):
     """
     响应生成器，根据上下文和思考结果生成最终回复消息。
