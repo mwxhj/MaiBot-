@@ -202,11 +202,11 @@ class LinjingBot:
             # 可以返回一个状态，例如 True 表示成功入队
             return success
         except Exception as e:
-            logger.error(f"Error adding message to QueueManager for session {context.session_id}: {e}", exc_info=True) # 修改点 3
+            logger.error(f"Error adding message to QueueManager for session {context.session_id}: {e}", exc_info=True) # 修正点 1
             # 返回 False 或 None 表示处理失败
             return False
         finally:
-            logger.debug(f"--- LinjingBot.handle_message END --- for session: {context.session_id}") # 修改点 4
+            logger.debug(f"--- LinjingBot.handle_message END --- for session: {context.session_id}") # 修正点 2
 
     async def _process_single_message(self, message: Any) -> Optional[Any]:
         """
