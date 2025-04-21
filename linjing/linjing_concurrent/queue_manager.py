@@ -22,6 +22,7 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, Union, TypeVar, Generic
 from loguru import logger
 
+from linjing.processors.message_context import MessageContext
 from linjing.utils.logger import get_logger
 from .typed_request_queue import TypedRequestQueue as ExternalTypedRequestQueue
 

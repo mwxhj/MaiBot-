@@ -23,6 +23,7 @@ class EventType:
     ERROR_OCCURRED = "error_occurred"
     ADAPTER_CONNECTED = "adapter_connected" # 新增：适配器连接成功事件
     SEND_MESSAGE_REQUEST = "send_message_request"
+    MESSAGE_PROCESSING_FAILED = "message_processing_failed"
 
 # 消息类型
 class MessageType:
