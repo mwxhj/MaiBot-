@@ -23,6 +23,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, U
 from loguru import logger
 
 from linjing.utils.logger import get_logger
+from .typed_request_queue import TypedRequestQueue as ExternalTypedRequestQueue
 
 # 获取日志记录器
 logger = get_logger(__name__)
@@ -138,269 +139,6 @@ class RequestTask(Generic[T, R]):
             self.future.set_exception(error)
 
 
-class TypedRequestQueue(Generic[T, R]):
-    """类型化请求队列，处理特定类型的请求"""
-    
-    def __init__(
-        self, 
-        queue_type: RequestQueueType,
-        max_size: int = 100,
-        max_concurrent: int = 5,
-        default_timeout: float = 60.0
-    ):
-        """
-        初始化类型化请求队列
-        
-        Args:
-            queue_type: 队列类型
-            max_size: 队列最大大小
-            max_concurrent: 最大并发处理数
-            default_timeout: 默认超时时间（秒）
-        """
-        self.queue_type = queue_type
-        self.max_size = max_size
-        self.max_concurrent = max_concurrent
-        self.default_timeout = default_timeout
-        
-        # 使用优先级队列
-        self.queue: List[RequestTask[T, R]] = []
-        self.processing: Set[str] = set()  # 正在处理的请求ID集合
-        
-        self.last_activity = time.time()
-        self.tasks_processed = 0
-        self.tasks_failed = 0
-        self.tasks_timed_out = 0
-        self.tasks_cancelled = 0
-        
-        self.processing_task: Optional[asyncio.Task] = None
-        self.is_processing = False
-        self.queue_lock = asyncio.Lock()
-        
-        logger.info(f"初始化 {queue_type.value} 请求队列，最大大小: {max_size}，最大并发: {max_concurrent}")
-    
-    async def add_request(
-        self, 
-        data: T,
-        processor: Callable[[T], Awaitable[R]],
-        priority: int = 0,
-        timeout: Optional[float] = None,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> RequestTask[T, R]:
-        """
-        添加请求到队列
-        
-        Args:
-            data: 请求数据
-            processor: 处理函数
-            priority: 优先级（值越小优先级越高）
-            timeout: 超时时间（秒）
-            metadata: 请求元数据
-            
-        Returns:
-            请求任务对象
-        
-        Raises:
-            asyncio.QueueFull: 当队列已满时
-        """
-        async with self.queue_lock:
-            if len(self.queue) >= self.max_size:
-                logger.warning(f"{self.queue_type.value} 队列已满，拒绝新请求")
-                raise asyncio.QueueFull(f"{self.queue_type.value} queue is full")
-            
-            # 创建请求任务
-            task = RequestTask(
-                request_type=self.queue_type,
-                data=data,
-                processor=processor,
-                priority=priority,
-                timeout=timeout or self.default_timeout,
-                metadata=metadata or {}
-            )
-            
-            # 按优先级插入队列（保持队列有序）
-            index = 0
-            for i, existing_task in enumerate(self.queue):
-                if existing_task.priority > priority:
-                    index = i
-                    break
-                index = i + 1
-            
-            self.queue.insert(index, task)
-            self.last_activity = time.time()
-            
-            logger.debug(
-                f"请求 {task.request_id} 已添加到 {self.queue_type.value} 队列，"
-                f"优先级: {priority}，当前队列大小: {len(self.queue)}"
-            )
-            
-            # 如果没有正在运行的处理任务，启动处理
-            if not self.is_processing:
-                self.processing_task = asyncio.create_task(self.process_queue())
-            
-            return task
-    
-    async def process_queue(self) -> None:
-        """处理队列中的请求"""
-        if self.is_processing:
-            return
-        
-        self.is_processing = True
-        logger.info(f"开始处理 {self.queue_type.value} 队列，当前队列大小: {len(self.queue)}")
-        
-        try:
-            while self.queue or self.processing:
-                # 检查是否有请求要处理
-                async with self.queue_lock:
-                    # 检查队列中等待处理的请求
-                    tasks_to_process = []
-                    tasks_to_remove = []
-                    
-                    # 首先处理超时的请求
-                    for task in self.queue:
-                        if task.has_timed_out():
-                            logger.warning(
-                                f"请求 {task.request_id} 在队列中等待超时 "
-                                f"({task.timeout}秒)，标记为超时"
-                            )
-                            task.mark_timeout()
-                            self.tasks_timed_out += 1
-                            tasks_to_remove.append(task)
-                    
-                    # 从队列中移除超时的请求
-                    for task in tasks_to_remove:
-                        self.queue.remove(task)
-                    
-                    # 如果有可用的处理槽，取出请求进行处理
-                    if len(self.processing) < self.max_concurrent:
-                        slots_available = self.max_concurrent - len(self.processing)
-                        tasks_to_process = self.queue[:slots_available]
-                        for task in tasks_to_process:
-                            self.queue.remove(task)
-                            self.processing.add(task.request_id)
-                
-                # 启动任务处理
-                if tasks_to_process:
-                    await asyncio.gather(
-                        *[self._process_request(task) for task in tasks_to_process]
-                    )
-                
-                # 如果没有任务处理，等待一小段时间
-                if not tasks_to_process and not tasks_to_remove:
-                    await asyncio.sleep(0.05)
-        finally:
-            self.is_processing = False
-            logger.info(
-                f"{self.queue_type.value} 队列处理完成，已处理: {self.tasks_processed}，"
-                f"失败: {self.tasks_failed}，超时: {self.tasks_timed_out}，"
-                f"取消: {self.tasks_cancelled}"
-            )
-    
-    async def _process_request(self, task: RequestTask[T, R]) -> None:
-        """
-        处理单个请求
-        
-        Args:
-            task: 请求任务
-        """
-        try:
-            # 标记任务开始处理
-            task.mark_started()
-            logger.info(
-                f"开始处理请求 {task.request_id}，类型: {self.queue_type.value}，"
-                f"优先级: {task.priority}，等待时间: {task.started_at - task.created_at:.3f}秒"
-            )
-            
-            # 执行处理逻辑
-            start_time = time.time()
-            result = await task.processor(task.data)
-            process_time = time.time() - start_time
-            
-            # 标记任务完成
-            task.mark_completed(result)
-            self.tasks_processed += 1
-            logger.info(
-                f"请求 {task.request_id} 处理完成，类型: {self.queue_type.value}，"
-                f"耗时: {process_time:.3f}秒"
-            )
-        except asyncio.CancelledError:
-            logger.warning(f"请求 {task.request_id} 被取消")
-            task.mark_cancelled()
-            self.tasks_cancelled += 1
-        except Exception as e:
-            logger.error(f"处理请求 {task.request_id} 时出错: {e}", exc_info=True)
-            task.mark_failed(e)
-            self.tasks_failed += 1
-        finally:
-            # 更新队列状态
-            self.last_activity = time.time()
-            self.processing.discard(task.request_id)
-    
-    def is_idle(self, idle_threshold: float = 60.0) -> bool:
-        """
-        检查队列是否空闲
-        
-        Args:
-            idle_threshold: 空闲阈值（秒）
-            
-        Returns:
-            是否空闲
-        """
-        return (
-            time.time() - self.last_activity > idle_threshold and 
-            not self.queue and 
-            not self.processing
-        )
-    
-    def get_status(self) -> Dict[str, Any]:
-        """
-        获取队列状态信息
-        
-        Returns:
-            队列状态字典
-        """
-        return {
-            "queue_type": self.queue_type.value,
-            "queue_size": len(self.queue),
-            "processing": len(self.processing),
-            "max_size": self.max_size,
-            "max_concurrent": self.max_concurrent,
-            "tasks_processed": self.tasks_processed,
-            "tasks_failed": self.tasks_failed,
-            "tasks_timed_out": self.tasks_timed_out,
-            "tasks_cancelled": self.tasks_cancelled,
-            "last_activity": self.last_activity,
-            "idle_time": time.time() - self.last_activity
-        }
-    
-    async def cancel_request(self, request_id: str) -> bool:
-        """
-        取消指定的请求
-        
-        Args:
-            request_id: 请求ID
-            
-        Returns:
-            是否成功取消
-        """
-        async with self.queue_lock:
-            # 检查请求是否在队列中
-            for i, task in enumerate(self.queue):
-                if task.request_id == request_id:
-                    task.mark_cancelled()
-                    self.queue.pop(i)
-                    self.tasks_cancelled += 1
-                    logger.info(f"已取消队列中的请求 {request_id}")
-                    return True
-            
-            # 请求不在队列中，可能正在处理或已完成
-            if request_id in self.processing:
-                logger.warning(f"请求 {request_id} 正在处理中，无法取消")
-                return False
-            
-            logger.warning(f"找不到请求 {request_id}，可能已完成或不存在")
-            return False
-
-
 class RequestQueueManager:
     """
     请求队列管理器，管理不同类型的请求队列
@@ -434,10 +172,10 @@ class RequestQueueManager:
         self.event_bus = event_bus
         
         # 队列类型 -> 队列实例字典
-        self.queues: Dict[RequestQueueType, TypedRequestQueue] = {}
+        self.queues: Dict[RequestQueueType, ExternalTypedRequestQueue] = {}
         
         # 会话ID -> 会话队列字典（用于兼容旧版本）
-        self.session_queues: Dict[str, TypedRequestQueue] = {}
+        self.session_queues: Dict[str, ExternalTypedRequestQueue] = {}
         
         # 类型特定的配置
         self.type_config: Dict[RequestQueueType, Dict[str, Any]] = {
@@ -532,7 +270,7 @@ class RequestQueueManager:
         
         logger.info("请求队列管理器已停止")
     
-    async def get_queue(self, queue_type: RequestQueueType) -> TypedRequestQueue:
+    async def get_queue(self, queue_type: RequestQueueType) -> ExternalTypedRequestQueue:
         """
         获取指定类型的队列
         
@@ -549,19 +287,20 @@ class RequestQueueManager:
                 max_size = config.get("max_size", self.default_queue_size)
                 max_concurrent = config.get("max_concurrent", self.default_concurrent)
                 
-                queue = TypedRequestQueue(
+                queue = ExternalTypedRequestQueue(
                     queue_type=queue_type,
                     max_size=max_size,
                     max_concurrent=max_concurrent,
-                    default_timeout=self.default_timeout
+                    default_timeout=self.default_timeout,
+                    event_bus=self.event_bus
                 )
                 
                 self.queues[queue_type] = queue
-                logger.info(f"创建 {queue_type.value} 队列，最大大小: {max_size}，最大并发: {max_concurrent}")
+                logger.info(f"创建 {queue_type.value} 队列 (使用外部实现)，最大大小: {max_size}，最大并发: {max_concurrent}")
             
             return self.queues[queue_type]
     
-    async def get_session_queue(self, session_id: str) -> TypedRequestQueue:
+    async def get_session_queue(self, session_id: str) -> ExternalTypedRequestQueue:
         """
         获取指定会话ID的队列（用于兼容旧版本）
         
@@ -578,15 +317,16 @@ class RequestQueueManager:
                 max_size = config.get("max_size", 50)
                 max_concurrent = config.get("max_concurrent", 1)
                 
-                queue = TypedRequestQueue(
+                queue = ExternalTypedRequestQueue(
                     queue_type=RequestQueueType.SESSION,
                     max_size=max_size,
                     max_concurrent=max_concurrent,
-                    default_timeout=self.default_timeout
+                    default_timeout=self.default_timeout,
+                    event_bus=self.event_bus
                 )
                 
                 self.session_queues[session_id] = queue
-                logger.info(f"创建会话队列 {session_id}，最大大小: {max_size}，最大并发: {max_concurrent}")
+                logger.info(f"创建会话队列 {session_id} (使用外部实现)，最大大小: {max_size}，最大并发: {max_concurrent}")
             
             return self.session_queues[session_id]
     
@@ -747,7 +487,7 @@ class RequestQueueManager:
 
     # 以下方法用于向后兼容旧版的QueueManager
 
-    async def get_or_create_queue(self, session_id: str) -> TypedRequestQueue:
+    async def get_or_create_queue(self, session_id: str) -> ExternalTypedRequestQueue:
         """
         获取或创建会话队列（兼容旧版本）
         
@@ -808,29 +548,21 @@ class RequestQueueManager:
             # 获取特定会话的队列
             queue = await self.get_or_create_queue(session_id)
             
-            # 包装 processor 以适应 TypedRequestQueue
-            async def processor_wrapper(msg_data):
-                # --- 添加日志 --- 
-                logger.debug(f"QueueManager ({session_id}): processor_wrapper received data type: {type(msg_data)}, value: {str(msg_data)[:200]}...")
-                # --- 日志结束 --- 
-                # 确保传递的是 message 对象 (msg_data)
-                return await processor(msg_data) 
-            
-            # 添加请求到类型化队列
+            # --- 直接添加请求，processor 就是传入的 processor --- 
             request_task = await queue.add_request(
                 data=message, # data 是原始 message 对象
-                processor=processor_wrapper, # processor 是包装器
+                processor=processor, # 直接使用传入的 processor (即 self._process_single_message)
                 priority=priority,
                 timeout=timeout or self.default_timeout,
                 metadata={"send_metadata": send_metadata} # 传递元数据
             )
-            logger.debug(f"请求 {request_task.request_id} 已添加到 {queue.queue_type.value} 队列 {session_id}，优先级: {priority}")
+            logger.debug(f"请求 {request_task.request_id} 已添加到 {queue.queue_type.value} 队列 {session_id} (外部实现)，优先级: {priority}") # 添加日志区分
             return True
         except asyncio.QueueFull:
-             logger.error(f"会话队列 {session_id} 已满，消息被丢弃。")
+             logger.error(f"会话队列 {session_id} 已满 (外部实现)，消息被丢弃。") # 添加日志区分
              return False
         except Exception as e:
-            logger.error(f"添加消息到队列 {session_id} 时出错: {e}", exc_info=True)
+            logger.error(f"添加消息到队列 {session_id} (外部实现) 时出错: {e}", exc_info=True) # 添加日志区分
             return False
     
     async def get_queue_status(self) -> Dict[str, Any]:
