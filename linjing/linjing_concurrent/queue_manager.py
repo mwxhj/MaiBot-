@@ -20,6 +20,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, Union, TypeVar, Generic
+from loguru import logger
 
 from linjing.utils.logger import get_logger
 
@@ -779,45 +780,57 @@ class RequestQueueManager:
         Returns:
             是否成功添加
         """
-        session_id = context.session_id if hasattr(context, 'session_id') else "default_session"
-        
-        # --- 提取发送所需信息 --- 
+        # --- 修改：从 message 对象获取平台和会话 ID (如果可用) ---
+        platform = getattr(message, 'get_meta', lambda k,d=None: d)('platform', 'unknown') # 使用 get_meta
+        session_id_from_msg = getattr(message, 'get_session_id', lambda: None)() # 调用 get_session_id
+        # 如果消息中没有会话ID，则尝试从 context 获取，或生成默认值
+        session_id = session_id_from_msg or getattr(context, 'session_id', f'session_{getattr(context, "user_id", "unknown")}_{int(time.time())}')
+
         send_metadata = {}
         if message: # 确保 message 对象存在
-             try:
-                 send_metadata['user_id'] = message.get_user_id()
-                 send_metadata['group_id'] = message.get_group_id()
-                 send_metadata['message_type'] = message.get_message_type()
-                 send_metadata['adapter_name'] = message.get_platform() # 假设 message 有 get_platform 方法
-                 # 存储原始消息引用，以便 _process_request 能访问
-                 send_metadata['original_message'] = message 
-             except AttributeError as e:
-                 logger.warning(f"无法从消息对象提取所有发送元数据: {e}。发送功能可能受限。")
-             except Exception as e:
-                 logger.error(f"提取消息元数据时发生意外错误: {e}", exc_info=True)
-        # --- 提取结束 ---
-        
-        try:
-            session_queue = await self.get_or_create_queue(session_id)
-            
-            # 创建一个包装器来适应 TypedRequestQueue 的 processor 签名
-            # 这个包装器接收 data (即我们传入的 context)，然后调用原始的 processor
-            async def processor_wrapper(ctx):
-                return await processor(ctx)
+            try:
+                # 使用 get_meta 或特定的方法，并添加 getattr 防御
+                # 假设 adapter 实例在 context 中，如果不在，发送时可能需要其他方式获取
+                adapter_instance = getattr(context, 'adapter', None) 
+                
+                send_metadata['user_id'] = getattr(message, 'get_user_id', lambda: None)()
+                send_metadata['group_id'] = getattr(message, 'get_meta', lambda k,d=None: d)('group_id') # 使用 get_meta
+                send_metadata['message_type'] = getattr(message, 'get_meta', lambda k,d=None: d)('message_type') # 使用 get_meta
+                send_metadata['platform'] = platform
+                send_metadata["adapter"] = adapter_instance
+                send_metadata["original_message"] = message # 原始消息对象
+            except Exception as e:
+                 # 修改警告日志，更清晰地指出问题
+                 logger.warning(f"为 session {session_id} 提取消息元数据时出错: {e}。发送功能可能受限。", exc_info=True)
+        # --- 修改结束 ---
 
-            await session_queue.add_request(
-                data=context, # 将 context 作为 data 传递
-                processor=processor_wrapper,
+        try:
+            # 获取特定会话的队列
+            queue = await self.get_or_create_queue(session_id)
+            
+            # 包装 processor 以适应 TypedRequestQueue
+            async def processor_wrapper(msg_data):
+                # --- 添加日志 --- 
+                logger.debug(f"QueueManager ({session_id}): processor_wrapper received data type: {type(msg_data)}, value: {str(msg_data)[:200]}...")
+                # --- 日志结束 --- 
+                # 确保传递的是 message 对象 (msg_data)
+                return await processor(msg_data) 
+            
+            # 添加请求到类型化队列
+            request_task = await queue.add_request(
+                data=message, # data 是原始 message 对象
+                processor=processor_wrapper, # processor 是包装器
                 priority=priority,
-                timeout=timeout,
-                metadata=send_metadata # <--- 传递包含发送信息的元数据
+                timeout=timeout or self.default_timeout,
+                metadata={"send_metadata": send_metadata} # 传递元数据
             )
+            logger.debug(f"请求 {request_task.request_id} 已添加到 {queue.queue_type.value} 队列 {session_id}，优先级: {priority}")
             return True
         except asyncio.QueueFull:
-            logger.error(f"会话 {session_id} 队列已满，无法添加消息。")
-            return False
+             logger.error(f"会话队列 {session_id} 已满，消息被丢弃。")
+             return False
         except Exception as e:
-            logger.error(f"添加消息到会话 {session_id} 队列时出错: {e}", exc_info=True)
+            logger.error(f"添加消息到队列 {session_id} 时出错: {e}", exc_info=True)
             return False
     
     async def get_queue_status(self) -> Dict[str, Any]:
