@@ -48,7 +48,7 @@ def setup_logger(config_manager: 'ConfigManager', level: str = "INFO", log_dir: 
     log_format = (
         "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
         "<level>{level: <8}</level> | "
-        "<cyan>{name}</cyan>:<cyan>{line}</cyan> - "
+        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
         "<level>{message}</level>"
     )
     
@@ -86,6 +86,63 @@ def setup_logger(config_manager: 'ConfigManager', level: str = "INFO", log_dir: 
         encoding="utf-8",
     )
     
+    # --- 新增：全方位观察日志 Sinks --- 
+    # 是否启用观察日志 (可以从配置读取)
+    enable_observation_logs = config_manager.get("system.logging.enable_observation_logs", True)
+
+    if enable_observation_logs:
+        obs_log_dir = os.path.join(actual_log_dir, "observation")
+        os.makedirs(obs_log_dir, exist_ok=True)
+        logger.info(f"启用全方位观察日志，将保存到: {obs_log_dir}")
+
+        # 1. 林静发言日志
+        logger.add(
+            os.path.join(obs_log_dir, "linjing_speech_{time:YYYY-MM-DD}.log"),
+            level="INFO", rotation="10 MB", retention="7 days", encoding="utf-8",
+            filter=lambda record: "准备发布 SEND_MESSAGE_REQUEST 事件" in record["message"],
+            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | REPLY | {extra[reply_content]}",
+            enqueue=True 
+        )
+
+        # 2. 林静想法日志
+        logger.add(
+            os.path.join(obs_log_dir, "linjing_thoughts_{time:YYYY-MM-DD}.jsonl"),
+            level="DEBUG", rotation="50 MB", retention="14 days", encoding="utf-8",
+            filter=lambda record: "thought_input" in record["extra"],
+            format="{extra[thought_input]}",
+            serialize=True,
+            enqueue=True
+        )
+        
+        # 3. 林静读空气日志
+        logger.add(
+            os.path.join(obs_log_dir, "linjing_read_air_{time:YYYY-MM-DD}.jsonl"),
+            level="DEBUG", rotation="10 MB", retention="7 days", encoding="utf-8",
+            filter=lambda record: record["extra"].get("component_name") == "读空气分析",
+            format="{extra[report_data]}",
+            serialize=True,
+            enqueue=True
+        )
+
+        # 4. 林静情绪日志
+        logger.add(
+            os.path.join(obs_log_dir, "linjing_emotion_{time:YYYY-MM-DD}.jsonl"),
+            level="DEBUG", rotation="10 MB", retention="14 days", encoding="utf-8",
+            filter=lambda record: record["extra"].get("component_name") == "情绪状态",
+            format="{extra[report_data]}",
+            serialize=True,
+            enqueue=True
+        )
+
+        # 5. 聊天消息日志
+        logger.add(
+            os.path.join(obs_log_dir, "chat_messages_{time:YYYY-MM-DD}.log"),
+            level="DEBUG", rotation="50 MB", retention="7 days", encoding="utf-8",
+            filter=lambda record: "msg_content" in record["extra"],
+            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | CHAT | User: {extra[user_id]} | Group: {extra[group_id]} | Msg: {extra[msg_content]}",
+            enqueue=True
+        )
+
     # 配置标准库日志与loguru的兼容
     class InterceptHandler(logging.Handler):
         def emit(self, record):
@@ -107,7 +164,7 @@ def setup_logger(config_manager: 'ConfigManager', level: str = "INFO", log_dir: 
             )
     
     # 将所有标准库日志重定向到loguru
-    logging.basicConfig(handlers=[InterceptHandler()], level=0)
+    logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
 
 def get_logger(name: str) -> logger:
     """

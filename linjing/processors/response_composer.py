@@ -139,6 +139,24 @@ class ResponseComposer(BaseProcessor):
         """
         print("!!! DEBUG PRINT: ResponseComposer process ENTERED !!!", flush=True) # 添加 print 标记
         logger.info("--- ResponseComposer process method entered ---") # 入口标记
+        # --- 新增：使用 bind 记录输入的 thoughts/context ---
+        # 假设核心想法/上下文存储在 context.get_state('thought') 或类似的结构化数据中
+        # 需要确认 `thought` 的具体来源和格式，这里假设它是包含核心信息的 dict 或 JSON str
+        thought_data = context.get_state("thought") 
+        # 尝试获取传递给此处理器的完整 current_mind_info (如果存在)
+        # 注意：这依赖于之前的处理器（如ThoughtGenerator）将它存储在context中
+        current_mind_info = context.get_state("current_mind_info") # 假设键名为 current_mind_info
+        
+        if current_mind_info:
+             # 优先记录完整的 current_mind_info
+             logger.bind(thought_input=current_mind_info).debug("接收到上下文 (current_mind_info)")
+        elif thought_data:
+             # 如果没有完整的 mind info，记录 thought_data
+             logger.bind(thought_input=thought_data).debug("接收到上下文 (thought_data)")
+        else:
+             # 如果两者都没有，记录一个警告
+             logger.warning("ResponseComposer 未在 context 中找到 'thought' 或 'current_mind_info' 状态数据")
+        # --- 日志记录结束 ---
         logger.info("开始生成回复消息")
         
         reply = None # 初始化 reply 变量

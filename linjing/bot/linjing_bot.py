@@ -410,7 +410,9 @@ class LinjingBot:
         # --- 如果有回复，触发相关逻辑 ---
         if final_reply:
              # --- V12: 发布发送消息请求事件 --- 
-             logger.info(f"准备发布 SEND_MESSAGE_REQUEST 事件，回复内容: {str(final_reply)[:100]}")
+             # --- 修改：使用 bind 记录回复内容，方便 speech log 提取 ---
+             # logger.info(f"准备发布 SEND_MESSAGE_REQUEST 事件，回复内容: {str(final_reply)[:100]}")
+             logger.bind(reply_content=str(final_reply)).info(f"准备发布 SEND_MESSAGE_REQUEST 事件 (Target: {context.session_id if context else 'N/A'})")
              try:
                  # 确保上下文存在以提取元数据
                  event_context = processed_context if processed_context else context
@@ -1240,6 +1242,10 @@ class LinjingBot:
             data: 组件处理结果数据
             prefix: 日志前缀
         """
+        # --- 新增：先用 bind 记录原始数据，方便专门的日志文件提取 ---
+        logger.bind(component_name=component_name, report_data=data).debug(f"准备打印组件报告: {component_name}")
+        # --- 记录结束 ---
+
         if data is None:
             logger.info(f"{prefix}【{component_name}】处理结果为空")
             return

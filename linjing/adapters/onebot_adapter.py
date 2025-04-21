@@ -453,7 +453,13 @@ class OneBotAdapter(Bot):
             try:
                 # 使用 MessageConverter 进行转换
                 message_obj = MessageConverter.to_internal_message("onebot", event)
-                logger.debug(f"消息转换后的事件对象: {message_obj}")
+                # --- 修改：使用 bind 记录提取到的信息 ---
+                user_id = message_obj.get_user_id() if hasattr(message_obj, 'get_user_id') else 'unknown'
+                group_id = message_obj.get_meta('group_id') if hasattr(message_obj, 'get_meta') else None
+                content = message_obj.extract_plain_text() if hasattr(message_obj, 'extract_plain_text') else str(message_obj)
+                logger.bind(user_id=user_id, group_id=group_id, msg_content=content).debug(f"消息转换后的事件对象 (User: {user_id}, Group: {group_id})")
+                # logger.debug(f"消息转换后的事件对象: {message_obj}") # 旧日志
+                # --- 修改结束 ---
 
                 # 如果转换成功且存在主消息处理函数
                 if message_obj and self._message_handler:
