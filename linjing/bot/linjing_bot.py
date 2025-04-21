@@ -400,14 +400,44 @@ class LinjingBot:
 
         # --- V12 修改：回复通过事件总线异步发送，这里只负责记录和触发高戒备等逻辑 ---
 
+        # --- V12 修改：注释掉不存在的事件 ---
         # 发布消息处理完成事件 (无论是否有回复)
-        await self.event_bus.publish(
-             EventType.MESSAGE_PROCESSING_COMPLETED,
-             {"context": processed_context.to_dict(safe=True) if processed_context else context.to_dict(safe=True), "reply": str(final_reply)[:200] if final_reply else None}
-        )
+        # await self.event_bus.publish(
+        #      EventType.MESSAGE_PROCESSING_COMPLETED,
+        #      {"context": processed_context.to_dict(safe=True) if processed_context else context.to_dict(safe=True), "reply": str(final_reply)[:200] if final_reply else None}
+        # )
 
         # --- 如果有回复，触发相关逻辑 ---
         if final_reply:
+             # --- V12: 发布发送消息请求事件 --- 
+             logger.info(f"准备发布 SEND_MESSAGE_REQUEST 事件，回复内容: {str(final_reply)[:100]}")
+             try:
+                 # 确保上下文存在以提取元数据
+                 event_context = processed_context if processed_context else context
+                 if event_context:
+                     await self.event_bus.publish(
+                         EventType.SEND_MESSAGE_REQUEST,
+                         {
+                             "reply": final_reply, # 传递完整的回复对象
+                             # 传递必要的上下文信息供适配器使用
+                             "target": {
+                                 "session_id": event_context.session_id,
+                                 "user_id": event_context.user_id,
+                                 "platform": event_context.platform,
+                                 # 可以考虑添加 group_id 等其他适配器可能需要的信息
+                                 "group_id": event_context.get_meta("group_id")
+                             }
+                         }
+                     )
+                     logger.info(f"已发布 SEND_MESSAGE_REQUEST 事件 (Session: {event_context.session_id})")
+                 else:
+                     logger.error("无法发布 SEND_MESSAGE_REQUEST，因为处理上下文丢失！")
+             except AttributeError as ae:
+                 logger.error(f"发布 SEND_MESSAGE_REQUEST 时缺少 EventType 成员? {ae}", exc_info=True)
+             except Exception as e:
+                 logger.error(f"发布 SEND_MESSAGE_REQUEST 事件时出错: {e}", exc_info=True)
+             # --- 事件发布结束 ---
+
              # --- 使用资源锁保护会话状态更新 (高戒备逻辑) ---
              session_id = context.session_id # 从 context 获取 session_id
              if self.high_alert_mode_trigger_enabled and self.storage_manager:
