@@ -1,1 +1,0 @@
-redis>=4.2 # L1 Context Aggregator 需要 

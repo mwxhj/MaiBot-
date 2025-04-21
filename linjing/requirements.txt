@@ -54,3 +54,4 @@ urllib3==2.4.0
 websockets==15.0.1
 # win32_setctime==1.2.0 # Removed, Windows-specific package
 yarl==1.20.0
+redis>=4.2 # L1 Context Aggregator 需要 
