@@ -549,27 +549,31 @@ class RequestQueueManager:
         logger.debug(f"Collected send_metadata: {send_metadata}") # 新增日志
 
         # 包装处理器以传递 send_metadata
-        async def processor_wrapper(msg_data):
+        async def processor_wrapper(msg_data): # processor 在这里是闭包变量
             logger.debug(f"--- processor_wrapper START --- Received data type: {type(msg_data)}, value: {msg_data}") # 新增日志
             # 检查传入的数据是否是预期的 MessageContext
             if not isinstance(msg_data, MessageContext):
                 logger.error(f"processor_wrapper received unexpected data type: {type(msg_data)}. Expected MessageContext.")
                 return None # 或者抛出异常
             
-            # 从 msg_data (即 context) 获取处理器
-            processor = msg_data.get_processor()
-            if not processor:
-                 logger.error("Processor function not found in MessageContext.")
+            # --- 修正：直接使用外部作用域捕获的 processor ---
+            # 移除: processor = msg_data.get_processor()
+            if not processor: # 检查捕获的 processor 是否有效
+                 logger.error("Actual processor function (captured) is None or invalid.")
                  return None
+            # --- 修正结束 ---
 
             try:
-                # 调用实际的消息处理函数
+                # --- 使用捕获的 processor --- 
                 logger.debug(f"Calling actual processor: {processor.__name__}") # 新增日志
                 reply = await processor(msg_data) # 传递完整的 context
                 logger.debug(f"Processor {processor.__name__} finished. Reply: {reply}") # 新增日志
+                # --- 修改结束 --- 
                 return reply
             except Exception as e:
+                 # --- 使用捕获的 processor 记录日志 --- 
                 logger.error(f"Error executing processor {processor.__name__}: {e}", exc_info=True)
+                 # --- 修改结束 --- 
                 return None # 处理失败
             finally:
                  logger.debug(f"--- processor_wrapper END ---") # 新增日志
