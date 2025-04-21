@@ -64,7 +64,6 @@ from linjing.l2_adaptive_dispatcher.state_monitor import SimpleStateMonitor
 from linjing.l2_adaptive_dispatcher.decision_engine import SimpleRuleBasedDecisionEngine
 from linjing.l3_processing_paths.path_c_simple import SimplePathCProcessor
 from linjing.utils.logger import get_logger # 只导入 get_logger
-from linjing.utils.config_loader import load_yaml_config
 
 # L2 组件
 from linjing.l2_adaptive_dispatcher.state_monitor import SimpleStateMonitor, StateMonitorInterface
