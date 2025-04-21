@@ -90,7 +90,7 @@ bot:
     message_count_threshold: 10         # 消息计数阈值 (需要实现状态存储)
     message_count_trigger_enabled: true # 是否启用消息计数触发 (暂不实现)
     time_interval_threshold: 300        # 时间间隔阈值 (秒) (需要实现状态存储)
-    time_interval_trigger_enabled: rue # 是否启用时间间隔触发
+    time_interval_trigger_enabled: true # 是否启用时间间隔触发
     high_alert_mode_trigger_enabled: true # 是否启用高戒备模式触发 (现在改为 true 以便测试)
     high_alert_duration: 5             # 高戒备持续消息数 (改为 5)
     # 新增：名字触发配置
