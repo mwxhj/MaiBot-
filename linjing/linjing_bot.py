@@ -2,6 +2,8 @@ import asyncio
 from .constants import EventType  # 确保导入 EventType
 from .message import Message # 假设需要 Message 类型提示
 from .adapters.base import BaseAdapter # 假设需要 BaseAdapter 类型提示
+from loguru import logger # 确保 logger 已导入
+import json
 
 class LinjingBot:
     # ... (其他属性和方法) ...
@@ -59,6 +61,111 @@ class LinjingBot:
         except Exception as e:
             self.logger.error(f"处理 SEND_MESSAGE_REQUEST 事件并发送消息时出错: {e}", exc_info=True)
             self.logger.error(f"事件数据: {event_data}")
+
+    async def _process_single_message(self, message: Any) -> Optional[Any]:
+        """
+        处理单条消息（在队列中或直接处理）
+        
+        Args:
+            message: 消息对象
+            
+        Returns:
+            处理后的响应消息
+        """
+        logger.info(f"开始处理消息: {message}")
+        
+        # 创建消息上下文
+        context = MessageContext(
+            message=message,
+            user_id=message.get_user_id() if hasattr(message, 'get_user_id') else str(message),
+            config=self.config,
+            session_id=message.get_session_id() if hasattr(message, 'get_session_id') else "default"
+        )
+
+        # ... (获取历史、情绪、发布事件等) ...
+
+        # --- V12 处理流程：执行处理器管道 ---
+        processed_context = await self._execute_processor_pipeline(context)
+        
+        # 从处理后的上下文中获取最终回复
+        # 假设最终回复存储在 processed_context 的 _state['reply'] 中
+        final_reply = processed_context.get_state("reply")
+
+        # --- 添加日志：检查 final_reply 和返回值 --- 
+        logger.debug(f"_process_single_message: Pipeline finished. Extracted final_reply (type: {type(final_reply)}): {str(final_reply)[:200]}...")
+        # --- 日志结束 ---
+
+        # 发布消息发送事件 (注意：这部分现在由事件总线处理，可能需要移除或调整)
+        # if final_reply:
+        #     await self.event_bus.publish(
+        #         EventType.MESSAGE_SENT,
+        #         {"message": final_reply, "context": processed_context}
+        #     )
+
+        # --- Return the reply first ---
+        if final_reply:
+             # --- 高戒备模式逻辑 (保持不变) ---
+             if self.high_alert_mode_trigger_enabled and self.storage_manager:
+                 session_id = message.get_session_id() if hasattr(message, 'get_session_id') else "default"
+                 
+                 if self.resource_lock:
+                     async with self.resource_lock.lock(ResourceType.SESSION):
+                         logger.info(f"机器人回复成功，会话 {session_id} 进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
+                         await self.storage_manager.update_session_state(
+                             session_id,
+                             is_high_alert=True,
+                             high_alert_counter=0
+                         )
+                 else:
+                     # 如果没有资源锁，直接执行
+                     logger.info(f"机器人回复成功，会话 {session_id} 进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
+                     await self.storage_manager.update_session_state(
+                         session_id,
+                         is_high_alert=True,
+                         high_alert_counter=0
+                     )
+             # --- 高戒备触发结束 ---
+
+             # 为了尽快响应用户，将耗时的数据库写入操作放入后台任务执行
+             asyncio.create_task(self._save_conversation_async(context, processed_context, message, final_reply))
+             
+             # --- 添加返回前日志 --- 
+             logger.debug(f"_process_single_message: Returning final_reply: {str(final_reply)[:200]}...")
+             # --- 日志结束 --- 
+             return final_reply
+        else:
+             logger.warning(f"消息处理完成但未生成回复: UserID={context.user_id}, SessionID={context.session_id}")
+             # --- 无回复时的其他逻辑 (保持不变) ---
+             mentioned_or_named = await self._check_if_mentioned(message)
+             if mentioned_or_named and self.high_alert_mode_trigger_enabled and self.storage_manager:
+                 session_id = message.get_session_id() if hasattr(message, 'get_session_id') else "default"
+                 
+                 if self.resource_lock:
+                     async with self.resource_lock.lock(ResourceType.SESSION):
+                         # 检查是否已处于高戒备，避免重复日志和更新
+                         current_state = await self.storage_manager.get_session_state(session_id)
+                         if not current_state or not current_state.get("is_high_alert"):
+                             logger.info(f"会话 {session_id} 因被提及但无回复而进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
+                             await self.storage_manager.update_session_state(
+                                 session_id,
+                                 is_high_alert=True,
+                                 high_alert_counter=0
+                             )
+                 else:
+                     # 如果没有资源锁，直接执行
+                     # 检查是否已处于高戒备，避免重复日志和更新
+                     current_state = await self.storage_manager.get_session_state(session_id)
+                     if not current_state or not current_state.get("is_high_alert"):
+                         logger.info(f"会话 {session_id} 因被提及但无回复而进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
+                         await self.storage_manager.update_session_state(
+                             session_id,
+                             is_high_alert=True,
+                             high_alert_counter=0
+                         )
+             # --- 添加返回前日志 --- 
+             logger.debug(f"_process_single_message: Returning None (no reply generated).")
+             # --- 日志结束 ---
+             return None
 
     # ... (其他方法如 start, stop, handle_message) ...
 
