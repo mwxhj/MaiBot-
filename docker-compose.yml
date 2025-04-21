@@ -35,6 +35,8 @@ services:
         condition: service_healthy
       postgres_db: # <--- 重新添加对数据库服务的依赖
         condition: service_started # 或者 service_healthy 如果镜像支持
+      redis: # <-- 添加对 Redis 服务的依赖
+        condition: service_healthy # 依赖 Redis 健康检查通过
     networks:
       - linjing-net
     env_file:
@@ -82,6 +84,24 @@ services:
     # ports:
     #   - "5432:5432"
 
+  redis:
+    image: redis:7-alpine # 使用较新的 Alpine 版本 Redis
+    container_name: redis_linjing # 避免命名冲突
+    restart: unless-stopped
+    networks:
+      - linjing-net
+    ports:
+      - "6379:6379" # 将容器端口 6379 映射到宿主机
+    volumes:
+      - redis-data:/data # 将命名卷挂载到 Redis 的数据目录
+    # 可选：添加密码保护 (如果需要，请在 .env 中设置 REDIS_PASSWORD)
+    # command: redis-server --requirepass ${REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 networks:
   linjing-net:
     driver: bridge
@@ -95,3 +115,4 @@ volumes:
   linjing-logs:
   qdrant-data:
   postgres-data: # <--- 重新添加 PostgreSQL 数据卷
+  redis-data: # <-- 添加 Redis 数据卷定义
