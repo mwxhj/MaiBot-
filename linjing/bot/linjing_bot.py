@@ -167,10 +167,17 @@ class LinjingBot:
         logger.debug(f"--- LinjingBot.handle_message START --- Received message object: {message}") # 新增日志
 
         # 1. 创建消息上下文
-        # 移除 bot 参数，保留 message 和 config
-        # user_id 和 session_id 似乎由 MessageContext 内部处理，暂不显式传递
-        context = MessageContext(message=message, config=self.config) # 移除 bot=self
-        logger.debug(f"Created MessageContext: {context}") # 新增日志
+        # 从 message 提取 user_id 和 session_id
+        user_id = message.get_user_id("unknown_user") if hasattr(message, 'get_user_id') else "unknown_user"
+        session_id = message.get_session_id() if hasattr(message, 'get_session_id') else f"default_session_{user_id}"
+
+        context = MessageContext(
+            message=message,
+            user_id=user_id, # 显式传递 user_id
+            config=self.config,
+            session_id=session_id # 显式传递 session_id
+        )
+        logger.debug(f"Created MessageContext with user_id={user_id}, session_id={session_id}: {context}") # 更新日志
 
         # 2. 将消息上下文添加到队列管理器
         try:
