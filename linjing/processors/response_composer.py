@@ -5,7 +5,7 @@
 响应生成器模块，负责根据上下文和思考过程生成最终的回复消息。
 """
 
-import logging
+# import logging # --- 移除旧的 import ---
 import random
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -15,9 +15,13 @@ from linjing.processors.message_context import MessageContext
 from linjing.processors.processor_registry import ProcessorRegistry
 from linjing.llm.llm_manager import LLMManager
 from linjing.memory.memory_manager import MemoryManager
+# --- 新增：导入 get_logger ---
+from linjing.utils.logger import get_logger
 # from linjing.processors.base_processor import BaseProcessor as Processor # <--- 别名 Processor 未使用
 
-logger = logging.getLogger(__name__)
+# --- 修改：使用 get_logger 获取 logger 实例 ---
+# logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @ProcessorRegistry.register("response_composer")

@@ -652,10 +652,33 @@ class LinjingBot:
         # 当调试或开发时，可以开启此选项使机器人始终处于高戒备状态
         always_high_alert = getattr(self, 'always_high_alert', False) or self.config.get("debug", {}).get("always_high_alert", False)
         if always_high_alert:
-            logger.debug("开发调试模式：始终保持高戒备状态")
-            is_high_alert = True
-            session_state["is_high_alert"] = True
-            update_payload["is_high_alert"] = True
+            logger.debug("开发调试模式：始终保持高戒备状态，强制处理消息。")
+            # --- 修改：直接返回 True，跳过后续所有检查 ---
+            # is_high_alert = True 
+            # session_state["is_high_alert"] = True
+            # update_payload["is_high_alert"] = True
+            # --- 同时需要返回 mentioned_or_named，这里可以直接设为 True 或根据实际情况判断？---
+            # 简单起见，强制处理时，我们假设 mention 状态不重要或强制为 True?
+            # 或者我们仍然需要计算 mentioned_or_named 并返回?
+            # 重新计算 mentioned_or_named 以便正确返回
+            mentioned_or_named = False
+            if self.mention_trigger_enabled and self.self_id:
+                segments = getattr(message, 'segments', None)
+                if isinstance(segments, list):
+                    for segment in message.segments:
+                        segment_type = getattr(segment, 'type', None) or segment.get('type') if isinstance(segment, dict) else None
+                        segment_data = getattr(segment, 'data', None) or segment.get('data') if isinstance(segment, dict) else {}
+                        if segment_type == "at" and str(segment_data.get("qq")) == self.self_id:
+                            mentioned_or_named = True
+                            break
+            if not mentioned_or_named and self.name_trigger_enabled:
+                message_text = message.extract_plain_text() if hasattr(message, 'extract_plain_text') else str(message)
+                for name in self.bot_names:
+                    if name in message_text: # 简化判断，包含即可
+                        mentioned_or_named = True
+                        break
+            return True, mentioned_or_named # 直接返回 True 表示处理，并带上计算好的 mention 状态
+            # --- 修改结束 ---
             
         # --- 检查是否应该处理消息 ---
         should_trigger_processing = False # 默认不处理
