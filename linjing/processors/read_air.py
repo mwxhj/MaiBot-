@@ -15,6 +15,7 @@ from linjing.processors.message_context import MessageContext
 from linjing.processors.processor_registry import ProcessorRegistry
 from loguru import logger # 确保 logger 已导入
 from linjing.constants import ProcessorName # <--- ProcessorName 在 _analyze_message 方法中使用
+from linjing.adapters import Message # 确保 Message 已导入
 
 @ProcessorRegistry.register()
 class ReadAirProcessor(BaseProcessor):
@@ -111,22 +112,29 @@ class ReadAirProcessor(BaseProcessor):
             logger.debug(f"[{self.name}] 开始处理 context (Platform: {context.platform}, User: {context.user_id})", tag=self.name) # 添加开始日志
             
             message = context.message
-            # --- 添加日志 ---
-            logger.debug(f"[{self.name}] 获取到 context.message: 类型={type(message)}, 值={str(message)[:200]}...", tag=self.name) # 限制日志长度
-            # --- 日志结束 ---
+            # --- 移除或注释掉可疑的日志 ---
+            # logger.debug(f"[{self.name}] 获取到 context.message: 类型={type(message)}, 值={str(message)[:200]}...", tag=self.name)
+
+            # --- 添加更可靠的类型检查 ---
+            if not isinstance(message, Message):
+                logger.error(f"[{self.name}] context.message 的类型不是预期的 Message，而是 {type(message)}！跳过处理。值: {str(message)[:200]}...", tag=self.name)
+                context.log_processor(self.name, f"处理失败: context.message 类型错误 ({type(message)})" )
+                return context # 类型错误，直接返回
+            # --- 类型检查结束 ---
 
             message_text = "" # 初始化 message_text
-            if message: # 检查 message 是否有效
+            if message: # 现在可以安全地假设 message 是 Message 类型
                 # --- 添加日志 ---
                 logger.debug(f"[{self.name}] 准备提取 message 文本...", tag=self.name)
                 # --- 日志结束 ---
-                # 增加 hasattr 检查提高健壮性
+                # 这里的 hasattr 检查仍然是好的实践
                 if hasattr(message, 'extract_plain_text') and callable(message.extract_plain_text):
                     message_text = message.extract_plain_text()
                 else:
-                    logger.warning(f"[{self.name}] message 对象缺少有效的 extract_plain_text 方法，将使用 str() 转换。类型: {type(message)}", tag=self.name)
-                    message_text = str(message)
-                logger.debug(f"[{self.name}] 提取到文本: '{message_text[:50]}...'", tag=self.name) # 记录提取到的文本（部分）
+                    # 这种情况理论上不应该发生，因为我们检查了类型
+                    logger.warning(f"[{self.name}] Message 对象缺少 extract_plain_text 方法？将使用 str()。", tag=self.name)
+                    message_text = str(message) # 作为备选
+                logger.debug(f"[{self.name}] 提取到文本: '{message_text[:50]}...'") # 记录提取到的文本（部分）
 
                 # --- 图片处理逻辑 --- 
                 contains_image = False
