@@ -58,11 +58,24 @@ from linjing.l1_fast_sense.context_aggregator import ContextAggregator
 from linjing.l1_fast_sense.trigger_scanner import LightweightV12TriggerScanner
 from linjing.l1_fast_sense.fast_sense_nlp import FastSenseNLPModule
 from linjing.l1_fast_sense.processor import FastSenseProcessor
+from linjing.l1_fast_sense.fast_sense_processor import FastSenseProcessor
+from linjing.l1_fast_sense.fast_sense_nlp_module import FastSenseNLPModule
+from linjing.l1_fast_sense.lightweight_v12_trigger_scanner import LightweightV12TriggerScanner
+from linjing.l1_fast_sense.context_aggregator import ContextAggregator
+from linjing.l2_adaptive_dispatcher.adaptive_dispatcher import AdaptiveDispatcher
+from linjing.l2_adaptive_dispatcher.state_monitor import SimpleStateMonitor
+from linjing.l2_adaptive_dispatcher.decision_engine import SimpleRuleBasedDecisionEngine
+from linjing.l3_processing_paths.path_c_simple import SimplePathCProcessor
+from linjing.utils.logger import get_logger, setup_logging, LOG_LEVEL_MAP
+from linjing.utils.config_loader import load_yaml_config
 
 # L2 组件
 from linjing.l2_adaptive_dispatcher.state_monitor import SimpleStateMonitor, StateMonitorInterface
 from linjing.l2_adaptive_dispatcher.decision_engine import SimpleRuleBasedDecisionEngine, DecisionEngineInterface
 from linjing.l2_adaptive_dispatcher.adaptive_dispatcher import AdaptiveDispatcher
+
+# L3 组件
+from linjing.l3_processing_paths.path_c_simple import SimplePathCProcessor
 
 # 模拟 L3/L4/L5 依赖 (稍后定义)
 # from linjing.llm.llm_interface import LLMInterface # 实际组件
@@ -131,6 +144,9 @@ CONFIG = {
             "initial_bot_mode": "standard"
         },
         "decision_engine_config": {}
+    },
+    "l3": {
+        "path_c": {}
     }
 }
 
@@ -322,6 +338,7 @@ async def main():
     l3_path_a_queue = asyncio.Queue(maxsize=100)     # L2 -> L3 Path A
     l3_path_b_queue = asyncio.Queue(maxsize=100)     # L2 -> L3 Path B
     l3_path_c_queue = asyncio.Queue(maxsize=200)     # L2 -> L3 Path C (可能量更大)
+    l3_output_queue = asyncio.Queue(maxsize=100)     # L3 Path C -> L4 (暂定)
     l5_action_queue = asyncio.Queue(maxsize=100)     # L2 -> L5 Direct Action
     logger.info("所有层间队列已创建。")
 
@@ -362,6 +379,15 @@ async def main():
                                            decision_engine=decision_engine,
                                            config=l2_config.get("dispatcher_config"))
         logger.info("L2 组件实例化完成。")
+
+        # L3 组件 (Path C 示例)
+        l3_config = CONFIG.get("l3", {}) # 从主配置获取 L3 配置段
+        simple_path_c_processor = SimplePathCProcessor(
+            input_queue=l3_path_c_queue,
+            output_queue=l3_output_queue, # L3C 的输出到 l3_output_queue
+            config=l3_config.get("path_c", {}) # 获取 Path C 特定配置
+        )
+        logger.info("L3 Path C 处理器实例化完成。")
 
     except Exception as e:
         logger.error(f"组件实例化失败: {e}", exc_info=True)
@@ -405,9 +431,10 @@ async def main():
         logger.info("创建和启动核心任务...")
         tasks.add(asyncio.create_task(l1_processor.start_processing(), name="L1_FastSenseProcessor"))
         tasks.add(asyncio.create_task(l2_dispatcher.start_dispatching(), name="L2_AdaptiveDispatcher"))
+        tasks.add(asyncio.create_task(simple_path_c_processor.start_processing(), name="L3_SimplePathCProcessor"))
         tasks.add(asyncio.create_task(logging_consumer(l3_path_a_queue, "L3_Path_A_Consumer"), name="L3_Path_A_Consumer"))
         tasks.add(asyncio.create_task(logging_consumer(l3_path_b_queue, "L3_Path_B_Consumer"), name="L3_Path_B_Consumer"))
-        tasks.add(asyncio.create_task(logging_consumer(l3_path_c_queue, "L3_Path_C_Consumer"), name="L3_Path_C_Consumer"))
+        tasks.add(asyncio.create_task(logging_consumer(l3_output_queue, "L3_Output_Consumer(MindInfo)"), name="L3_Output_Consumer"))
         tasks.add(asyncio.create_task(logging_consumer(l5_action_queue, "L5_Action_Consumer"), name="L5_Action_Consumer"))
         tasks.add(asyncio.create_task(simulate_input(input_buffer_queue), name="SimulateInput"))
         
