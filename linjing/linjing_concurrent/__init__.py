@@ -13,9 +13,9 @@ from .queue_manager import (
     RequestQueueManager,
     RequestQueueType,
     RequestStatus,
-    RequestTask,
-    TypedRequestQueue
+    RequestTask
 )
+from .typed_request_queue import TypedRequestQueue
 from .resource_lock import (
     ResourceLockManager, 
     EasyResourceLock,
