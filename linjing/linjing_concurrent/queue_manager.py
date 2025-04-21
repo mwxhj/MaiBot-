@@ -525,15 +525,15 @@ class RequestQueueManager:
             logger.error("Context does not contain a message object.")
             return False
 
-        # 尝试获取 platform 和 session_id
         platform = message.get_meta("platform", "unknown")
-        session_id = context.get_session_id() # 优先从context获取
+        session_id = context.session_id # <--- 修改这里
         if not session_id:
-            # 尝试从 message 获取
-            session_id = message.get_session_id()
-            if not session_id:
-                session_id = "default_session_" + message.get_user_id("unknown_user")
-                logger.warning(f"Could not determine session_id, using default: {session_id}")
+            # ... (尝试从 message 获取 session_id 的逻辑应该保留) ...
+            session_id_from_msg = None
+            if hasattr(message, 'get_session_id'):
+                session_id_from_msg = message.get_session_id()
+            session_id = session_id_from_msg or f"default_session_{context.user_id}" # 使用 context.user_id
+            logger.warning(f"Could not determine session_id from context, using derived default: {session_id}")
 
         logger.debug(f"Determined platform: {platform}, session_id: {session_id}") # 新增日志
 
