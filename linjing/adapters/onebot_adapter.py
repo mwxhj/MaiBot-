@@ -331,7 +331,7 @@ class OneBotAdapter(Bot):
                                  await self._verify_self_id(self.self_id)
                                  # 发送适配器连接成功事件
                                  from linjing.constants import EventType # 局部导入避免循环依赖
-                                 self.event_bus.publish(EventType.ADAPTER_CONNECTED, {
+                                 await self.event_bus.publish(EventType.ADAPTER_CONNECTED, {
                                      "adapter_name": self.platform,
                                      "adapter": self, # 传递适配器实例
                                      "self_id": self.self_id
@@ -359,7 +359,7 @@ class OneBotAdapter(Bot):
                  await self._verify_self_id(self.self_id)
                  # 发送适配器连接成功事件
                  from linjing.constants import EventType # 局部导入避免循环依赖
-                 self.event_bus.publish(EventType.ADAPTER_CONNECTED, {
+                 await self.event_bus.publish(EventType.ADAPTER_CONNECTED, {
                      "adapter_name": self.platform,
                      "adapter": self, # 传递适配器实例
                      "self_id": self.self_id
