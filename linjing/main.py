@@ -50,7 +50,6 @@ from loguru import logger as loguru_logger # 直接导入 loguru
 
 # 设置日志记录器
 logger = None # 将在 setup_logging 后初始化
-stop_event = asyncio.Event() # 用于全局停止信号
 
 # L1 组件
 from linjing.l1_fast_sense.input_buffer import InputBuffer
@@ -58,8 +57,8 @@ from linjing.l1_fast_sense.context_aggregator import ContextAggregator
 from linjing.l1_fast_sense.trigger_scanner import LightweightV12TriggerScanner
 from linjing.l1_fast_sense.fast_sense_nlp import FastSenseNLPModule
 from linjing.l1_fast_sense.processor import FastSenseProcessor
-from linjing.l1_fast_sense.lightweight_v12_trigger_scanner import LightweightV12TriggerScanner
-from linjing.l1_fast_sense.context_aggregator import ContextAggregator
+
+# L2 组件
 from linjing.l2_adaptive_dispatcher.adaptive_dispatcher import AdaptiveDispatcher
 from linjing.l2_adaptive_dispatcher.state_monitor import SimpleStateMonitor
 from linjing.l2_adaptive_dispatcher.decision_engine import SimpleRuleBasedDecisionEngine
@@ -82,7 +81,6 @@ from linjing.l3_processing_paths.path_c_simple import SimplePathCProcessor
 
 # --- 全局变量 ---
 logger = None # 将在 setup_logging 后初始化
-stop_event = asyncio.Event() # 用于全局停止信号
 
 # --- 模拟组件定义 ---
 class MockLLMInterface:
@@ -180,8 +178,7 @@ async def main_async(config: Dict[str, Any]) -> None:
         logger.info("正在启动机器人...")
         await bot.start()
         logger.info("机器人启动完成，进入主循环。")
-        stop_event = asyncio.Future()
-        await stop_event
+        await asyncio.Future()
     except asyncio.CancelledError:
         logger.info("主任务被取消")
     except Exception as e:
@@ -252,7 +249,7 @@ async def logging_consumer(queue: asyncio.Queue, name: str):
         print(f"错误：Logger 未初始化！无法启动消费者 {name}。")
         return
     logger.info(f"Logging Consumer '{name}' started, listening to queue: {queue}")
-    while not stop_event.is_set(): # 检查全局停止信号
+    while True:
         try:
             # 使用 timeout 来允许周期性检查 stop_event
             item = await asyncio.wait_for(queue.get(), timeout=1.0)
@@ -284,12 +281,12 @@ def handle_signal(sig, frame):
         logger.info(f"收到信号 {sig}, 正在请求停止...")
     else:
         print(f"收到信号 {sig}, 正在请求停止...")
-    stop_event.set() # 设置全局停止事件
+    asyncio.create_task(asyncio.Future())
 
 # --- 主函数 ---
 async def main():
     """程序主入口，初始化并运行所有组件。"""
-    global logger, stop_event
+    global logger
 
     # 1. 设置日志 (直接使用 Loguru)
     log_config = CONFIG.get("logging", {})
@@ -395,7 +392,7 @@ async def main():
     async def simulate_input(buffer: InputBuffer):
         logger.info("启动模拟输入...")
         count = 0
-        while not stop_event.is_set() and count < 5:
+        while count < 5:
             count += 1
             mock_event = {
                 "post_type": "message", "message_type": "private", "message_id": f"mock_msg_{count}",
@@ -437,7 +434,7 @@ async def main():
         tasks.add(asyncio.create_task(simulate_input(input_buffer_queue), name="SimulateInput"))
         
         # 主任务：等待停止信号
-        main_task = asyncio.create_task(stop_event.wait(), name="StopEventWaiter")
+        main_task = asyncio.create_task(asyncio.Future(), name="StopEventWaiter")
         tasks.add(main_task)
 
         logger.info(f"共 {len(tasks)} 个任务已启动，等待停止信号...")
@@ -451,10 +448,6 @@ async def main():
         logger.critical(f"运行主循环时发生严重错误: {e}", exc_info=True)
     finally:
         logger.info("主循环结束或收到停止信号，开始清理...")
-        # 确保 stop_event 被设置，以通知 logging_consumer 退出
-        if not stop_event.is_set():
-            stop_event.set()
-            
         # 给消费者一点时间处理队列中剩余项目并响应停止事件
         await asyncio.sleep(1.5)
         
@@ -492,7 +485,7 @@ if __name__ == "__main__":
     for s in signals:
         # 使用 lambda 确保 stop_event 在正确的循环上下文中被设置
         # loop.add_signal_handler(s, lambda s=s: asyncio.create_task(stop_event.set())) # 可能仍有问题
-        loop.add_signal_handler(s, lambda s=s: stop_event.set()) # 直接设置事件
+        loop.add_signal_handler(s, lambda s=s: asyncio.create_task(asyncio.Future())) # 直接设置事件
 
     # 获取 logger，即使在异常情况下也能记录
     entry_logger = loguru_logger # 直接使用 loguru
