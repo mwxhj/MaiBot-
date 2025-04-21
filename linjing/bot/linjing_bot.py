@@ -161,185 +161,306 @@ class LinjingBot:
 
     async def handle_message(self, message: Any) -> Optional[Any]:
         """
-        核心消息处理入口。
-        接收适配器转换后的内部消息对象，创建处理上下文，并将其添加到队列管理器中。
-        """
-        logger.debug(f"--- LinjingBot.handle_message START --- Received message object: {message}") # 新增日志
-
-        # 1. 创建消息上下文
-        # 从 message 提取 user_id 和 session_id (修正参数传递)
-        user_id = None
-        if hasattr(message, 'get_user_id'):
-            user_id = message.get_user_id() # 不传递额外参数
-        user_id = user_id or "unknown_user" # 如果获取失败或为 None，则使用默认值
-
-        session_id = None
-        if hasattr(message, 'get_session_id'):
-            session_id = message.get_session_id() # 不传递额外参数
-        session_id = session_id or f"default_session_{user_id}" # 如果获取失败或为 None，则使用默认值
-
-        context = MessageContext(
-            message=message,
-            user_id=user_id,
-            config=self.config,
-            session_id=session_id
-        )
-        logger.debug(f"Created MessageContext with user_id={user_id}, session_id={session_id}: {context}") # 更新日志
-
-        # 2. 将消息上下文添加到队列管理器
-        try:
-            # 异步调用队列管理器的 add_message 方法
-            logger.debug(f"Attempting to add message to QueueManager for session: {context.session_id}") # 修改点 1
-            # 传递 message, context, 和 processor
-            success = await self.queue_manager.add_message(
-                message=message,
-                context=context,
-                processor=self._process_single_message # 指定处理函数
-            )
-            logger.debug(f"QueueManager.add_message called for session {context.session_id}. Result: {success}") # 修改点 2
-
-            # handle_message 本身通常不直接返回回复，回复由队列处理后通过事件总线发送
-            # 可以返回一个状态，例如 True 表示成功入队
-            return success
-        except Exception as e:
-            logger.error(f"Error adding message to QueueManager for session {context.session_id}: {e}", exc_info=True) # 修正点 1
-            # 返回 False 或 None 表示处理失败
-            return False
-        finally:
-            logger.debug(f"--- LinjingBot.handle_message END --- for session: {context.session_id}") # 修正点 2
-
-    async def _process_single_message(self, message: Any) -> Optional[Any]:
-        """
-        处理单条消息（在队列中或直接处理）
+        处理适配器传入的消息，将其放入队列或直接处理。
+        V12 变更：总是创建 MessageContext 并放入队列。
         
         Args:
-            message: 消息对象
+            message: 适配器转换后的内部消息对象 (Message)
             
         Returns:
-            处理后的响应消息
+            如果需要同步回复，则返回响应消息，否则返回 None。
+            V12 变更：基本不返回，回复通过事件总线异步处理。
         """
-        logger.info(f"开始处理消息: {message}")
-        
-        # 创建消息上下文
-        context = MessageContext(
-            message=message,
-            user_id=message.get_user_id() if hasattr(message, 'get_user_id') else str(message),
-            config=self.config,
-            session_id=message.get_session_id() if hasattr(message, 'get_session_id') else "default"
-        )
+        # --- V12 启动日志 ---
+        logger.debug(f"--- LinjingBot.handle_message START --- Received message object: {str(message)[:200]}...")
 
-        # --- 使用资源锁保护共享资源访问 ---
+        # --- V12 强制创建 Context ---
+        user_id = None
+        session_id = "default"
+        platform = "unknown" # Default platform
+        try:
+            # --- 提取用户 ID ---
+            if hasattr(message, 'get_user_id') and callable(message.get_user_id):
+                user_id = message.get_user_id()
+            elif hasattr(message, 'get_meta') and callable(message.get_meta):
+                 # 尝试从元数据获取
+                 user_id = message.get_meta("user_id")
+                 if not user_id and hasattr(message, 'sender') and hasattr(message.sender, 'user_id'):
+                     user_id = message.sender.user_id # OneBot 风格
+            # 如果仍未获取，则可能无法处理
+            if user_id is None:
+                logger.error(f"无法从消息对象 {type(message)} 中提取有效的 user_id，放弃处理。消息: {str(message)[:200]}")
+                return None # 无法处理
+
+            # --- 提取会话 ID ---
+            if hasattr(message, 'get_session_id') and callable(message.get_session_id):
+                session_id = message.get_session_id()
+            elif hasattr(message, 'get_meta') and callable(message.get_meta):
+                # 尝试从元数据获取 session_id (如果存在)
+                session_id = message.get_meta("session_id", session_id) # 使用默认值
+
+            # --- 提取平台信息 ---
+            if hasattr(message, 'get_platform') and callable(message.get_platform):
+                 platform = message.get_platform()
+            elif hasattr(message, 'get_meta') and callable(message.get_meta):
+                 platform = message.get_meta("platform", platform) # 使用默认值
+
+            context = MessageContext(
+                message=message, # 这里的 message 确实是适配器传来的 Message 对象
+                user_id=str(user_id), # 确保是字符串
+                config=self.config,
+                session_id=session_id,
+                platform=platform # 传递 platform
+            )
+            logger.debug(f"Created MessageContext with user_id={user_id}, session_id={session_id}: {context}")
+
+            # --- V12 将消息放入队列 ---
+            logger.debug(f"Attempting to add message to QueueManager for session: {session_id}")
+            # 使用 context 作为主要数据传递给队列，processor 是处理 context 的函数
+            result = await self.queue_manager.add_message(
+                 context=context, # 将完整的 context 传递过去
+                 processor=self._process_single_message # 指定处理函数
+            )
+            logger.debug(f"QueueManager.add_message called for session {session_id}. Result: {result}")
+            if not result:
+                logger.error(f"Failed to add message to queue for session {session_id}. Message might be lost.")
+                # 可以考虑添加错误事件发布
+                await self.event_bus.publish(
+                    EventType.MESSAGE_PROCESSING_FAILED,
+                    {"context": context, "error": "Failed to enqueue", "stage": "enqueue"}
+                )
+
+        except Exception as e:
+            logger.error(f"Error creating MessageContext or adding to queue: {e}", exc_info=True)
+            # 发布错误事件
+            await self.event_bus.publish(
+                EventType.MESSAGE_PROCESSING_FAILED,
+                {"message": str(message)[:200], "error": str(e), "stage": "context_creation"}
+            )
+
+        # --- V12 handle_message 不再直接返回回复 ---
+        logger.debug(f"--- LinjingBot.handle_message END --- for session: {session_id}")
+        return None
+
+    # --- 修改：参数改为 context: MessageContext ---
+    async def _process_single_message(self, context: MessageContext) -> Optional[Any]:
+        """
+        处理单条消息（在队列中处理）
+        V12 变更：直接接收 MessageContext 对象。
+        
+        Args:
+            context: 包含消息和上下文的对象
+            
+        Returns:
+            处理后的响应消息 (通常为 None，通过事件总线发送)
+        """
+        # --- V12 修改：直接使用传入的 context ---
+        logger.info(f"开始处理消息上下文: {context}")
+        if not isinstance(context, MessageContext):
+             logger.error(f"队列处理器收到的不是 MessageContext 对象，而是 {type(context)}！无法处理。")
+             return None # 无法处理非 MessageContext 对象
+
+        # --- V12 修改：从 context 中获取 message 对象 ---
+        message = context.message # 获取原始消息对象
+        if message is None:
+            logger.error(f"传入的 MessageContext ({context.session_id}) 缺少 message 属性！无法处理。")
+            return None
+
+        # 记录开始处理事件 (如果需要的话)
+        # await self.event_bus.publish(EventType.MESSAGE_PROCESSING_STARTED, {"context": context})
+
+        # --- 使用资源锁保护共享资源访问 ---\
+        # (注意：这里的 message 变量现在指向 context.message)
         if self.resource_lock:
             # 使用资源锁保护记忆系统访问
             async with self.resource_lock.lock(ResourceType.MEMORY):
                 # 确保用户记录存在
                 if self.memory_manager:
                     try:
-                        platform = message.get_platform() if hasattr(message, 'get_platform') else "unknown"
-                        name = message.get_user_name() if hasattr(message, 'get_user_name') else None
+                        platform = context.platform # 从 context 获取
+                        user_id_str = str(context.user_id) # 确保是字符串
+                        name = None
+                        if hasattr(message, 'get_user_name') and callable(message.get_user_name):
+                            name = message.get_user_name()
+                        elif hasattr(message, 'get_meta') and callable(message.get_meta):
+                             name = message.get_meta("user_display_name") # 尝试元数据
+
                         await self.memory_manager.ensure_user_exists(
-                            user_id=context.user_id, platform=platform, name=name
+                            user_id=user_id_str, platform=platform, name=name
                         )
                     except Exception as e:
                         logger.error(f"处理用户存在性检查时出错 (用户ID: {context.user_id}): {e}", exc_info=True)
                 
                 # 获取对话历史
                 if self.memory_manager:
-                    history = await self.memory_manager.get_conversation_history(
-                        context.user_id,
-                        limit=self.config.get("memory", {}).get("max_conversation_history", 10)
-                    )
-                    context.with_history(history)
-                    logger.debug(f"获取到对话历史: {len(history)} 条")
-        else:
-            # 如果没有资源锁，直接执行
+                    try: # 添加错误处理
+                         history = await self.memory_manager.get_conversation_history(
+                             str(context.user_id), # 确保是字符串
+                             limit=self.config.get("memory", {}).get("max_conversation_history", 10)
+                         )
+                         context.with_history(history) # 更新 context 的历史
+                         logger.debug(f"获取到对话历史: {len(history)} 条 for user {context.user_id}")
+                    except Exception as e:
+                         logger.error(f"获取用户 {context.user_id} 的对话历史失败: {e}", exc_info=True)
+                         context.with_history([]) # 出错时设置为空历史
+
+        else: # 无资源锁的情况
             # 确保用户记录存在
             if self.memory_manager:
                 try:
-                    platform = message.get_platform() if hasattr(message, 'get_platform') else "unknown"
-                    name = message.get_user_name() if hasattr(message, 'get_user_name') else None
+                    platform = context.platform
+                    user_id_str = str(context.user_id)
+                    name = None
+                    if hasattr(message, 'get_user_name') and callable(message.get_user_name):
+                        name = message.get_user_name()
+                    elif hasattr(message, 'get_meta') and callable(message.get_meta):
+                         name = message.get_meta("user_display_name")
+
                     await self.memory_manager.ensure_user_exists(
-                        user_id=context.user_id, platform=platform, name=name
+                        user_id=user_id_str, platform=platform, name=name
                     )
                 except Exception as e:
                     logger.error(f"处理用户存在性检查时出错 (用户ID: {context.user_id}): {e}", exc_info=True)
             
             # 获取对话历史
             if self.memory_manager:
-                history = await self.memory_manager.get_conversation_history(
-                    context.user_id,
-                    limit=self.config.get("memory", {}).get("max_conversation_history", 10)
-                )
-                context.with_history(history)
-                logger.debug(f"获取到对话历史: {len(history)} 条")
+                 try:
+                     history = await self.memory_manager.get_conversation_history(
+                         str(context.user_id),
+                         limit=self.config.get("memory", {}).get("max_conversation_history", 10)
+                     )
+                     context.with_history(history)
+                     logger.debug(f"获取到对话历史: {len(history)} 条 for user {context.user_id}")
+                 except Exception as e:
+                     logger.error(f"获取用户 {context.user_id} 的对话历史失败: {e}", exc_info=True)
+                     context.with_history([])
 
         # 使用资源锁保护情绪系统访问
         if self.resource_lock and self.emotion_manager:
             async with self.resource_lock.lock(ResourceType.EMOTION):
-                emotion = await self.emotion_manager.get_emotion(context.user_id)
-                context.with_emotion(emotion.to_dict() if hasattr(emotion, 'to_dict') else emotion)
-                logger.debug(f"获取到情绪状态: {context.get_state('emotion')}")
-        elif self.emotion_manager:
-            # 如果没有资源锁，直接执行
-            emotion = await self.emotion_manager.get_emotion(context.user_id)
-            context.with_emotion(emotion.to_dict() if hasattr(emotion, 'to_dict') else emotion)
-            logger.debug(f"获取到情绪状态: {context.get_state('emotion')}")
+                try: # 添加错误处理
+                    emotion = await self.emotion_manager.get_emotion(str(context.user_id))
+                    # 检查 emotion 是否有效以及是否有 to_dict 方法
+                    if emotion and hasattr(emotion, 'to_dict') and callable(emotion.to_dict):
+                        context.with_emotion(emotion.to_dict())
+                    else:
+                         # 如果 emotion 无效或没有 to_dict，可以记录警告或设置默认值
+                         logger.warning(f"获取到的用户 {context.user_id} 情绪对象无效或缺少 to_dict: {emotion}")
+                         context.with_emotion({}) # 或 None，取决于下游如何处理
+                    logger.debug(f"获取到情绪状态: {context.get_state('emotion')} for user {context.user_id}")
+                except Exception as e:
+                    logger.error(f"获取用户 {context.user_id} 的情绪状态失败: {e}", exc_info=True)
+                    context.with_emotion({}) # 出错时设置默认值
 
-        # 发布消息接收事件
+        elif self.emotion_manager: # 无资源锁的情况
+             try:
+                 emotion = await self.emotion_manager.get_emotion(str(context.user_id))
+                 if emotion and hasattr(emotion, 'to_dict') and callable(emotion.to_dict):
+                     context.with_emotion(emotion.to_dict())
+                 else:
+                     logger.warning(f"获取到的用户 {context.user_id} 情绪对象无效或缺少 to_dict: {emotion}")
+                     context.with_emotion({})
+                 logger.debug(f"获取到情绪状态: {context.get_state('emotion')} for user {context.user_id}")
+             except Exception as e:
+                 logger.error(f"获取用户 {context.user_id} 的情绪状态失败: {e}", exc_info=True)
+                 context.with_emotion({})
+
+        # --- V12 不再需要在这里发布 MESSAGE_RECEIVED，因为它在 handle_message 中处理 ---
+        # await self.event_bus.publish(
+        #     EventType.MESSAGE_RECEIVED, {"message": message, "context": context}
+        # )
+
+        # --- V12 处理流程：执行处理器管道，传入的是已经准备好的 context ---
+        processed_context = None # 初始化
+        try:
+             # --- 添加日志：确认传入 pipeline 的 context ---
+             logger.debug(f"开始执行处理器管道，传入 context: {processed_context}")
+             # --- 日志结束 ---
+             processed_context = await self._execute_processor_pipeline(context)
+             logger.debug(f"处理器管道执行完毕，返回 context: {processed_context}")
+        except Exception as pipeline_error:
+             logger.error(f"处理器管道执行失败: {pipeline_error}", exc_info=True)
+             # 发布处理失败事件
+             await self.event_bus.publish(
+                 EventType.MESSAGE_PROCESSING_FAILED,
+                 {"context": context.to_dict(safe=True), "error": str(pipeline_error), "stage": "pipeline"}
+             )
+             # 即使管道失败，也需要确保返回 None，避免后续逻辑出错
+             return None
+
+        # --- V12 修改：从处理后的上下文中获取最终回复 ---
+        final_reply = None
+        if processed_context: # 确保管道返回了 context
+             final_reply = processed_context.get_state("reply")
+        else:
+             # 如果管道执行失败，processed_context 可能为 None
+             logger.error("处理器管道未能返回有效的上下文对象，无法获取回复。")
+
+        # --- V12 修改：回复通过事件总线异步发送，这里只负责记录和触发高戒备等逻辑 ---
+
+        # 发布消息处理完成事件 (无论是否有回复)
         await self.event_bus.publish(
-            EventType.MESSAGE_RECEIVED, {"message": message, "context": context}
+             EventType.MESSAGE_PROCESSING_COMPLETED,
+             {"context": processed_context.to_dict(safe=True) if processed_context else context.to_dict(safe=True), "reply": str(final_reply)[:200] if final_reply else None}
         )
 
-        # --- V12 处理流程：执行处理器管道 ---
-        processed_context = await self._execute_processor_pipeline(context)
-        
-        # 从处理后的上下文中获取最终回复
-        final_reply = processed_context.get_state("reply")
-
-        # 发布消息发送事件
+        # --- 如果有回复，触发相关逻辑 ---
         if final_reply:
-            await self.event_bus.publish(
-                EventType.MESSAGE_SENT,
-                {"message": final_reply, "context": processed_context}
-            )
-
-        # --- Return the reply first ---
-        if final_reply:
-             # --- 使用资源锁保护会话状态更新 ---
+             # --- 使用资源锁保护会话状态更新 (高戒备逻辑) ---
+             session_id = context.session_id # 从 context 获取 session_id
              if self.high_alert_mode_trigger_enabled and self.storage_manager:
-                 session_id = message.get_session_id() if hasattr(message, 'get_session_id') else "default"
-                 
                  if self.resource_lock:
                      async with self.resource_lock.lock(ResourceType.SESSION):
                          logger.info(f"机器人回复成功，会话 {session_id} 进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
+                         try:
+                             await self.storage_manager.update_session_state(
+                                 session_id,
+                                 is_high_alert=True,
+                                 high_alert_counter=0
+                             )
+                         except Exception as e:
+                              logger.error(f"更新会话 {session_id} 高戒备状态失败: {e}", exc_info=True)
+                 else: # 无资源锁
+                     logger.info(f"机器人回复成功，会话 {session_id} 进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
+                     try:
                          await self.storage_manager.update_session_state(
                              session_id,
                              is_high_alert=True,
                              high_alert_counter=0
                          )
-                 else:
-                     # 如果没有资源锁，直接执行
-                     logger.info(f"机器人回复成功，会话 {session_id} 进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
-                     await self.storage_manager.update_session_state(
-                         session_id,
-                         is_high_alert=True,
-                         high_alert_counter=0
-                     )
+                     except Exception as e:
+                          logger.error(f"更新会话 {session_id} 高戒备状态失败: {e}", exc_info=True)
              # --- 高戒备触发结束 ---
 
-             # 为了尽快响应用户，将耗时的数据库写入操作放入后台任务执行
+             # 异步保存对话记录 (使用原始 context 和处理后的 context)
+             # 注意：message 是从 context 获取的原始消息
              asyncio.create_task(self._save_conversation_async(context, processed_context, message, final_reply))
-             return final_reply
-        else:
+
+             # --- V12: 不再从此函数返回回复 ---
+             # return final_reply
+             return final_reply # 临时保留返回，以防万一有地方依赖同步返回
+
+        else: # 没有生成回复
              logger.warning(f"消息处理完成但未生成回复: UserID={context.user_id}, SessionID={context.session_id}")
-             # --- 即使没有回复，如果被提及，也可能需要开启高戒备 ---
-             mentioned_or_named = await self._check_if_mentioned(message)
+             # --- 即使没有回复，如果被提及，也可能需要开启高戒备 ---\
+             mentioned_or_named = await self._check_if_mentioned(message) # 检查原始消息
+             session_id = context.session_id
              if mentioned_or_named and self.high_alert_mode_trigger_enabled and self.storage_manager:
-                 session_id = message.get_session_id() if hasattr(message, 'get_session_id') else "default"
-                 
                  if self.resource_lock:
                      async with self.resource_lock.lock(ResourceType.SESSION):
-                         # 检查是否已处于高戒备，避免重复日志和更新
+                         try:
+                             current_state = await self.storage_manager.get_session_state(session_id)
+                             if not current_state or not current_state.get("is_high_alert"):
+                                 logger.info(f"会话 {session_id} 因被提及但无回复而进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
+                                 await self.storage_manager.update_session_state(
+                                     session_id,
+                                     is_high_alert=True,
+                                     high_alert_counter=0
+                                 )
+                         except Exception as e:
+                              logger.error(f"检查或更新会话 {session_id} 高戒备状态失败: {e}", exc_info=True)
+                 else: # 无资源锁
+                     try:
                          current_state = await self.storage_manager.get_session_state(session_id)
                          if not current_state or not current_state.get("is_high_alert"):
                              logger.info(f"会话 {session_id} 因被提及但无回复而进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
@@ -348,50 +469,70 @@ class LinjingBot:
                                  is_high_alert=True,
                                  high_alert_counter=0
                              )
-                 else:
-                     # 如果没有资源锁，直接执行
-                     # 检查是否已处于高戒备，避免重复日志和更新
-                     current_state = await self.storage_manager.get_session_state(session_id)
-                     if not current_state or not current_state.get("is_high_alert"):
-                         logger.info(f"会话 {session_id} 因被提及但无回复而进入高戒备模式 (持续 {self.high_alert_duration} 条消息)。")
-                         await self.storage_manager.update_session_state(
-                             session_id,
-                             is_high_alert=True,
-                             high_alert_counter=0
-                         )
-             return None
+                     except Exception as e:
+                          logger.error(f"检查或更新会话 {session_id} 高戒备状态失败: {e}", exc_info=True)
 
-    async def _save_conversation_async(self, context: MessageContext, result_context: MessageContext, user_message: Any, bot_reply: Any):
+             # 异步保存用户消息（即使没有回复）
+             asyncio.create_task(self._save_conversation_async(context, processed_context, message, None))
+
+             return None # 明确返回 None
+
+    async def _save_conversation_async(self, context: MessageContext, result_context: Optional[MessageContext], user_message: Any, bot_reply: Optional[Any]):
         """Helper coroutine to save conversation asynchronously."""
+        # --- V12 修改：确保使用 context 中的 user_id 和 session_id ---
+        user_id = str(context.user_id)
+        session_id = context.session_id
+
         # Save user message
-        if self.memory_manager:
+        if self.memory_manager and user_message: # 确保 user_message 存在
             try:
+                # --- V12 改进：优先使用 to_dict，不行再 str ---
+                user_content = ""
                 if hasattr(user_message, 'to_dict') and callable(user_message.to_dict):
-                    user_content_serializable = user_message.to_dict()
-                    user_content = json.dumps(user_content_serializable, ensure_ascii=False)
+                    try:
+                        user_content_serializable = user_message.to_dict()
+                        user_content = json.dumps(user_content_serializable, ensure_ascii=False, default=str) # 添加 default=str
+                    except Exception as json_err:
+                        logger.warning(f"序列化用户消息 to_dict 失败 (UserID: {user_id}): {json_err}, 将使用 str()")
+                        user_content = str(user_message)
                 else:
                     user_content = str(user_message)
-                await self.memory_manager.add_conversation_memory(
-                    user_id=context.user_id, session_id=context.session_id,
-                    content=user_content, role="user"
-                )
+
+                if user_content: # 确保内容非空
+                     await self.memory_manager.add_conversation_memory(
+                         user_id=user_id, session_id=session_id,
+                         content=user_content, role="user"
+                     )
+                else:
+                     logger.warning(f"尝试存储空的用户消息 (UserID: {user_id})")
+
             except Exception as e:
-                logger.error(f"后台存储用户消息失败 (UserID: {context.user_id}): {e}", exc_info=True)
+                logger.error(f"后台存储用户消息失败 (UserID: {user_id}): {e}", exc_info=True)
 
         # Save bot reply
-        if bot_reply and self.memory_manager and hasattr(bot_reply, 'extract_plain_text'):
+        if bot_reply and self.memory_manager:
             try:
+                # --- V12 改进：优先使用 to_dict，不行再 str ---
+                bot_content = ""
                 if hasattr(bot_reply, 'to_dict') and callable(bot_reply.to_dict):
-                    bot_content_serializable = bot_reply.to_dict()
-                    bot_content = json.dumps(bot_content_serializable, ensure_ascii=False)
+                     try:
+                         bot_content_serializable = bot_reply.to_dict()
+                         bot_content = json.dumps(bot_content_serializable, ensure_ascii=False, default=str) # 添加 default=str
+                     except Exception as json_err:
+                         logger.warning(f"序列化机器人回复 to_dict 失败 (UserID: {user_id}): {json_err}, 将使用 str()")
+                         bot_content = str(bot_reply)
                 else:
-                    bot_content = str(bot_reply)
-                await self.memory_manager.add_conversation_memory(
-                    user_id=context.user_id, session_id=context.session_id,
-                    content=bot_content, role="assistant"
-                )
+                     bot_content = str(bot_reply)
+
+                if bot_content: # 确保内容非空
+                     await self.memory_manager.add_conversation_memory(
+                         user_id=user_id, session_id=session_id,
+                         content=bot_content, role="assistant"
+                     )
+                else:
+                     logger.warning(f"尝试存储空的机器人回复 (UserID: {user_id})")
             except Exception as e:
-                logger.error(f"后台存储机器人回复失败 (UserID: {context.user_id}): {e}", exc_info=True)
+                logger.error(f"后台存储机器人回复失败 (UserID: {user_id}): {e}", exc_info=True)
 
     # --- 修改：触发条件判断逻辑 (V3) ---
     async def _should_process_message(self, message: Any) -> Tuple[bool, bool]:
