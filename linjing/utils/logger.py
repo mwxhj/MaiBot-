@@ -56,11 +56,11 @@ def setup_logger(config_manager: 'ConfigManager', level: str = "INFO", log_dir: 
     # 从传入的 config_manager 获取日志保留天数
     retention_days = config_manager.get("system.logging.retention_days", 30)
     
-    # 添加控制台处理器
+    # 控制台处理器
     logger.add(
         sys.stderr,
         format=log_format,
-        level=level,
+        level="INFO",
         colorize=True,
     )
     

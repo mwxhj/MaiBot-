@@ -113,14 +113,12 @@ def main() -> None:
 
     # 设置日志级别 (现在可以安全地从已加载的配置中获取)
     log_level_from_config = config_manager.get("system.log_level", "INFO")
-    # log_level = "DEBUG" if args.debug else log_level_from_config
-    # 强制设置为 DEBUG 以便调试
-    log_level = "DEBUG"
-    logger.info(f"强制设置日志级别为 DEBUG 进行调试。命令行参数 --debug: {args.debug}, 配置级别: {log_level_from_config}")
+    log_level = "DEBUG" if args.debug else log_level_from_config
+    logger.info(f"日志级别将基于配置或命令行参数 --debug 设置。命令行参数 --debug: {args.debug}, 配置级别: {log_level_from_config}")
 
     # 调用 setup_logger，传入 config_manager 实例
     # log_dir 参数现在是可选的，setup_logger 会从 config_manager 获取路径
-    setup_logger(config_manager, level=log_level) # 强制使用 DEBUG 级别
+    setup_logger(config_manager, level=log_level) # log_level 现在由配置或 --debug 决定
     # 记录实际使用的日志目录 (从 config_manager 获取)
     actual_log_dir = getattr(config_manager, 'LOG_PATH', 'Unknown') # 获取实际路径用于记录
     logger.info(f"日志级别设置为: {log_level}")
