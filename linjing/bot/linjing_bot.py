@@ -167,15 +167,22 @@ class LinjingBot:
         logger.debug(f"--- LinjingBot.handle_message START --- Received message object: {message}") # 新增日志
 
         # 1. 创建消息上下文
-        # 从 message 提取 user_id 和 session_id
-        user_id = message.get_user_id("unknown_user") if hasattr(message, 'get_user_id') else "unknown_user"
-        session_id = message.get_session_id() if hasattr(message, 'get_session_id') else f"default_session_{user_id}"
+        # 从 message 提取 user_id 和 session_id (修正参数传递)
+        user_id = None
+        if hasattr(message, 'get_user_id'):
+            user_id = message.get_user_id() # 不传递额外参数
+        user_id = user_id or "unknown_user" # 如果获取失败或为 None，则使用默认值
+
+        session_id = None
+        if hasattr(message, 'get_session_id'):
+            session_id = message.get_session_id() # 不传递额外参数
+        session_id = session_id or f"default_session_{user_id}" # 如果获取失败或为 None，则使用默认值
 
         context = MessageContext(
             message=message,
-            user_id=user_id, # 显式传递 user_id
+            user_id=user_id,
             config=self.config,
-            session_id=session_id # 显式传递 session_id
+            session_id=session_id
         )
         logger.debug(f"Created MessageContext with user_id={user_id}, session_id={session_id}: {context}") # 更新日志
 
