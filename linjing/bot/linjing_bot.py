@@ -167,8 +167,9 @@ class LinjingBot:
         logger.debug(f"--- LinjingBot.handle_message START --- Received message object: {message}") # 新增日志
 
         # 1. 创建消息上下文
-        # 传递 self (LinjingBot 实例), message, 和 config 给 MessageContext
-        context = MessageContext(bot=self, message=message, config=self.config) # 添加 config=self.config
+        # 移除 bot 参数，保留 message 和 config
+        # user_id 和 session_id 似乎由 MessageContext 内部处理，暂不显式传递
+        context = MessageContext(message=message, config=self.config) # 移除 bot=self
         logger.debug(f"Created MessageContext: {context}") # 新增日志
 
         # 2. 将消息上下文添加到队列管理器
