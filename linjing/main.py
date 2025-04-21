@@ -73,6 +73,7 @@ from linjing.l2_adaptive_dispatcher.adaptive_dispatcher import AdaptiveDispatche
 
 # L3 组件
 from linjing.l3_processing_paths.path_c_simple import SimplePathCProcessor
+from linjing.l3_processing_paths.path_a_processor import PathAProcessor # 新增
 
 # 模拟 L3/L4/L5 依赖 (稍后定义)
 # from linjing.llm.llm_interface import LLMInterface # 实际组件
@@ -377,6 +378,15 @@ async def main():
 
         # L3 组件 (Path C 示例)
         l3_config = CONFIG.get("l3", {}) # 从主配置获取 L3 配置段
+        path_a_processor = PathAProcessor(
+            input_queue=l3_path_a_queue,
+            output_queue=l3_output_queue, # Path A 也输出到 l3_output_queue
+            llm_interface=mock_llm,       # 使用 Mock LLM
+            prompt_assembler=mock_prompter, # 使用 Mock Prompter
+            config=l3_config.get("path_a", {})  # Path A 特定配置
+        )
+        logger.info("L3 Path A 处理器实例化完成。")
+
         simple_path_c_processor = SimplePathCProcessor(
             input_queue=l3_path_c_queue,
             output_queue=l3_output_queue, # L3C 的输出到 l3_output_queue
@@ -426,8 +436,8 @@ async def main():
         logger.info("创建和启动核心任务...")
         tasks.add(asyncio.create_task(l1_processor.start_processing(), name="L1_FastSenseProcessor"))
         tasks.add(asyncio.create_task(l2_dispatcher.start_dispatching(), name="L2_AdaptiveDispatcher"))
+        tasks.add(asyncio.create_task(path_a_processor.start_processing(), name="L3_PathAProcessor"))
         tasks.add(asyncio.create_task(simple_path_c_processor.start_processing(), name="L3_SimplePathCProcessor"))
-        tasks.add(asyncio.create_task(logging_consumer(l3_path_a_queue, "L3_Path_A_Consumer"), name="L3_Path_A_Consumer"))
         tasks.add(asyncio.create_task(logging_consumer(l3_path_b_queue, "L3_Path_B_Consumer"), name="L3_Path_B_Consumer"))
         tasks.add(asyncio.create_task(logging_consumer(l3_output_queue, "L3_Output_Consumer(MindInfo)"), name="L3_Output_Consumer"))
         tasks.add(asyncio.create_task(logging_consumer(l5_action_queue, "L5_Action_Consumer"), name="L5_Action_Consumer"))
