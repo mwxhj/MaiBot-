@@ -88,8 +88,8 @@ def setup_logger(config_manager: 'ConfigManager', level: str = "INFO", log_dir: 
     
     # --- 新增：全方位观察日志 Sinks --- 
     # 是否启用观察日志 (可以从配置读取)
-    # enable_observation_logs = config_manager.get("system.logging.enable_observation_logs", True)
-    enable_observation_logs = False # <-- 强制禁用以测试性能影响
+    enable_observation_logs = config_manager.get("system.logging.enable_observation_logs", True)
+    # enable_observation_logs = False # <-- 强制禁用以测试性能影响
 
     if enable_observation_logs:
         obs_log_dir = os.path.join(actual_log_dir, "observation")
