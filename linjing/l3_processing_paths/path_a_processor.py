@@ -3,11 +3,9 @@ import asyncio
 from typing import Dict, Any, Optional
 
 from linjing.utils.logger import get_logger
-# 模拟依赖项导入 (实际应从相应模块导入)
-# from linjing.llm.llm_interface import LLMInterface
-# from linjing.prompts.prompt_assembler import PromptAssembler
-from __main__ import MockLLMInterface as LLMInterface # 暂时从 main 导入 Mock
-from __main__ import MockPromptAssembler as PromptAssembler # 暂时从 main 导入 Mock
+# 导入实际的管理器类
+from linjing.llm.llm_manager import LLMManager
+from linjing.llm.prompt_templates import PromptManager
 
 logger = get_logger(__name__)
 
@@ -23,13 +21,13 @@ class PathAProcessor:
     def __init__(self,
                  input_queue: asyncio.Queue,           # L2->L3 队列 (l3_path_a_queue)
                  output_queue: L3_OUTPUT_QUEUE_TYPE,  # L3->L4 队列 (l3_output_queue)
-                 llm_interface: LLMInterface,        # LLM 调用接口
-                 prompt_assembler: PromptAssembler, # Prompt 组装器
+                 llm_manager: LLMManager,            # LLM 管理器实例
+                 prompt_manager: PromptManager,      # Prompt 管理器实例
                  config: Optional[Dict[str, Any]] = None):
         self.input_queue = input_queue
         self.output_queue = output_queue
-        self.llm_interface = llm_interface
-        self.prompt_assembler = prompt_assembler
+        self.llm_manager = llm_manager
+        self.prompt_manager = prompt_manager
         self.config = config or {}
         self._running = False
         self._task: Optional[asyncio.Task] = None
@@ -95,7 +93,16 @@ class PathAProcessor:
 
                 # 2. 组装 Prompt
                 prompt_key = "path_a.response_prompt" # 定义一个用于 Path A 的 Prompt key
-                prompt = self.prompt_assembler.assemble(prompt_key, prompt_context)
+                try:
+                    prompt = self.prompt_manager.format(prompt_key, **prompt_context)
+                except KeyError:
+                    logger.error(f"[{self.__class__.__name__}] 未找到 Prompt 模板 (Key: {prompt_key})。跳过处理。")
+                    self.input_queue.task_done()
+                    continue
+                except ValueError as e:
+                    logger.error(f"[{self.__class__.__name__}] 格式化 Prompt (Key: {prompt_key}) 时出错: {e}")
+                    self.input_queue.task_done()
+                    continue
 
                 if not prompt:
                     logger.error(f"[{self.__class__.__name__}] 无法为消息 {message_id} 组装 Prompt (Key: {prompt_key})。跳过处理。")
@@ -108,9 +115,17 @@ class PathAProcessor:
 
                 logger.debug(f"[{self.__class__.__name__}] 调用 LLM (模型: {llm_model}) for message {message_id}...")
                 try:
-                    llm_reply_raw = await self.llm_interface.invoke(prompt, llm_model, llm_config)
+                    # 调用 LLMManager 的 generate_text
+                    # 注意：这里我们假设任务类型是 'chat'，并且暂时不处理复杂的参数传递
+                    # generate_text 返回 (text_result, metadata)
+                    reply_text, llm_metadata_result = await self.llm_manager.generate_text(
+                        prompt=prompt,
+                        task="path_a_chat", # 定义一个用于路由的任务类型
+                        model_override=llm_model, # L2 决策的模型优先
+                        # temperature=..., max_tokens=... # 可以从 llm_config 获取
+                    )
                     # TODO: 解析 LLM 回复，可能需要更复杂的逻辑
-                    reply_text = llm_reply_raw # 假设 MockLLM 返回的是可以直接使用的文本
+                    # reply_text = llm_reply_raw # 旧逻辑
                     logger.debug(f"[{self.__class__.__name__}] 从 LLM 收到回复: {reply_text[:50]}...")
                 except Exception as llm_e:
                     logger.error(f"[{self.__class__.__name__}] 调用 LLM 时出错 for message {message_id}: {llm_e}", exc_info=True)
@@ -123,8 +138,10 @@ class PathAProcessor:
                     "processing_path": "path_a",
                     "originating_assessment_id": message_id,
                     "llm_metadata": {
-                        "model_used": llm_model,
-                        "prompt_key": prompt_key,
+                        "model_used": llm_metadata_result.get("model", llm_model), # 从返回的元数据获取实际模型
+                        "provider_used": llm_metadata_result.get("provider_id", "unknown"),
+                        "prompt_key": prompt_key, # 模板名称
+                        "tokens_used": llm_metadata_result.get("usage", {}) # 包含 prompt_tokens, completion_tokens 等
                         # "tokens_used": ... # 如果 LLM 接口返回此信息
                     }
                 }
