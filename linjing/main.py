@@ -11,6 +11,7 @@ import signal
 import asyncio
 import argparse
 import logging # 保留基础 logging 用于早期错误
+from typing import Dict, Any # <-- 重新导入 Dict 和 Any
 
 # 设置模块导入路径
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(__file__))))
