@@ -8,6 +8,7 @@ from .utils.logger import get_logger
 from loguru import logger as loguru_logger
 from . import ConfigManager # 从 linjing 包导入 ConfigManager
 from .l1_fast_sense.input_buffer import InputBuffer
+from .l1_fast_sense.context_aggregator import ContextAggregator # 修正导入路径
 from .l1_fast_sense.processor import FastSenseProcessor
 from .l2_adaptive_dispatcher.state_monitor import SimpleStateMonitor
 from .l2_adaptive_dispatcher.decision_engine import SimpleRuleBasedDecisionEngine
@@ -17,7 +18,8 @@ from .llm.prompt_templates import PromptManager
 from .l3_processing_paths.path_a_processor import PathAProcessor
 from .l3_processing_paths.path_c_simple import SimplePathCProcessor
 from .adapters.onebot_adapter import OneBotAdapter
-from .l4_context_aggregator.context_aggregator import ContextAggregator
+from .l1_fast_sense.trigger_scanner import LightweightV12TriggerScanner
+from .l1_fast_sense.fast_sense_nlp import FastSenseNLPModule
 
 logger = get_logger(__name__)
 
