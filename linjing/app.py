@@ -17,6 +17,7 @@ from .llm.prompt_templates import PromptManager
 from .l3_processing_paths.path_a_processor import PathAProcessor
 from .l3_processing_paths.path_c_simple import SimplePathCProcessor
 from .adapters.onebot_adapter import OneBotAdapter
+from .l4_context_aggregator.context_aggregator import ContextAggregator
 
 logger = get_logger(__name__)
 
@@ -50,6 +51,49 @@ class Application:
         self.l3_path_a_queue: Optional[asyncio.Queue] = None
 
         logger.info("Application 初始化。")
+
+    async def setup(self):
+        """
+        设置应用程序，初始化需要异步操作的资源。
+        例如：初始化 LLM Manager, 连接数据库等。
+        """
+        logger.info("开始异步设置 Application...")
+        # --- LLM 和 Prompt Manager 初始化 ---
+        # 实例化需要移到 __init__ 或 _create_components，这里只做异步初始化
+        if not hasattr(self, 'llm_manager') or not self.llm_manager:
+             # 实例化应该在调用 setup 之前完成
+             logger.info("LLM Manager 在 setup 之前实例化...") # 或者在 __init__ 中完成
+             self.llm_manager = LLMManager(config=self.config)
+
+        if not hasattr(self, 'prompt_manager') or not self.prompt_manager:
+             logger.info("Prompt Manager 在 setup 之前实例化...") # 或者在 __init__ 中完成
+             self.prompt_manager = PromptManager()
+             prompt_configs = self.config.get("prompts", {}).get("templates", {})
+             for name, template_str in prompt_configs.items():
+                 self.prompt_manager.add_template(name, template_str)
+                 logger.info(f"已加载 Prompt 模板: {name}")
+
+        logger.info("正在异步初始化 LLM Manager...")
+        if self.llm_manager and hasattr(self.llm_manager, 'initialize'):
+             if not await self.llm_manager.initialize():
+                 logger.error("LLM Manager 初始化失败！")
+             else:
+                 logger.info("LLM Manager 初始化成功。")
+        else:
+             logger.error("LLM Manager 对象不存在或没有 initialize 方法。")
+
+        # --- 初始化 Context Aggregator (Redis) --- 
+        if not hasattr(self, 'context_aggregator') or not self.context_aggregator:
+             logger.info("Context Aggregator 在 setup 之前实例化...") # 或者在 __init__ 中完成
+             redis_config = self.config.get("redis", {})
+             self.context_aggregator = ContextAggregator(config=redis_config)
+
+        if self.context_aggregator and hasattr(self.context_aggregator, '_test_redis_connection'):
+             asyncio.create_task(self.context_aggregator._test_redis_connection(), name="RedisConnectionTest")
+        else:
+             logger.warning("ContextAggregator 不存在或没有 _test_redis_connection 方法。")
+
+        logger.info("Application 异步设置完成。")
 
     def _create_components(self):
         """实例化所有核心组件，包括适配器。"""
@@ -215,3 +259,10 @@ class Application:
     # ... (_handle_exit_signal) ...
     # ... (_logging_consumer) ...
     # --- _simulate_input 方法已被移除 --- 
+
+    def _create_queues(self):
+        """创建所有需要的队列。"""
+        logger.info("创建层间队列...")
+        # ... (implementation of _create_queues method) ...
+
+        # ... (rest of the existing code) ... 
