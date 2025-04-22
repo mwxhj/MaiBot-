@@ -124,6 +124,13 @@ class Application:
             decision_engine = SimpleRuleBasedDecisionEngine(config=l2_config.get("decision_engine_config", {}))
             logger.info("[Component Init] L2 组件实例化完成。")
 
+            # --- 调试: 检查 L3 依赖项 --- 
+            logger.debug(f"[Component Init] 准备实例化 L3。检查依赖项:")
+            logger.debug(f"[Component Init]   - self.l3_path_a_queue: {self.l3_path_a_queue}")
+            logger.debug(f"[Component Init]   - self.l3_output_queue: {self.l3_output_queue}")
+            logger.debug(f"[Component Init]   - self.llm_manager: {self.llm_manager}")
+            logger.debug(f"[Component Init]   - self.prompt_manager: {self.prompt_manager}")
+
             # L3
             logger.info("[Component Init] 正在实例化 L3 组件...")
             l3_config = self.config.get("l3", {})
