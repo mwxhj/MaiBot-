@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional, Set
 
 from .utils.logger import get_logger
 from loguru import logger as loguru_logger
-from .config import ConfigManager # 假设 ConfigManager 在 linjing/config.py
+from . import ConfigManager # 从 linjing 包导入 ConfigManager
 from .l1_fast_sense.input_buffer import InputBuffer
 from .l1_fast_sense.processor import FastSenseProcessor
 from .l2_adaptive_dispatcher.state_monitor import SimpleStateMonitor
