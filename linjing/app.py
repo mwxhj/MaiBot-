@@ -150,7 +150,7 @@ class Application:
             logger.info("Application 关闭完成。")
 
     async def shutdown(self):
-        """优雅地关闭应用程序，停止任务并清理资源，包括适配器。"""
+        """优雅地关闭应用程序，停止任务并清理资源。"""
         # ... (Stop event and cancel tasks) ...
 
         # 清理资源
@@ -166,6 +166,50 @@ class Application:
                      logger.error(f"断开适配器 '{adapter_id}' 时出错: {e_disc}", exc_info=True)
 
         # ... (Context Aggregator, LLM Manager cleanup) ...
+
+    # --- 信号处理方法 ---
+    def _setup_signal_handlers(self):
+        """设置信号处理程序以触发优雅关闭。"""
+        if self.loop is None:
+            logger.error("事件循环未设置，无法添加信号处理器。")
+            return
+        logger.info("设置信号处理器...")
+        # 在 POSIX 系统上处理常见终止信号
+        signals_to_handle = (signal.SIGINT, signal.SIGTERM)
+        # 在 Windows 上，只有 SIGINT 通常有效
+        if sys.platform == "win32":
+            signals_to_handle = (signal.SIGINT,)
+
+        for s in signals_to_handle:
+            try:
+                self.loop.add_signal_handler(
+                    s, lambda s=s: asyncio.create_task(self._handle_exit_signal(s))
+                )
+            except NotImplementedError:
+                 # 对于不支持 asyncio 信号处理的旧系统或特殊情况
+                 logger.warning(f"当前系统不支持 asyncio 信号处理器，将使用 signal.signal 处理 {s.name}")
+                 try:
+                     # signal.signal 必须在主线程调用，并且回调不能是协程
+                     # 我们用它来设置事件，由循环检查
+                     signal.signal(s, lambda sig, frame: self.stop_event.set())
+                 except (ValueError, OSError) as e:
+                     logger.error(f"无法为信号 {s.name} 设置 signal.signal 处理器: {e}")
+            except ValueError as e:
+                 # 例如，在非主线程尝试 add_signal_handler
+                 logger.error(f"无法为信号 {s.name} 设置 asyncio 处理器: {e}")
+
+    async def _handle_exit_signal(self, sig: signal.Signals):
+        """处理退出信号的异步协程。"""
+        logger.info(f"收到退出信号 {sig.name}，正在触发关闭...")
+        if not self.stop_event.is_set():
+             self.stop_event.set()
+        else:
+             logger.warning("关闭已在进行中。")
+
+    # --- 辅助方法 (从 main.py 迁移过来) ---
+    async def _logging_consumer(self, queue: asyncio.Queue, name: str):
+        """简单的异步任务，消耗队列中的项目并记录日志。"""
+        # ... (implementation of _logging_consumer method) ...
 
     # ... (_setup_signal_handlers) ...
     # ... (_handle_exit_signal) ...
