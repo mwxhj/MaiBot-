@@ -120,7 +120,34 @@ class Application:
         #     if not self.input_buffer:
         #          raise RuntimeError("模拟输入需要 InputBuffer。")
         #     self.tasks.add(asyncio.create_task(self._simulate_input(self.input_buffer), name="SimulateInput"))
-        logger.info(f"共 {len(self.tasks)} 个任务已创建 (包括适配器)。")
+        logger.info(f"共 {len(self.tasks)} 个核心任务已创建。")
+
+    async def run(self):
+        """启动并运行应用程序。"""
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
+
+        self._setup_signal_handlers()
+
+        try:
+            await self.setup() # 执行异步初始化
+            self._create_queues() # 创建队列
+            self._create_components() # 实例化组件
+            await self._create_tasks() # 创建任务
+
+            logger.info("Application 运行中... 按 CTRL+C 停止。")
+            # 主任务：等待停止信号
+            await self.stop_event.wait()
+
+        except Exception as e:
+             logger.critical(f"Application 启动或运行时发生致命错误: {e}", exc_info=True)
+        finally:
+            logger.info("Application 开始关闭...")
+            await self.shutdown()
+            logger.info("Application 关闭完成。")
 
     async def shutdown(self):
         """优雅地关闭应用程序，停止任务并清理资源，包括适配器。"""
