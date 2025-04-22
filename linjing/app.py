@@ -7,9 +7,28 @@ from .llm.prompt_templates import PromptManager
 from .l3_processing_paths.path_a_processor import PathAProcessor
 from .l3_processing_paths.path_c_simple import SimplePathCProcessor
 from .adapters.onebot_adapter import OneBotAdapter
+from typing import Dict, Any, Optional, Set
+import asyncio
+
+logger = get_logger(__name__)
 
 class Application:
-    def __init__(self):
+    """
+    林镜机器人应用程序类 (新架构 V12)。
+    负责加载配置、初始化组件、管理任务和生命周期。
+    """
+    def __init__(self, config: Dict[str, Any]):
+        """
+        初始化应用程序。
+
+        Args:
+            config: 加载后的配置字典。
+        """
+        self.config = config
+        self.stop_event = asyncio.Event()
+        self.tasks: Set[asyncio.Task] = set()
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
+
         self.input_buffer: Optional[InputBuffer] = None
         self.llm_manager: Optional[LLMManager] = None
         self.prompt_manager: Optional[PromptManager] = None
@@ -21,6 +40,8 @@ class Application:
         self.adapters: Dict[str, Any] = {}
         self.l1_output_queue: Optional[asyncio.Queue] = None
         self.l3_path_a_queue: Optional[asyncio.Queue] = None
+
+        logger.info("Application 初始化。")
 
     def _create_components(self):
         """实例化所有核心组件，包括适配器。"""
