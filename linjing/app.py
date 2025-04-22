@@ -99,18 +99,50 @@ class Application:
 
     def _create_components(self):
         """实例化所有核心组件，包括适配器。"""
-        logger.info("实例化核心组件...")
-        # ... (Ensure dependencies) ...
+        logger.info("[Component Init] 开始实例化核心组件...")
+        # 确保依赖项已初始化
+        if not self.llm_manager or not self.prompt_manager or not self.context_aggregator:
+             logger.error("[Component Init] 依赖项检查失败: LLM/Prompt Manager 或 Context Aggregator 未初始化!")
+             return
 
         try:
-            # ... (L1, L2, L3 instantiation) ...
+            # L1
+            logger.info("[Component Init] 正在实例化 L1 组件...")
+            l1_config = self.config.get("l1", {})
+            trigger_config = {"l1_trigger_rules_path": l1_config.get("trigger_rules_path", "config/l1_trigger_rules.yaml")}
+            trigger_scanner = LightweightV12TriggerScanner(config=trigger_config)
+            nlp_module = FastSenseNLPModule(
+                llm_interface=self.llm_manager, # 使用实例化的 manager
+                prompt_assembler=self.prompt_manager,
+            )
+            logger.info("[Component Init] L1 组件实例化完成。")
+
+            # L2
+            logger.info("[Component Init] 正在实例化 L2 组件...")
+            l2_config = self.config.get("l2", {})
+            state_monitor = SimpleStateMonitor(config=l2_config.get("state_monitor_config", {}))
+            decision_engine = SimpleRuleBasedDecisionEngine(config=l2_config.get("decision_engine_config", {}))
+            logger.info("[Component Init] L2 组件实例化完成。")
+
+            # L3
+            logger.info("[Component Init] 正在实例化 L3 组件...")
+            l3_config = self.config.get("l3", {})
+            self.path_a_processor = PathAProcessor(
+                input_queue=self.l3_path_a_queue,
+            )
+            self.simple_path_c_processor = SimplePathCProcessor(
+                input_queue=self.l3_path_c_queue,
+                output_queue=self.l3_output_queue,
+                config=l3_config.get("path_c", {})
+            )
+            logger.info("[Component Init] L3 组件实例化完成。")
 
             # --- 实例化适配器 ---
+            logger.info("[Component Init] 正在实例化适配器...")
             adapters_config = self.config.get("adapters", [])
             if not isinstance(adapters_config, list):
-                logger.error("配置中的 'adapters' 必须是一个列表。")
-                adapters_config = []
-            
+                logger.error("配置中的 'adapters' 必须是一个列表。将使用空列表继续，但不会加载任何适配器。")
+            logger.info(f"[Component Init] 找到 {len(adapters_config)} 个适配器配置。")
             for adapter_config in adapters_config:
                 adapter_type = adapter_config.get("type")
                 adapter_id = adapter_config.get("id", adapter_type)
@@ -139,10 +171,18 @@ class Application:
                 else:
                     logger.warning(f"配置中发现未知或当前不支持的适配器类型: {adapter_type}")
 
-            logger.info("核心组件实例化完成。")
+            logger.info("[Component Init] 适配器实例化阶段完成。")
+
+            # 最终检查核心处理器是否都成功实例化
+            if not self.l1_processor or not self.l2_dispatcher or not self.path_a_processor or not self.simple_path_c_processor:
+                logger.critical("[Component Init] 一个或多个核心处理器未能成功实例化！")
+                raise RuntimeError("核心处理器实例化失败")
+            else:
+                 logger.info("[Component Init] 所有核心组件实例化成功完成。")
+
         except Exception as e:
-            logger.error(f"实例化组件时出错: {e}", exc_info=True)
-            raise
+            logger.critical(f"[Component Init] 实例化组件过程中发生严重错误: {e}", exc_info=True)
+            raise # 重新抛出异常，以便 run 方法捕获
 
     async def _create_tasks(self):
         """创建所有需要运行的 asyncio 任务，包括适配器连接任务。"""
